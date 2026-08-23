@@ -52,6 +52,11 @@ export async function POST(req: Request) {
       result = { status: "caution" as const, confidence: 0, flags: [] };
     }
 
+    // Defensive: Claude occasionally omits/mistypes `flags` (e.g. on a clean
+    // "passed" result) despite the schema requiring it — never let that crash
+    // the whole request.
+    if (!Array.isArray(result.flags)) result.flags = [];
+
     if (result.status === "violation") overall = "violation";
     else if (result.status === "caution" && overall !== "violation") overall = "caution";
 
@@ -69,9 +74,10 @@ export async function POST(req: Request) {
     `;
 
     for (const f of result.flags) {
+      if (!f || !f.quoted_text) continue;
       await sql`
         INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation, detailed_explanation)
-        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category}, ${f.legal_ref}, ${f.severity}, ${f.confidence_level}, ${f.topic}, ${f.detailed_explanation})
+        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${f.detailed_explanation ?? null})
       `;
     }
   }

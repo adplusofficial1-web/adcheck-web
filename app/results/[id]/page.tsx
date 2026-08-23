@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { Nav } from "@/components/Nav";
+import { FlagDetail } from "@/components/FlagDetail";
 import { sql } from "@/lib/db";
 import { notFound } from "next/navigation";
 
@@ -87,27 +88,16 @@ export default async function ResultsPage({ params }: { params: { id: string } }
                       </div>
                     )}
                     {imgFlags.map((f) => (
-                      <div key={f.id} className="bg-page rounded-md p-3 mb-2 text-sm">
-                        <div className="flex items-center justify-between mb-1 gap-2">
-                          <span className="font-medium">&quot;{f.quoted_text}&quot;</span>
-                          <span
-                            className={`rounded-pill px-2 py-0.5 text-xs font-medium shrink-0 ${
-                              f.severity === "ห้ามเด็ดขาด" ? "bg-dangerSoft text-danger" : "bg-warningSoft text-warning"
-                            }`}
-                          >
-                            {f.severity}
-                          </span>
-                        </div>
-                        <div className="text-secondary text-xs mb-2">
-                          {f.category} · {f.legal_ref} · ความมั่นใจ: {f.confidence_level}
-                        </div>
-                        {f.explanation && (
-                          <div className="text-sm font-medium mb-1">{f.explanation}</div>
-                        )}
-                        {f.detailed_explanation && (
-                          <p className="text-xs text-secondary leading-relaxed">{f.detailed_explanation}</p>
-                        )}
-                      </div>
+                      <FlagDetail
+                        key={f.id}
+                        quotedText={f.quoted_text}
+                        category={f.category}
+                        legalRef={f.legal_ref}
+                        severity={f.severity}
+                        confidenceLevel={f.confidence_level}
+                        topic={f.explanation}
+                        detailedExplanation={f.detailed_explanation}
+                      />
                     ))}
                   </div>
                 </div>
