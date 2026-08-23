@@ -69,7 +69,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
                     <img
                       src={img.image_url}
                       alt={img.filename}
-                      className="w-full md:w-2/5 md:shrink-0 max-h-96 object-contain rounded-md bg-page"
+                      className="w-1/2 md:w-1/5 md:shrink-0 max-h-48 object-contain rounded-md bg-page"
                     />
                   )}
 
