@@ -17,15 +17,23 @@ export default async function HistoryPage({
   const business = await getDemoBusiness();
   const filter = searchParams.filter;
 
-  const images = (await sql`
-    SELECT si.*, s.id AS submission_id, s.created_at
-    FROM submission_images si
-    JOIN submissions s ON s.id = si.submission_id
-    WHERE s.business_id = ${business.id}
-      ${filter ? sql`AND si.status = ${filter}` : sql``}
-    ORDER BY s.created_at DESC
-    LIMIT 50
-  `) as any[];
+  const images = (filter
+    ? await sql`
+        SELECT si.*, s.id AS submission_id, s.created_at
+        FROM submission_images si
+        JOIN submissions s ON s.id = si.submission_id
+        WHERE s.business_id = ${business.id} AND si.status = ${filter}
+        ORDER BY s.created_at DESC
+        LIMIT 50
+      `
+    : await sql`
+        SELECT si.*, s.id AS submission_id, s.created_at
+        FROM submission_images si
+        JOIN submissions s ON s.id = si.submission_id
+        WHERE s.business_id = ${business.id}
+        ORDER BY s.created_at DESC
+        LIMIT 50
+      `) as any[];
 
   const filters = [
     { key: undefined, label: "ทั้งหมด" },

@@ -47,6 +47,7 @@ export async function POST(req: Request) {
         filename: img.filename,
       });
     } catch (e: any) {
+      console.error(`reviewImage failed for ${img.filename}:`, e);
       errors.push(`${img.filename}: ${e.message}`);
       result = { status: "caution" as const, confidence: 0, flags: [] };
     }
@@ -54,9 +55,16 @@ export async function POST(req: Request) {
     if (result.status === "violation") overall = "violation";
     else if (result.status === "caution" && overall !== "violation") overall = "caution";
 
+    // TEMPORARY: store the image inline as a data URL until Cloudflare R2 is
+    // enabled and wired up as real object storage. Fine for a demo/low-volume
+    // use, but this bloats the database — swap for an R2 URL once available.
+    const storedImageUrl = img.base64 && img.mediaType
+      ? (img.base64.startsWith("data:") ? img.base64 : `data:${img.mediaType};base64,${img.base64}`)
+      : "https://storage.adcheck.app/demo/" + encodeURIComponent(img.filename);
+
     const [savedImage] = await sql`
       INSERT INTO submission_images (submission_id, image_url, filename, caption, status, sort_order)
-      VALUES (${submission.id}, ${"https://storage.adcheck.app/demo/" + encodeURIComponent(img.filename)}, ${img.filename}, ${img.caption || null}, ${result.status}, ${i})
+      VALUES (${submission.id}, ${storedImageUrl}, ${img.filename}, ${img.caption || null}, ${result.status}, ${i})
       RETURNING id
     `;
 

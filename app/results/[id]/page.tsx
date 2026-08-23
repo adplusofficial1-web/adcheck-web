@@ -62,6 +62,14 @@ export default async function ResultsPage({ params }: { params: { id: string } }
                     {imgFlags.length > 0 ? ` ${imgFlags.length} จุด` : ""}
                   </span>
                 </div>
+                {img.image_url && img.image_url.startsWith("data:") && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={img.image_url}
+                    alt={img.filename}
+                    className="w-full max-h-80 object-contain rounded-md mb-3 bg-page"
+                  />
+                )}
                 {imgFlags.map((f) => (
                   <div key={f.id} className="bg-page rounded-md p-3 mb-2 text-sm">
                     <div className="flex items-center justify-between mb-1">
