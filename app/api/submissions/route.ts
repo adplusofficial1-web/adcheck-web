@@ -1,0 +1,83 @@
+import { NextResponse } from "next/server";
+import { sql, getDemoBusiness } from "@/lib/db";
+import { reviewImage } from "@/lib/reviewImage";
+
+type IncomingImage = {
+  filename: string;
+  caption: string;
+  base64?: string; // data URL or raw base64, optional (falls back to text-only review)
+  mediaType?: string;
+};
+
+export async function POST(req: Request) {
+  const body = await req.json();
+  const images: IncomingImage[] = body.images || [];
+
+  if (images.length === 0) {
+    return NextResponse.json({ error: "no images" }, { status: 400 });
+  }
+
+  const business = await getDemoBusiness();
+  if (!business) {
+    return NextResponse.json({ error: "demo business not found" }, { status: 500 });
+  }
+  if (business.credits_remaining < images.length) {
+    return NextResponse.json({ error: "insufficient credits" }, { status: 402 });
+  }
+
+  const [submission] = await sql`
+    INSERT INTO submissions (business_id, status, credits_used, rules_version_ref)
+    VALUES (${business.id}, 'processing', ${images.length}, 'คู่มือ สบส. ฉบับปรับปรุง 7 เม.ย. 2569')
+    RETURNING id, share_token
+  `;
+
+  let overall: "passed" | "caution" | "violation" = "passed";
+  const errors: string[] = [];
+
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    let result;
+    try {
+      // strip a data: URL prefix if present, keep just the base64 payload
+      const rawBase64 = img.base64?.includes(",") ? img.base64.split(",")[1] : img.base64;
+      result = await reviewImage({
+        base64Image: rawBase64,
+        mediaType: img.mediaType,
+        caption: img.caption,
+        filename: img.filename,
+      });
+    } catch (e: any) {
+      errors.push(`${img.filename}: ${e.message}`);
+      result = { status: "caution" as const, confidence: 0, flags: [] };
+    }
+
+    if (result.status === "violation") overall = "violation";
+    else if (result.status === "caution" && overall !== "violation") overall = "caution";
+
+    const [savedImage] = await sql`
+      INSERT INTO submission_images (submission_id, image_url, filename, caption, status, sort_order)
+      VALUES (${submission.id}, ${"https://storage.adcheck.app/demo/" + encodeURIComponent(img.filename)}, ${img.filename}, ${img.caption || null}, ${result.status}, ${i})
+      RETURNING id
+    `;
+
+    for (const f of result.flags) {
+      await sql`
+        INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation)
+        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category}, ${f.legal_ref}, ${f.severity}, ${f.confidence_level}, ${f.explanation})
+      `;
+    }
+  }
+
+  const finalStatus = overall === "passed" ? "passed" : "needs_review";
+
+  await sql`
+    UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
+    WHERE id = ${submission.id}
+  `;
+  await sql`
+    UPDATE businesses SET credits_remaining = credits_remaining - ${images.length}, updated_at = now()
+    WHERE id = ${business.id}
+  `;
+
+  return NextResponse.json({ id: submission.id, errors: errors.length ? errors : undefined });
+}
