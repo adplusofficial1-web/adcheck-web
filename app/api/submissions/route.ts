@@ -70,8 +70,8 @@ export async function POST(req: Request) {
 
     for (const f of result.flags) {
       await sql`
-        INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation)
-        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category}, ${f.legal_ref}, ${f.severity}, ${f.confidence_level}, ${f.explanation})
+        INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation, detailed_explanation)
+        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category}, ${f.legal_ref}, ${f.severity}, ${f.confidence_level}, ${f.topic}, ${f.detailed_explanation})
       `;
     }
   }

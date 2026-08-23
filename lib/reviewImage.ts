@@ -8,7 +8,8 @@ export type ReviewFlag = {
   legal_ref: string;
   severity: "ห้ามเด็ดขาด" | "ควรระวัง";
   confidence_level: "สูง" | "ปานกลาง" | "ต่ำ";
-  explanation: string;
+  topic: string;
+  detailed_explanation: string;
 };
 
 export type ReviewResult = {
@@ -31,7 +32,14 @@ const RULES_CONTEXT = `
 - ประกาศ อย. ว่าด้วยการโฆษณาผลิตภัณฑ์สุขภาพและความงาม: ห้ามอ้างสรรพคุณเกินจริงของผลิตภัณฑ์/หัตถการ
 
 ตรวจภาพโฆษณาที่แนบมา (และคำบรรยายประกอบถ้ามี) แล้วรายงานผลผ่าน submit_review เท่านั้น
-ให้ยกข้อความที่มีปัญหามาแบบคำต่อคำ (quoted_text) พร้อมเหตุผลอ้างอิงกฎหมาย/คู่มือที่ชัดเจน
+ให้ยกข้อความที่มีปัญหามาแบบคำต่อคำ (quoted_text)
+
+สำหรับแต่ละจุดที่พบปัญหา ต้องอธิบายเป็น 2 ส่วนแยกกันชัดเจน:
+1. topic — หัวข้อหลักสั้นๆ (ไม่เกิน 6-8 คำ) สรุปว่าปัญหาคืออะไร เช่น "คำโฆษณาเกินจริงเรื่องผลลัพธ์การรักษา"
+2. detailed_explanation — คำอธิบายเหตุผลแบบละเอียด ความยาว 1 ย่อหน้า 3-4 บรรทัด (ห้ามสั้นกว่านี้และห้ามยาวเกินไป)
+   ต้องอ้างอิงเลขมาตรากฎหมายที่เกี่ยวข้องแบบเจาะจง (เช่น "มาตรา 38 วรรคสอง แห่ง พ.ร.บ.สถานพยาบาล") และอ้างอิงหรือ
+   ยกคำจากคู่มือ/ประกาศ สบส. หรือ อย. ที่เกี่ยวข้องมาประกอบเหตุผลด้วยเสมอ ไม่ใช่แค่บอกว่า "ผิดกฎ" เฉยๆ
+
 ถ้าไม่พบปัญหาใดๆ ให้ status = "passed" และ flags เป็นอาร์เรย์ว่าง
 `.trim();
 
@@ -50,12 +58,25 @@ const REVIEW_TOOL: Anthropic.Tool = {
           properties: {
             quoted_text: { type: "string" },
             category: { type: "string" },
-            legal_ref: { type: "string" },
+            legal_ref: { type: "string", description: "เลขมาตรากฎหมายหรือแหล่งอ้างอิงแบบเจาะจง" },
             severity: { type: "string", enum: ["ห้ามเด็ดขาด", "ควรระวัง"] },
             confidence_level: { type: "string", enum: ["สูง", "ปานกลาง", "ต่ำ"] },
-            explanation: { type: "string" },
+            topic: { type: "string", description: "หัวข้อหลักสั้นๆ ไม่เกิน 6-8 คำ" },
+            detailed_explanation: {
+              type: "string",
+              description:
+                "คำอธิบายละเอียด 1 ย่อหน้า 3-4 บรรทัด ต้องอ้างอิงมาตรากฎหมายและคำจากคู่มือ สบส./อย. แบบเจาะจง",
+            },
           },
-          required: ["quoted_text", "category", "legal_ref", "severity", "confidence_level", "explanation"],
+          required: [
+            "quoted_text",
+            "category",
+            "legal_ref",
+            "severity",
+            "confidence_level",
+            "topic",
+            "detailed_explanation",
+          ],
         },
       },
     },
@@ -89,7 +110,7 @@ export async function reviewImage(params: {
 
   const message = await client.messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 1024,
+    max_tokens: 1536,
     system: RULES_CONTEXT,
     tools: [REVIEW_TOOL],
     tool_choice: { type: "tool", name: "submit_review" },

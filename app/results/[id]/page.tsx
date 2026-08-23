@@ -98,10 +98,15 @@ export default async function ResultsPage({ params }: { params: { id: string } }
                             {f.severity}
                           </span>
                         </div>
-                        <div className="text-secondary text-xs">
+                        <div className="text-secondary text-xs mb-2">
                           {f.category} · {f.legal_ref} · ความมั่นใจ: {f.confidence_level}
                         </div>
-                        {f.explanation && <div className="text-xs mt-1">{f.explanation}</div>}
+                        {f.explanation && (
+                          <div className="text-sm font-medium mb-1">{f.explanation}</div>
+                        )}
+                        {f.detailed_explanation && (
+                          <p className="text-xs text-secondary leading-relaxed">{f.detailed_explanation}</p>
+                        )}
                       </div>
                     ))}
                   </div>
