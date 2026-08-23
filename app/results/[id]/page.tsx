@@ -34,7 +34,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
   return (
     <main>
       <Nav backHref="/dashboard" />
-      <div className="max-w-3xl mx-auto px-6 py-14">
+      <div className="max-w-5xl mx-auto px-6 py-14">
         <h1 className="text-2xl font-medium mb-1">ผลการตรวจสอบ ({images.length} ภาพ)</h1>
         <p className="text-sm text-secondary mb-6">
           พบประเด็นเสี่ยงใน {cautionCount + violationCount} จาก {images.length} ภาพ · ตรวจสอบเมื่อ{" "}
@@ -62,32 +62,50 @@ export default async function ResultsPage({ params }: { params: { id: string } }
                     {imgFlags.length > 0 ? ` ${imgFlags.length} จุด` : ""}
                   </span>
                 </div>
-                {img.image_url && img.image_url.startsWith("data:") && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={img.image_url}
-                    alt={img.filename}
-                    className="w-full max-h-80 object-contain rounded-md mb-3 bg-page"
-                  />
-                )}
-                {imgFlags.map((f) => (
-                  <div key={f.id} className="bg-page rounded-md p-3 mb-2 text-sm">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium">&quot;{f.quoted_text}&quot;</span>
-                      <span
-                        className={`rounded-pill px-2 py-0.5 text-xs font-medium ${
-                          f.severity === "ห้ามเด็ดขาด" ? "bg-dangerSoft text-danger" : "bg-warningSoft text-warning"
-                        }`}
-                      >
-                        {f.severity}
-                      </span>
-                    </div>
-                    <div className="text-secondary text-xs">
-                      {f.category} · {f.legal_ref} · ความมั่นใจ: {f.confidence_level}
-                    </div>
-                    {f.explanation && <div className="text-xs mt-1">{f.explanation}</div>}
+
+                <div className="flex flex-col md:flex-row gap-4">
+                  {img.image_url && img.image_url.startsWith("data:") && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={img.image_url}
+                      alt={img.filename}
+                      className="w-full md:w-2/5 md:shrink-0 max-h-96 object-contain rounded-md bg-page"
+                    />
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    {img.caption && (
+                      <div className="text-xs text-secondary mb-2">
+                        คำบรรยาย: &quot;{img.caption}&quot;
+                      </div>
+                    )}
+                    {imgFlags.length === 0 && (
+                      <div className="text-sm text-secondary">
+                        {img.status === "passed"
+                          ? "ไม่พบประเด็นที่เข้าข่ายผิดกฎ"
+                          : "AI ให้ผล \"ควรระวัง\" แต่ไม่ได้ระบุข้อความที่มีปัญหาชัดเจน — ลองพิจารณาด้วยสายตาอีกครั้ง"}
+                      </div>
+                    )}
+                    {imgFlags.map((f) => (
+                      <div key={f.id} className="bg-page rounded-md p-3 mb-2 text-sm">
+                        <div className="flex items-center justify-between mb-1 gap-2">
+                          <span className="font-medium">&quot;{f.quoted_text}&quot;</span>
+                          <span
+                            className={`rounded-pill px-2 py-0.5 text-xs font-medium shrink-0 ${
+                              f.severity === "ห้ามเด็ดขาด" ? "bg-dangerSoft text-danger" : "bg-warningSoft text-warning"
+                            }`}
+                          >
+                            {f.severity}
+                          </span>
+                        </div>
+                        <div className="text-secondary text-xs">
+                          {f.category} · {f.legal_ref} · ความมั่นใจ: {f.confidence_level}
+                        </div>
+                        {f.explanation && <div className="text-xs mt-1">{f.explanation}</div>}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
               </div>
             );
           })}
