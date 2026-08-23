@@ -84,7 +84,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
                       <div className="text-sm text-secondary">
                         {img.status === "passed"
                           ? "ไม่พบประเด็นที่เข้าข่ายผิดกฎ"
-                          : "AI ให้ผล \"ควรระวัง\" แต่ไม่ได้ระบุข้อความที่มีปัญหาชัดเจน — ลองพิจารณาด้วยสายตาอีกครั้ง"}
+                          : `AI ให้ผล "${s.label}" แต่ไม่ได้ระบุข้อความที่มีปัญหาชัดเจน — ลองพิจารณาด้วยสายตาอีกครั้ง`}
                       </div>
                     )}
                     {imgFlags.map((f) => (

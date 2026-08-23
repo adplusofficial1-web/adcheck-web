@@ -57,6 +57,28 @@ export async function POST(req: Request) {
     // the whole request.
     if (!Array.isArray(result.flags)) result.flags = [];
 
+    // Claude sometimes returns a non-"passed" status without actually
+    // populating flags, despite the prompt forbidding it. Log it so it's
+    // visible, and fall back to a single generic flag rather than showing
+    // the user an empty explanation for a flagged image.
+    if (result.status !== "passed" && result.flags.length === 0) {
+      console.warn(`reviewImage returned status="${result.status}" with empty flags for ${img.filename}`);
+      result.flags = [
+        {
+          quoted_text: img.caption || img.filename,
+          category: "ตรวจพบความเสี่ยงทั่วไป",
+          legal_ref: "คู่มือ สบส. ฉบับปรับปรุง 2569",
+          severity: result.status === "violation" ? "ห้ามเด็ดขาด" : "ควรระวัง",
+          confidence_level: "ปานกลาง",
+          topic: "AI ประเมินว่ามีความเสี่ยง แต่ไม่สามารถระบุข้อความ/จุดที่ชัดเจนได้",
+          detailed_explanation:
+            "ระบบ AI ประเมินภาพนี้ว่าอาจไม่ผ่านเกณฑ์การโฆษณาตามแนวทาง สบส. และ อย. แต่ไม่สามารถระบุข้อความหรือ" +
+            "ตำแหน่งที่มีปัญหาได้อย่างเจาะจงในครั้งนี้ แนะนำให้แอดมินหรือผู้เชี่ยวชาญตรวจสอบภาพนี้ด้วยสายตาเพิ่มเติม " +
+            "ก่อนเผยแพร่ เพื่อความปลอดภัยทางกฎหมาย",
+        },
+      ];
+    }
+
     if (result.status === "violation") overall = "violation";
     else if (result.status === "caution" && overall !== "violation") overall = "caution";
 
