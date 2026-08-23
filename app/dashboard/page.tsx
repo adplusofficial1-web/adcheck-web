@@ -14,12 +14,12 @@ export default async function DashboardPage() {
   }
 
   const monthStats = (await sql`
-    SELECT status, count(*)::int AS n
+    SELECT si.status AS status, count(*)::int AS n
     FROM submission_images si
     JOIN submissions s ON s.id = si.submission_id
     WHERE s.business_id = ${business.id}
       AND s.created_at >= date_trunc('month', now())
-    GROUP BY status
+    GROUP BY si.status
   `) as any[];
 
   const totalThisMonth = monthStats.reduce((a, r) => a + r.n, 0);
