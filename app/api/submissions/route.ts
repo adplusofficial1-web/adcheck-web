@@ -34,6 +34,10 @@ export async function POST(req: Request) {
   let overall: "passed" | "caution" | "violation" = "passed";
   const errors: string[] = [];
 
+  // Review images one at a time, in order. Slower than running them
+  // concurrently, but keeps each image's AI call, DB writes, and error
+  // handling fully isolated and easy to reason about — prioritizing accuracy
+  // and stability over raw throughput per explicit direction.
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
     let result;
