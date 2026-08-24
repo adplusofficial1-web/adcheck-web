@@ -8,7 +8,7 @@ export default async function UploadPage() {
 
   return (
     <main>
-      <Nav credits={business?.credits_remaining ?? 0} backHref="/dashboard" />
+      <Nav credits={business?.credits_remaining ?? 0} />
       <div className="max-w-2xl mx-auto px-6 py-14">
         <h1 className="text-2xl font-medium mb-2">อัปโหลดภาพโฆษณา</h1>
         <p className="text-sm text-secondary mb-8">
