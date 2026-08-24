@@ -40,7 +40,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
         <h1 className="text-2xl font-medium mb-1">ผลการตรวจสอบ ({images.length} ภาพ)</h1>
         <p className="text-sm text-secondary mb-6">
           พบประเด็นเสี่ยงใน {cautionCount + violationCount} จาก {images.length} ภาพ · ตรวจสอบเมื่อ{" "}
-          {new Date(submission.created_at).toLocaleString("th-TH")} · อ้างอิง {submission.rules_version_ref}
+                    {new Date(submission.created_at).toLocaleDateString("th-TH")}
         </p>
 
         <div className="flex gap-3 mb-8 text-sm">
