@@ -13,7 +13,7 @@ export default async function SettingsPage() {
 
   return (
     <main>
-      <Nav credits={business.credits_remaining} backHref="/dashboard" />
+      <Nav credits={business.credits_remaining} />
       <div className="max-w-2xl mx-auto px-6 py-14 space-y-8">
         <h1 className="text-2xl font-medium">ตั้งค่าบัญชี</h1>
 
