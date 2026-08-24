@@ -22,7 +22,7 @@ const config: Config = {
         warningSoft: "#F2EADA",
       },
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        sans: ["var(--font-ibm-plex-sans-thai)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       borderRadius: {
         pill: "100px",
