@@ -31,8 +31,54 @@ export async function POST(req: Request) {
     RETURNING id, share_token
   `;
 
+  // Fire-and-forget: kick off the (potentially slow — several seconds per
+  // image, sequential by design) review loop WITHOUT awaiting it, so the
+  // client gets `submission.id` back immediately and can start polling
+  // GET /api/submissions/[id]/status for real-time progress instead of
+  // staring at a frozen "AI กำลังตรวจสอบ..." button for the whole batch.
+  //
+  // This relies on the Node process staying alive after the response is
+  // sent, which holds on Render (this app runs as a persistent `next start`
+  // server, not per-request serverless functions) but would NOT hold on a
+  // platform that freezes the process after the response (e.g. Vercel
+  // serverless/edge functions) — if this app ever moves to that kind of
+  // host, replace this with `unstable_after()`/`after()` from
+  // `next/server` (needs `experimental.after` in next.config, Next 14.1+)
+  // or a real job queue instead of relying on fire-and-forget.
+  //
+  // The `.catch` is required even though processSubmissionImages() has its
+  // own internal per-image try/catch — it guards against something outside
+  // that loop throwing (e.g. the final UPDATE queries below failing), which
+  // would otherwise become an unhandled promise rejection that can crash
+  // the Node process.
+  processSubmissionImages(submission.id, business, images).catch(async (e) => {
+    console.error(`processSubmissionImages crashed for submission ${submission.id}:`, e);
+    try {
+      await sql`UPDATE submissions SET status = 'failed' WHERE id = ${submission.id}`;
+    } catch (updateErr) {
+      console.error(`Failed to mark submission ${submission.id} as failed:`, updateErr);
+    }
+  });
+
+  return NextResponse.json({ id: submission.id });
+}
+
+/**
+ * Reviews every image in the submission, one at a time, writing results to
+ * the DB as each one finishes. Runs in the background — see the comment in
+ * POST above for why this is safe to not await on this deployment.
+ *
+ * This is the exact same logic that used to run inline inside POST before
+ * responding; only the surrounding control flow changed (extracted into its
+ * own function, called without `await`), not the review/derivation/storage
+ * logic itself.
+ */
+async function processSubmissionImages(
+  submissionId: string,
+  business: { id: string; credits_remaining: number },
+  images: IncomingImage[]
+) {
   let overall: "passed" | "caution" | "violation" = "passed";
-  const errors: string[] = [];
 
   // Review images one at a time, in order. Slower than running them
   // concurrently, but keeps each image's AI call, DB writes, and error
@@ -52,7 +98,6 @@ export async function POST(req: Request) {
       });
     } catch (e: any) {
       console.error(`reviewImage failed for ${img.filename}:`, e);
-      errors.push(`${img.filename}: ${e.message}`);
       // CRITICAL: never let a failed AI call fall through as an empty
       // flags array. Downstream, status is derived purely from flag
       // severities (see below) — an empty array there silently becomes
@@ -147,7 +192,7 @@ export async function POST(req: Request) {
 
     const [savedImage] = await sql`
       INSERT INTO submission_images (submission_id, image_url, filename, caption, status, sort_order)
-      VALUES (${submission.id}, ${storedImageUrl}, ${img.filename}, ${img.caption || null}, ${result.status}, ${i})
+      VALUES (${submissionId}, ${storedImageUrl}, ${img.filename}, ${img.caption || null}, ${result.status}, ${i})
       RETURNING id
     `;
 
@@ -166,7 +211,7 @@ export async function POST(req: Request) {
 
       await sql`
         INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation, detailed_explanation)
-        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${combinedExplanation})
+        VALUES (${submissionId}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${combinedExplanation})
       `;
     }
   }
@@ -175,12 +220,10 @@ export async function POST(req: Request) {
 
   await sql`
     UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
-    WHERE id = ${submission.id}
+    WHERE id = ${submissionId}
   `;
   await sql`
     UPDATE businesses SET credits_remaining = credits_remaining - ${images.length}, updated_at = now()
     WHERE id = ${business.id}
   `;
-
-  return NextResponse.json({ id: submission.id, errors: errors.length ? errors : undefined });
 }

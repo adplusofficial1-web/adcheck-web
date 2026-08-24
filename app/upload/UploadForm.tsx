@@ -52,7 +52,14 @@ export function UploadForm({ creditsRemaining }: { creditsRemaining: number }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
-      router.push(`/results/${data.id}`);
+      // The API responds as soon as the submission row exists — the actual
+      // AI review keeps running in the background (see
+      // app/api/submissions/route.ts) — so send the user to the real-time
+      // Processing screen now, not straight to /results. Filenames go along
+      // via the URL since this is the only place that has them before any
+      // review has completed.
+      const filenames = rows.map((r) => r.filename);
+      router.push(`/processing/${data.id}?files=${encodeURIComponent(JSON.stringify(filenames))}`);
     } catch (e: any) {
       setError(e.message);
       setSubmitting(false);
@@ -105,7 +112,7 @@ export function UploadForm({ creditsRemaining }: { creditsRemaining: number }) {
           onClick={submit}
           className="rounded-md bg-inverse text-onInverse px-6 py-3 text-sm font-medium disabled:opacity-40"
         >
-          {submitting ? "AI กำลังตรวจสอบ..." : `เริ่มตรวจสอบ ${rows.length || ""} ภาพ`}
+          {submitting ? "กำลังเริ่มตรวจสอบ..." : `เริ่มตรวจสอบ ${rows.length || ""} ภาพ`}
         </button>
       </div>
     </div>
