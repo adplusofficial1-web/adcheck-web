@@ -53,7 +53,31 @@ export async function POST(req: Request) {
     } catch (e: any) {
       console.error(`reviewImage failed for ${img.filename}:`, e);
       errors.push(`${img.filename}: ${e.message}`);
-      result = { status: "caution" as const, confidence: 0, flags: [] };
+      // CRITICAL: never let a failed AI call fall through as an empty
+      // flags array. Downstream, status is derived purely from flag
+      // severities (see below) — an empty array there silently becomes
+      // "passed", which previously made a total AI outage look like every
+      // image cleared compliance. Attach a synthetic flag instead so the
+      // failure is visible on the results page and the image is routed to
+      // "caution" (needs manual review), never a false "passed".
+      result = {
+        status: "caution" as const,
+        confidence: 0,
+        flags: [
+          {
+            quoted_text: img.caption || img.filename,
+            category: "ข้อผิดพลาดของระบบ",
+            legal_ref: "-",
+            severity: "ควรระวัง" as const,
+            confidence_level: "ต่ำ" as const,
+            topic: "ระบบ AI ไม่สามารถตรวจสอบภาพนี้ได้",
+            detailed_explanation: `การเรียกระบบ AI เพื่อตรวจสอบภาพนี้ล้มเหลว (${
+              e?.message || "ไม่ทราบสาเหตุ"
+            }) จึงยังไม่ได้ตรวจสอบเนื้อหาจริงตามกฎหมาย/ระเบียบที่เกี่ยวข้อง ผลที่แสดงนี้ไม่ใช่ผลตรวจสอบที่สมบูรณ์`,
+            suggested_correction: "กรุณาส่งภาพนี้ตรวจใหม่อีกครั้ง หากยังล้มเหลวซ้ำให้ติดต่อทีมงาน",
+          },
+        ],
+      };
     }
 
     // Defensive: Claude occasionally omits/mistypes `flags` (e.g. on a clean
