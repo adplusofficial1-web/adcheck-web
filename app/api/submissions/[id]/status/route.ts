@@ -1,5 +1,12 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * GET /api/submissions/:id/status
+ ...
 
 /**
  * GET /api/submissions/:id/status
