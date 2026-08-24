@@ -51,10 +51,13 @@ export function Nav({ credits }: { credits?: number }) {
   return (
     <nav className="bg-inverse text-onInverse px-6 md:px-14 py-5">
       <div className="flex items-center justify-between gap-6">
-        <div className="flex items-center gap-10 min-w-0">
-          <Link href="/" className="text-base font-medium shrink-0">
-            ADCheck
-          </Link>
+        {/* ADCheck stays pinned on the far left; everything else (menu +
+            upload/credits/avatar) is one group pushed to the right. */}
+        <Link href="/" className="text-base font-medium shrink-0">
+          ADCheck
+        </Link>
+
+        <div className="flex items-center gap-8 min-w-0">
           <div className="hidden md:flex items-center gap-6 text-sm">
             {MENU_ITEMS.map((item) => (
               <MenuLink
@@ -68,24 +71,24 @@ export function Nav({ credits }: { credits?: number }) {
               />
             ))}
           </div>
-        </div>
 
-        <div className="flex items-center gap-3 shrink-0">
-          <Link
-            href="/upload"
-            className="rounded-md bg-white text-inverse px-4 py-2 text-sm font-medium whitespace-nowrap hover:bg-white/90"
-          >
-            + อัปโหลด
-          </Link>
-          {typeof credits === "number" && (
+          <div className="flex items-center gap-3 shrink-0">
             <Link
-              href="/checkout"
-              className="rounded-pill bg-white/10 border border-onInverse/30 px-4 py-2 text-sm whitespace-nowrap hover:bg-white/20"
+              href="/upload"
+              className="rounded-md bg-white text-inverse px-4 py-2 text-sm font-medium whitespace-nowrap hover:bg-white/90"
             >
-              เครดิตคงเหลือ {credits}
+              + อัปโหลด
             </Link>
-          )}
-          <div className="h-8 w-8 rounded-full bg-accentSoft shrink-0" />
+            {typeof credits === "number" && (
+              <Link
+                href="/checkout"
+                className="rounded-pill bg-white/10 border border-onInverse/30 px-4 py-2 text-sm whitespace-nowrap hover:bg-white/20"
+              >
+                เครดิตคงเหลือ {credits}
+              </Link>
+            )}
+            <div className="h-8 w-8 rounded-full bg-accentSoft shrink-0" />
+          </div>
         </div>
       </div>
 
