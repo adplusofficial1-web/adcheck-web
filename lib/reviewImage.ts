@@ -31,6 +31,11 @@ const RULES_CONTEXT = `
   ภาพที่ไม่เหมาะสม (เช่น ภาพเลือด ภาพเข็มจำนวนมากอย่างน่ากลัวเกินความจำเป็น)
 - ประกาศ อย. ว่าด้วยการโฆษณาผลิตภัณฑ์สุขภาพและความงาม: ห้ามอ้างสรรพคุณเกินจริงของผลิตภัณฑ์/หัตถการ
 
+สำคัญ: ตัวอย่างคำต้องห้ามข้างต้นเป็นเพียง "ตัวอย่าง" ไม่ใช่รายการที่ครบถ้วนสมบูรณ์ ให้พิจารณาข้อความอื่นที่สื่อความหมาย
+เดียวกันหรือใกล้เคียงกันด้วยเสมอ แม้ถ้อยคำจะไม่ตรงกับตัวอย่างเป๊ะ ๆ เช่น การอ้างว่าเห็นผลทันที/ไม่มีระยะพักฟื้น/ไม่ต้อง
+พักฟื้น ("ไม่ต้องรอตื่น" "ฟื้นตัวทันที" "กลับบ้านได้เลย") ซึ่งเป็นการรับประกันผลลัพธ์หรือความปลอดภัยเกินจริงในลักษณะเดียว
+กับ "หายขาด"/"ปลอดภัย 100%" ให้ตีความตามเจตนารมณ์ของกฎ ไม่ใช่จับคู่คำต่อคำ
+
 ตรวจภาพโฆษณาที่แนบมา (และคำบรรยายประกอบถ้ามี) แล้วรายงานผลผ่าน submit_review เท่านั้น
 ให้ยกข้อความที่มีปัญหามาแบบคำต่อคำ (quoted_text)
 
@@ -116,6 +121,13 @@ export async function reviewImage(params: {
   const message = await client.messages.create({
     model: "claude-sonnet-5",
     max_tokens: 1536,
+    // Compliance review needs consistent, repeatable judgments — not creative
+    // variation. Without an explicit temperature, the same image can come
+    // back "passed" one time and "violation" the next purely from sampling
+    // randomness (confirmed by re-submitted test images flip-flopping across
+    // passed/caution/violation in submission history). Pin it to the most
+    // deterministic setting available.
+    temperature: 0,
     system: RULES_CONTEXT,
     tools: [REVIEW_TOOL],
     tool_choice: { type: "tool", name: "submit_review" },
