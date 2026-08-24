@@ -1,12 +1,14 @@
-export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
+// Without this, Next.js's App Router treats a plain GET route handler as
+// static and caches its response server-side the first time it's hit for a
+// given URL — every subsequent poll for the same submission id would then
+// get served that same frozen response (e.g. stuck at imagesDone: 0,
+// status: "processing") no matter how far the background review loop in
+// ../../route.ts has actually gotten. force-dynamic disables that caching
+// so every poll always re-reads the current DB state.
 export const dynamic = "force-dynamic";
-
-/**
- * GET /api/submissions/:id/status
- ...
 
 /**
  * GET /api/submissions/:id/status
