@@ -137,13 +137,11 @@ export async function reviewImage(params: {
   const message = await client.messages.create({
     model: "claude-sonnet-5",
     max_tokens: 1536,
-    // Compliance review needs consistent, repeatable judgments — not creative
-    // variation. Without an explicit temperature, the same image can come
-    // back "passed" one time and "violation" the next purely from sampling
-    // randomness (confirmed by re-submitted test images flip-flopping across
-    // passed/caution/violation in submission history). Pin it to the most
-    // deterministic setting available.
-    temperature: 0,
+    // NOTE: do NOT set `temperature` here. This model rejects it outright
+    // ("`temperature` is deprecated for this model" — a 400 error on every
+    // single call), which silently failed every review in production and
+    // got masked as a false "passed" by the fallback below. Determinism for
+    // this model is controlled by the model/API itself, not a client param.
     system: RULES_CONTEXT,
     tools: [REVIEW_TOOL],
     tool_choice: { type: "tool", name: "submit_review" },
