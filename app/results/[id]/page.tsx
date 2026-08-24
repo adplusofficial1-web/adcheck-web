@@ -106,7 +106,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
           })}
         </div>
 
-        <div className="flex items-center gap-4 mt-8">
+                <div className="flex items-center gap-4 mt-8">
           
             href={`/results/${params.id}/pdf`}
             target="_blank"
