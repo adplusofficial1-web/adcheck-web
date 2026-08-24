@@ -68,9 +68,13 @@ const REVIEW_TOOL: Anthropic.Tool = {
   description: "ส่งผลการตรวจสอบความสอดคล้องของโฆษณากับกฎหมาย/ระเบียบที่เกี่ยวข้อง",
   input_schema: {
     type: "object",
+    // `flags` is listed first (and status/confidence last) on purpose: the
+    // model tends to generate object fields in the order they're declared
+    // in the schema, and flags — with the long detailed_explanation /
+    // suggested_correction text — is the part most at risk of being cut off
+    // if a response runs long. Put the important, detailed data first so a
+    // truncation (if it ever happens again) drops the least useful field.
     properties: {
-      status: { type: "string", enum: ["passed", "caution", "violation"] },
-      confidence: { type: "number", description: "ความมั่นใจโดยรวม 0-100" },
       flags: {
         type: "array",
         items: {
@@ -105,8 +109,10 @@ const REVIEW_TOOL: Anthropic.Tool = {
           ],
         },
       },
+      confidence: { type: "number", description: "ความมั่นใจโดยรวม 0-100" },
+      status: { type: "string", enum: ["passed", "caution", "violation"] },
     },
-    required: ["status", "confidence", "flags"],
+    required: ["flags", "confidence", "status"],
   },
 };
 
@@ -136,7 +142,16 @@ export async function reviewImage(params: {
 
   const message = await client.messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 1536,
+    // Raised from 1536: each flag now requires topic + a 3-4 line
+    // detailed_explanation + a 2-4 line suggested_correction. With the old
+    // budget, a response with 2+ flags could hit the token limit mid-way
+    // through the `flags` array — the JSON gets cut off, the tool call comes
+    // back with `status` already set but `flags` empty (status is written
+    // before flags in the schema), and the app's own safety net then shows a
+    // generic "AI flagged this but gave no detail" placeholder instead of
+    // the real analysis. Confirmed happening in production. Give enough
+    // headroom for several fully-detailed flags per image.
+    max_tokens: 4096,
     // NOTE: do NOT set `temperature` here. This model rejects it outright
     // ("`temperature` is deprecated for this model" — a 400 error on every
     // single call), which silently failed every review in production and
@@ -147,6 +162,15 @@ export async function reviewImage(params: {
     tool_choice: { type: "tool", name: "submit_review" },
     messages: [{ role: "user", content }],
   });
+
+  if (message.stop_reason === "max_tokens") {
+    // The response was truncated even at the larger budget — the tool call
+    // is likely incomplete/invalid. Surface this distinctly so it isn't
+    // confused with a normal empty-flags mismatch in the logs.
+    console.error(
+      `reviewImage: response for ${params.filename} was truncated at max_tokens — output may be incomplete`
+    );
+  }
 
   const toolUse = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
   if (!toolUse) throw new Error("Claude did not return a structured review");
