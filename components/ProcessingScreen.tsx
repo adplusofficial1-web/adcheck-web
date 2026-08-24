@@ -101,7 +101,7 @@ export function ProcessingScreen({
           </div>
           <h1 className="text-2xl font-medium mb-2">กำลังตรวจสอบภาพโฆษณาของคุณ</h1>
           <p className="text-sm text-secondary max-w-xl">
-            Claude AI กำลังตรวจภาพทีละภาพตามคู่มือ สบส. — ใช้เวลาไม่นาน คุณสามารถรอที่หน้านี้
+            AI กำลังตรวจภาพทีละภาพตามคู่มือ สบส. — ใช้เวลาไม่นาน คุณสามารถรอที่หน้านี้
             หรือทำงานอื่นระหว่างรอได้
           </p>
         </div>
@@ -229,7 +229,7 @@ export function ProcessingScreen({
             <div className="flex items-center gap-2 text-xs text-tertiary mb-6">
               <span className="w-1 h-1 rounded-full bg-accent" />
               <span>
-                ระบบตรวจสอบภาพทีละภาพอย่างละเอียดด้วย Claude AI เพื่อความแม่นยำสูงสุด
+                ระบบตรวจสอบภาพทีละภาพอย่างละเอียดด้วย AI เพื่อความแม่นยำสูงสุด
                 และจะพาไปหน้าแสดงผลทันทีที่เสร็จ
               </span>
             </div>
