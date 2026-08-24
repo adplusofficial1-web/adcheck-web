@@ -92,7 +92,7 @@ export function ProcessingScreen({
 
   return (
     <main>
-      <Nav credits={creditsRemaining} backHref="/dashboard" />
+      <Nav credits={creditsRemaining} />
 
       <div className="max-w-4xl mx-auto px-6 py-14">
         <div className="mb-8">
