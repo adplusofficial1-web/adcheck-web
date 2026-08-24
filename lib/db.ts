@@ -4,7 +4,15 @@ if (!process.env.DATABASE_URL) {
   console.warn("DATABASE_URL is not set — DB calls will fail.");
 }
 
-export const sql = neon(process.env.DATABASE_URL || "");
+// fetchOptions: { cache: "no-store" } stops Next.js's Data Cache from ever
+// reusing a prior response for these queries. Without this, some server
+// component render paths (e.g. a page rendered via Promise.all) can end up
+// replaying the very first response forever instead of hitting the DB again
+// on later requests — even with `export const dynamic = "force-dynamic"` on
+// the page. This is Neon's documented fix for the App Router.
+export const sql = neon(process.env.DATABASE_URL || "", {
+  fetchOptions: { cache: "no-store" },
+});
 
 // Demo tenant used throughout the app until real auth/session is wired up.
 export const DEMO_BUSINESS_EMAIL = "contact@abc-clinic.com";
