@@ -24,3 +24,13 @@ export async function getPlans() {
   const rows = await sql`SELECT * FROM plans ORDER BY price_thb ASC`;
   return rows as any[];
 }
+
+export async function getPaymentMethods(businessId: string) {
+  const rows = await sql`
+    SELECT id, brand, last4, exp_month, exp_year, is_default
+    FROM payment_methods
+    WHERE business_id = ${businessId}
+    ORDER BY is_default DESC, created_at ASC
+  `;
+  return rows as any[];
+}
