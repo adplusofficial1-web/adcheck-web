@@ -47,14 +47,7 @@ export default async function DashboardPage() {
     <main>
       <Nav credits={business.credits_remaining} />
       <div className="max-w-4xl mx-auto px-6 py-14">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl font-medium">{business.name}</h1>
-          <div className="flex gap-4 text-sm">
-            <Link href="/history" className="underline">ประวัติการตรวจสอบ</Link>
-            <Link href="/pricing" className="underline">ราคาแพ็กเกจ</Link>
-            <Link href="/settings" className="underline">ตั้งค่า</Link>
-          </div>
-        </div>
+        <h1 className="text-2xl font-medium mb-2">{business.name}</h1>
         <p className="text-sm text-secondary mb-8">{business.contact_email}</p>
 
         {business.credits_remaining < 10 && (
