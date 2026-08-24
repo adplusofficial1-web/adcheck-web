@@ -44,7 +44,7 @@ export default async function HistoryPage({
 
   return (
     <main>
-      <Nav credits={business?.credits_remaining} backHref="/dashboard" />
+      <Nav credits={business?.credits_remaining} />
       <div className="max-w-3xl mx-auto px-6 py-14">
         <h1 className="text-2xl font-medium mb-6">ประวัติการตรวจสอบ</h1>
         <div className="flex gap-2 mb-6">
