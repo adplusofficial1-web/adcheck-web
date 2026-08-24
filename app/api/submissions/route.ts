@@ -100,9 +100,20 @@ export async function POST(req: Request) {
 
     for (const f of result.flags) {
       if (!f || !f.quoted_text) continue;
+      // The DB has one `detailed_explanation` column (no separate column for
+      // a fix suggestion yet — avoids a schema migration for this change).
+      // Store both paragraphs in it, clearly labeled and blank-line separated
+      // so the results page can split them back into distinct <p> blocks.
+      const reasonPart = f.detailed_explanation ? f.detailed_explanation.trim() : "";
+      const fixPart = f.suggested_correction ? f.suggested_correction.trim() : "";
+      const combinedExplanation =
+        reasonPart && fixPart
+          ? `${reasonPart}\n\nวิธีแก้ไข: ${fixPart}`
+          : reasonPart || (fixPart ? `วิธีแก้ไข: ${fixPart}` : null);
+
       await sql`
         INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation, detailed_explanation)
-        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${f.detailed_explanation ?? null})
+        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${combinedExplanation})
       `;
     }
   }
