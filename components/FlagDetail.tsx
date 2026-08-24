@@ -39,7 +39,30 @@ export function FlagDetail({
       {topic && <div className="text-sm font-medium mb-1">{topic}</div>}
       {detailedExplanation && (
         <>
-          {open && <p className="text-xs text-secondary leading-relaxed mb-1">{detailedExplanation}</p>}
+          {open && (
+            <div className="mb-1 space-y-2">
+              {detailedExplanation
+                .split(/\n\s*\n/)
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .map((paragraph, i) => {
+                  const fixLabel = "วิธีแก้ไข:";
+                  const isFix = paragraph.startsWith(fixLabel);
+                  return (
+                    <p key={i} className="text-xs text-secondary leading-relaxed">
+                      {isFix ? (
+                        <>
+                          <span className="font-medium text-primary">{fixLabel}</span>
+                          {paragraph.slice(fixLabel.length)}
+                        </>
+                      ) : (
+                        paragraph
+                      )}
+                    </p>
+                  );
+                })}
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
