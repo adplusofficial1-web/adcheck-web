@@ -94,12 +94,41 @@ export async function POST(req: Request) {
     // `flags`, so the two can never contradict each other.
     const hasViolation = result.flags.some((f: any) => f.severity === "ห้ามเด็ดขาด");
     const hasCaution = result.flags.some((f: any) => f.severity === "ควรระวัง");
-    const derivedStatus: "passed" | "caution" | "violation" = hasViolation
+    let derivedStatus: "passed" | "caution" | "violation" = hasViolation
       ? "violation"
       : hasCaution
       ? "caution"
       : "passed";
-    if (result.status !== derivedStatus) {
+
+    // CRITICAL: the derivation above has a dangerous blind spot — confirmed
+    // happening in production — where Claude sets status to "caution"/
+    // "violation" but returns an EMPTY flags array (violating its own
+    // instructions). Deriving purely from flags in that case silently
+    // downgrades a real violation to "passed", which is worse than trusting
+    // status blindly: it hides a flagged ad as compliant. Never let an empty
+    // flags array override a non-"passed" model verdict — keep the model's
+    // status and attach a synthetic flag so the image still visibly lands
+    // in manual review instead of disappearing into "passed".
+    if (result.flags.length === 0 && result.status !== "passed") {
+      derivedStatus = result.status === "violation" ? "violation" : "caution";
+      result.flags = [
+        {
+          quoted_text: img.caption || img.filename,
+          category: "ต้องตรวจสอบเพิ่มเติม",
+          legal_ref: "-",
+          severity: derivedStatus === "violation" ? "ห้ามเด็ดขาด" : "ควรระวัง",
+          confidence_level: "ต่ำ",
+          topic: "AI ระบุว่าพบความเสี่ยงแต่ไม่ได้ระบุรายละเอียด",
+          detailed_explanation:
+            "ระบบ AI ประเมินว่าภาพนี้มีความเสี่ยงไม่ผ่านเกณฑ์ แต่ไม่ได้ระบุข้อความหรือจุดที่มีปัญหาอย่างเจาะจงในรอบนี้ " +
+            "จึงยังไม่สามารถแสดงเหตุผลและมาตรากฎหมายที่เกี่ยวข้องได้ครบถ้วน",
+          suggested_correction: "กรุณาให้เจ้าหน้าที่ตรวจสอบภาพนี้ด้วยตนเอง หรือกดส่งภาพนี้ตรวจซ้ำอีกครั้ง",
+        } as any,
+      ];
+      console.warn(
+        `reviewImage returned status "${result.status}" with zero flags for ${img.filename} — keeping as "${derivedStatus}" with a synthetic review flag instead of downgrading to "passed"`
+      );
+    } else if (result.status !== derivedStatus) {
       console.warn(
         `reviewImage status/flags mismatch for ${img.filename}: model said "${result.status}", derived "${derivedStatus}" from ${result.flags.length} flag(s)`
       );
