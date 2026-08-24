@@ -1,14 +1,25 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
 
-// Without this, Next.js's App Router treats a plain GET route handler as
-// static and caches its response server-side the first time it's hit for a
-// given URL — every subsequent poll for the same submission id would then
-// get served that same frozen response (e.g. stuck at imagesDone: 0,
-// status: "processing") no matter how far the background review loop in
-// ../../route.ts has actually gotten. force-dynamic disables that caching
-// so every poll always re-reads the current DB state.
+// Three separate belt-and-suspenders opt-outs, because any one alone left
+// this route serving a stale, frozen snapshot for a submission id polled
+// while it was still "processing":
+// - dynamic: without this, Next's App Router can statically cache this
+//   route handler's own response the first time a given URL is hit.
+// - fetchCache: the `sql` tagged-template calls below (lib/db.ts, via
+//   @neondatabase/serverless's neon()) run over HTTP fetch() under the
+//   hood — Next's fetch Data Cache can cache THAT inner request too,
+//   independently of the route-level dynamic setting above.
+// - noStore(): an explicit runtime opt-out of all caching for this
+//   request, as a final guarantee regardless of which layer above catches
+//   it (or doesn't).
+// Net effect: every poll always re-reads current DB state, so imagesDone
+// and status reflect what the background review loop in ../../route.ts
+// has actually written, not whatever the first poll happened to see.
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 /**
  * GET /api/submissions/:id/status
@@ -29,6 +40,8 @@ export const dynamic = "force-dynamic";
  * need to know the filenames of images that haven't finished yet.
  */
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  noStore();
+
   const [submission] = await sql`
     SELECT id, status, credits_used
     FROM submissions
@@ -49,11 +62,17 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   // submissions.status starts as 'processing' and is set to 'passed',
   // 'needs_review', or 'failed' once processSubmissionImages finishes (or
   // crashes) — see app/api/submissions/route.ts.
-  return NextResponse.json({
-    id: submission.id,
-    status: submission.status as "processing" | "passed" | "needs_review" | "failed",
-    imagesTotal: submission.credits_used as number,
-    imagesDone: doneImages.length,
-    doneImages,
-  });
+  return NextResponse.json(
+    {
+      id: submission.id,
+      status: submission.status as "processing" | "passed" | "needs_review" | "failed",
+      imagesTotal: submission.credits_used as number,
+      imagesDone: doneImages.length,
+      doneImages,
+    },
+    // Explicit response header as a final, framework-independent guarantee
+    // that nothing between this server and the browser (a CDN, a proxy)
+    // caches a "processing" snapshot past the moment it's actually true.
+    { headers: { "Cache-Control": "no-store, must-revalidate" } }
+  );
 }
