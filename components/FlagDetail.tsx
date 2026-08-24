@@ -34,7 +34,7 @@ export function FlagDetail({
         </span>
       </div>
       <div className="text-secondary text-xs mb-2">
-        {category} · {legalRef} · ความมั่นใจ: {confidenceLevel}
+                {category} · {legalRef}
       </div>
       {topic && <div className="text-sm font-medium mb-1">{topic}</div>}
       {detailedExplanation && (
