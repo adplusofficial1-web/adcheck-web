@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { Nav } from "@/components/Nav";
 import { FlagDetail } from "@/components/FlagDetail";
-import { sql } from "@/lib/db";
+import { sql, getDemoBusiness } from "@/lib/db";
 import { notFound } from "next/navigation";
 
 const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
@@ -31,10 +31,11 @@ export default async function ResultsPage({ params }: { params: { id: string } }
   const passedCount = images.filter((i) => i.status === "passed").length;
   const cautionCount = images.filter((i) => i.status === "caution").length;
   const violationCount = images.filter((i) => i.status === "violation").length;
+  const business = await getDemoBusiness();
 
   return (
     <main>
-      <Nav backHref="/dashboard" />
+      <Nav credits={business?.credits_remaining} />
       <div className="max-w-5xl mx-auto px-6 py-14">
         <h1 className="text-2xl font-medium mb-1">ผลการตรวจสอบ ({images.length} ภาพ)</h1>
         <p className="text-sm text-secondary mb-6">
