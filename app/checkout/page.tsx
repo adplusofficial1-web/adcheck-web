@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { getPlans } from "@/lib/db";
+import { getPlans, getDemoBusiness } from "@/lib/db";
 import { Nav } from "@/components/Nav";
 import { CheckoutForm } from "./CheckoutForm";
 
@@ -10,10 +10,11 @@ export default async function CheckoutPage({
 }) {
   const plans = await getPlans();
   const plan = plans.find((p: any) => p.code === (searchParams.plan || "standard")) || plans[1];
+  const business = await getDemoBusiness();
 
   return (
     <main>
-      <Nav backHref="/dashboard" />
+      <Nav credits={business?.credits_remaining} />
       <div className="max-w-lg mx-auto px-6 py-14">
         <h1 className="text-2xl font-medium mb-6">ยืนยันการชำระเงิน</h1>
         <div className="bg-accentSoft rounded-lg p-4 flex items-center justify-between mb-8">
