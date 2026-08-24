@@ -24,21 +24,26 @@ export function UploadForm({ creditsRemaining }: { creditsRemaining: number }) {
   async function onFiles(files: FileList | null) {
     if (!files) return;
     setLoadingFiles(true);
-    const picked = Array.from(files).slice(0, 5);
-    const next = await Promise.all(
+    const remainingSlots = Math.max(0, 5 - rows.length);
+    const picked = Array.from(files).slice(0, remainingSlots);
+    const added = await Promise.all(
       picked.map(async (f) => ({
         filename: f.name,
+        // caption is no longer entered by the user on this screen, but the
+        // field stays on the row/API contract (used downstream by the AI
+        // review prompt, DB storage, and the results/PDF views) — it's
+        // just always empty from here on.
         caption: "",
         base64: await fileToBase64(f),
         mediaType: f.type || "image/jpeg",
       }))
     );
-    setRows(next);
+    setRows((current) => [...current, ...added]);
     setLoadingFiles(false);
   }
 
-  function updateCaption(i: number, caption: string) {
-    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, caption } : row)));
+  function removeRow(i: number) {
+    setRows((r) => r.filter((_, idx) => idx !== i));
   }
 
   async function submit() {
@@ -66,18 +71,31 @@ export function UploadForm({ creditsRemaining }: { creditsRemaining: number }) {
     }
   }
 
+  const atLimit = rows.length >= 5;
+
   return (
     <div>
-      <label className="block border-2 border-dashed border-border rounded-lg p-10 text-center cursor-pointer mb-6">
+      <label
+        className={`block border-2 border-dashed border-border rounded-lg p-10 text-center mb-6 ${
+          atLimit ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+        }`}
+      >
         <input
           type="file"
           multiple
           accept="image/*"
           className="hidden"
+          disabled={atLimit}
           onChange={(e) => onFiles(e.target.files)}
         />
         <div className="text-sm text-secondary">
-          {loadingFiles ? "กำลังโหลดไฟล์..." : "ลากภาพมาวาง หรือคลิกเพื่อเลือกไฟล์ (สูงสุด 5 ภาพ)"}
+          {loadingFiles
+            ? "กำลังโหลดไฟล์..."
+            : atLimit
+            ? "เลือกครบ 5 ภาพแล้ว — ลบภาพออกก่อนเพื่อเพิ่มใหม่"
+            : rows.length > 0
+            ? `ลากภาพมาวาง หรือคลิกเพื่อเพิ่มภาพ (เลือกแล้ว ${rows.length}/5)`
+            : "ลากภาพมาวาง หรือคลิกเพื่อเลือกไฟล์ (สูงสุด 5 ภาพ)"}
         </div>
       </label>
 
@@ -86,16 +104,15 @@ export function UploadForm({ creditsRemaining }: { creditsRemaining: number }) {
           {rows.map((row, i) => (
             <div key={i} className="flex items-center gap-3 border border-border rounded-lg p-3">
               <img src={row.base64} className="h-10 w-10 rounded-md object-cover shrink-0" alt="" />
-              <div className="flex-1">
-                <div className="text-sm font-medium mb-1">{row.filename}</div>
-                <input
-                  type="text"
-                  placeholder="+ เพิ่มคำบรรยาย (ข้อความที่จะใช้ในโฆษณา)"
-                  value={row.caption}
-                  onChange={(e) => updateCaption(i, e.target.value)}
-                  className="w-full text-sm border border-border rounded-md px-3 py-2"
-                />
-              </div>
+              <div className="flex-1 text-sm font-medium truncate">{row.filename}</div>
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                className="w-8 h-8 rounded-md border border-dangerSoft text-danger flex items-center justify-center hover:bg-dangerSoft shrink-0"
+                aria-label={`ลบภาพ ${row.filename}`}
+              >
+                🗑
+              </button>
             </div>
           ))}
         </div>
