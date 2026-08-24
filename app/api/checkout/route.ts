@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 
   const [submission] = await sql`
     INSERT INTO submissions (business_id, status, credits_used, rules_version_ref)
-    VALUES (${business.id}, 'processing', ${images.length}, 'คู่มือ สบส. ฉบับปรับปรุง 7 เม.ย. 2569')
+    VALUES (${business.id}, 'processing', ${images.length}, 'คู่มือและประกาศ สบส./อย. ที่เกี่ยวข้อง')
     RETURNING id, share_token
   `;
 
