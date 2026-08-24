@@ -108,10 +108,10 @@ export function UploadForm({ creditsRemaining }: { creditsRemaining: number }) {
               <button
                 type="button"
                 onClick={() => removeRow(i)}
-                className="w-8 h-8 rounded-md border border-dangerSoft text-danger flex items-center justify-center hover:bg-dangerSoft shrink-0"
+                className="w-8 h-8 rounded-md border border-dangerSoft text-danger flex items-center justify-center hover:bg-dangerSoft shrink-0 text-lg leading-none"
                 aria-label={`ลบภาพ ${row.filename}`}
               >
-                🗑
+                ✕
               </button>
             </div>
           ))}
