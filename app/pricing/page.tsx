@@ -1,14 +1,15 @@
 export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { getPlans } from "@/lib/db";
+import { getPlans, getDemoBusiness } from "@/lib/db";
 
 export default async function PricingPage() {
   const plans = await getPlans();
+  const business = await getDemoBusiness();
 
   return (
     <main>
-      <Nav backHref="/dashboard" />
+      <Nav credits={business?.credits_remaining} />
       <div className="max-w-5xl mx-auto px-6 py-14">
         <h1 className="text-center text-2xl font-medium mb-2">แพ็กเกจรายเดือน</h1>
         <p className="text-center text-sm text-secondary mb-12">
