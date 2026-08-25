@@ -1,187 +1,53 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
-import { reviewImage } from "@/lib/reviewImage";
 
-type IncomingImage = {
-  filename: string;
-  caption: string;
-  base64?: string; // data URL or raw base64, optional (falls back to text-only review)
-  mediaType?: string;
-};
-
+// Buying a package — first purchase, an upgrade, or a manual top-up mid-cycle
+// — always RESETS credits_remaining to the purchased plan's monthly
+// allotment (never adds on top of whatever's left) and restarts the 30-day
+// billing cycle from *this* payment's timestamp via credits_reset_at.
+// Buying again mid-cycle (e.g. paid on day 1, buys again on day 10) simply
+// moves the next-renewal date to day 10 + 30 and resets credits again — it
+// does not stack the two purchases or wait for the original cycle to run
+// out. This matches how the package is sold: 30 days from whenever you
+// paid, not a fixed calendar-month subscription.
+//
+// NOTE: there is no real payment gateway wired up yet — payment_methods
+// only stores display-only mock card info (brand/last4), not a real
+// Omise/Stripe/2C2P token — so this endpoint simulates a successful charge
+// and issues a fake invoice number, same as it always has. Recurring
+// auto-charge off a saved card (so credits_reset_at keeps renewing itself
+// every 30 days without the user manually revisiting /checkout) is a
+// separate follow-up once a real gateway is connected.
 export async function POST(req: Request) {
-  const body = await req.json();
-  const images: IncomingImage[] = body.images || [];
-
-  if (images.length === 0) {
-    return NextResponse.json({ error: "no images" }, { status: 400 });
-  }
+  const { planCode, channel } = await req.json();
 
   const business = await getCurrentBusiness();
   if (!business) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (business.credits_remaining < images.length) {
-    return NextResponse.json({ error: "insufficient credits" }, { status: 402 });
+
+  const [plan] = (await sql`SELECT * FROM plans WHERE code = ${planCode}`) as any[];
+  if (!plan) {
+    return NextResponse.json({ error: "invalid plan" }, { status: 400 });
   }
 
-  const [submission] = await sql`
-    INSERT INTO submissions (business_id, status, credits_used, rules_version_ref)
-    VALUES (${business.id}, 'processing', ${images.length}, 'คู่มือและประกาศ สบส./อย. ที่เกี่ยวข้อง')
-    RETURNING id, share_token
-  `;
-
-  let overall: "passed" | "caution" | "violation" = "passed";
-  const errors: string[] = [];
-
-  // Review images one at a time, in order. Slower than running them
-  // concurrently, but keeps each image's AI call, DB writes, and error
-  // handling fully isolated and easy to reason about — prioritizing accuracy
-  // and stability over raw throughput per explicit direction.
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i];
-    let result;
-    try {
-      // strip a data: URL prefix if present, keep just the base64 payload
-      const rawBase64 = img.base64?.includes(",") ? img.base64.split(",")[1] : img.base64;
-      result = await reviewImage({
-        base64Image: rawBase64,
-        mediaType: img.mediaType,
-        caption: img.caption,
-        filename: img.filename,
-      });
-    } catch (e: any) {
-      console.error(`reviewImage failed for ${img.filename}:`, e);
-      errors.push(`${img.filename}: ${e.message}`);
-      // CRITICAL: never let a failed AI call fall through as an empty
-      // flags array. Downstream, status is derived purely from flag
-      // severities (see below) — an empty array there silently becomes
-      // "passed", which previously made a total AI outage look like every
-      // image cleared compliance. Attach a synthetic flag instead so the
-      // failure is visible on the results page and the image is routed to
-      // "caution" (needs manual review), never a false "passed".
-      result = {
-        status: "caution" as const,
-        confidence: 0,
-        flags: [
-          {
-            quoted_text: img.caption || img.filename,
-            category: "ข้อผิดพลาดของระบบ",
-            legal_ref: "-",
-            severity: "ควรระวัง" as const,
-            confidence_level: "ต่ำ" as const,
-            topic: "ระบบ AI ไม่สามารถตรวจสอบภาพนี้ได้",
-            detailed_explanation: `การเรียกระบบ AI เพื่อตรวจสอบภาพนี้ล้มเหลว (${
-              e?.message || "ไม่ทราบสาเหตุ"
-            }) จึงยังไม่ได้ตรวจสอบเนื้อหาจริงตามกฎหมาย/ระเบียบที่เกี่ยวข้อง ผลที่แสดงนี้ไม่ใช่ผลตรวจสอบที่สมบูรณ์`,
-            suggested_correction: "กรุณาส่งภาพนี้ตรวจใหม่อีกครั้ง หากยังล้มเหลวซ้ำให้ติดต่อทีมงาน",
-          },
-        ],
-      };
-    }
-
-    // Defensive: Claude occasionally omits/mistypes `flags` (e.g. on a clean
-    // "passed" result) despite the schema requiring it — never let that crash
-    // the whole request.
-    if (!Array.isArray(result.flags)) result.flags = [];
-    result.flags = result.flags.filter((f: any) => f && f.quoted_text);
-
-    // IMPORTANT: do not trust Claude's top-level `status` field on its own —
-    // it has repeatedly disagreed with its own `flags` array (e.g. returning
-    // "violation" with zero flags), and prompt wording alone can't guarantee
-    // a language model keeps two independent fields in sync. Instead, derive
-    // the image's status purely from the severities it actually put in
-    // `flags`, so the two can never contradict each other.
-    const hasViolation = result.flags.some((f: any) => f.severity === "ห้ามเด็ดขาด");
-    const hasCaution = result.flags.some((f: any) => f.severity === "ควรระวัง");
-    let derivedStatus: "passed" | "caution" | "violation" = hasViolation
-      ? "violation"
-      : hasCaution
-      ? "caution"
-      : "passed";
-
-    // CRITICAL: the derivation above has a dangerous blind spot — confirmed
-    // happening in production — where Claude sets status to "caution"/
-    // "violation" but returns an EMPTY flags array (violating its own
-    // instructions). Deriving purely from flags in that case silently
-    // downgrades a real violation to "passed", which is worse than trusting
-    // status blindly: it hides a flagged ad as compliant. Never let an empty
-    // flags array override a non-"passed" model verdict — keep the model's
-    // status and attach a synthetic flag so the image still visibly lands
-    // in manual review instead of disappearing into "passed".
-    if (result.flags.length === 0 && result.status !== "passed") {
-      derivedStatus = result.status === "violation" ? "violation" : "caution";
-      result.flags = [
-        {
-          quoted_text: img.caption || img.filename,
-          category: "ต้องตรวจสอบเพิ่มเติม",
-          legal_ref: "-",
-          severity: derivedStatus === "violation" ? "ห้ามเด็ดขาด" : "ควรระวัง",
-          confidence_level: "ต่ำ",
-          topic: "AI ระบุว่าพบความเสี่ยงแต่ไม่ได้ระบุรายละเอียด",
-          detailed_explanation:
-            "ระบบ AI ประเมินว่าภาพนี้มีความเสี่ยงไม่ผ่านเกณฑ์ แต่ไม่ได้ระบุข้อความหรือจุดที่มีปัญหาอย่างเจาะจงในรอบนี้ " +
-            "จึงยังไม่สามารถแสดงเหตุผลและมาตรากฎหมายที่เกี่ยวข้องได้ครบถ้วน",
-          suggested_correction: "กรุณาให้เจ้าหน้าที่ตรวจสอบภาพนี้ด้วยตนเอง หรือกดส่งภาพนี้ตรวจซ้ำอีกครั้ง",
-        } as any,
-      ];
-      console.warn(
-        `reviewImage returned status "${result.status}" with zero flags for ${img.filename} — keeping as "${derivedStatus}" with a synthetic review flag instead of downgrading to "passed"`
-      );
-    } else if (result.status !== derivedStatus) {
-      console.warn(
-        `reviewImage status/flags mismatch for ${img.filename}: model said "${result.status}", derived "${derivedStatus}" from ${result.flags.length} flag(s)`
-      );
-    }
-    result.status = derivedStatus;
-
-    if (result.status === "violation") overall = "violation";
-    else if (result.status === "caution" && overall !== "violation") overall = "caution";
-
-    // TEMPORARY: store the image inline as a data URL until Cloudflare R2 is
-    // enabled and wired up as real object storage. Fine for a demo/low-volume
-    // use, but this bloats the database — swap for an R2 URL once available.
-    const storedImageUrl = img.base64 && img.mediaType
-      ? (img.base64.startsWith("data:") ? img.base64 : `data:${img.mediaType};base64,${img.base64}`)
-      : "https://storage.adcheck.app/demo/" + encodeURIComponent(img.filename);
-
-    const [savedImage] = await sql`
-      INSERT INTO submission_images (submission_id, image_url, filename, caption, status, sort_order)
-      VALUES (${submission.id}, ${storedImageUrl}, ${img.filename}, ${img.caption || null}, ${result.status}, ${i})
-      RETURNING id
-    `;
-
-    for (const f of result.flags) {
-      if (!f || !f.quoted_text) continue;
-      // The DB has one `detailed_explanation` column (no separate column for
-      // a fix suggestion yet — avoids a schema migration for this change).
-      // Store both paragraphs in it, clearly labeled and blank-line separated
-      // so the results page can split them back into distinct <p> blocks.
-      const reasonPart = f.detailed_explanation ? f.detailed_explanation.trim() : "";
-      const fixPart = f.suggested_correction ? f.suggested_correction.trim() : "";
-      const combinedExplanation =
-        reasonPart && fixPart
-          ? `${reasonPart}\n\nวิธีแก้ไข: ${fixPart}`
-          : reasonPart || (fixPart ? `วิธีแก้ไข: ${fixPart}` : null);
-
-      await sql`
-        INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation, detailed_explanation)
-        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${combinedExplanation})
-      `;
-    }
-  }
-
-  const finalStatus = overall === "passed" ? "passed" : "needs_review";
+  const invoiceNumber = `INV-2569-${Math.floor(Math.random() * 9000 + 1000)}`;
 
   await sql`
-    UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
-    WHERE id = ${submission.id}
+    INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number)
+    VALUES (${business.id}, ${plan.id}, ${plan.price_thb}, 0, ${plan.price_thb}, ${channel}, 'สำเร็จ', ${invoiceNumber})
   `;
+
   await sql`
-    UPDATE businesses SET credits_remaining = credits_remaining - ${images.length}, updated_at = now()
+    UPDATE businesses
+    SET
+      plan_id = ${plan.id},
+      credits_remaining = ${plan.monthly_image_credits},
+      credits_reset_at = now() + interval '30 days',
+      updated_at = now()
     WHERE id = ${business.id}
   `;
 
-  return NextResponse.json({ id: submission.id, errors: errors.length ? errors : undefined });
+  return NextResponse.json({ ok: true, invoiceNumber });
 }
