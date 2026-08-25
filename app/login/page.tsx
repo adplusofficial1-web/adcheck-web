@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signIn } from "@/auth";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 
 export default function LoginPage() {
   return (
@@ -18,12 +19,7 @@ export default function LoginPage() {
             await signIn("google", { redirectTo: "/dashboard" });
           }}
         >
-          <button
-            type="submit"
-            className="w-full flex items-center justify-center gap-2 rounded-md border border-border px-4 py-3 text-sm font-medium hover:bg-page"
-          >
-            เข้าสู่ระบบด้วย Google
-          </button>
+          <GoogleSignInButton />
         </form>
         <p className="text-xs text-tertiary mt-6">
           ยังไม่มีบัญชี?{" "}
