@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { sql, getDemoBusiness } from "@/lib/db";
+import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const body = await req.json();
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
   if (!business) {
-    return NextResponse.json({ error: "demo business not found" }, { status: 500 });
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const [card] = await sql`
@@ -43,9 +44,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
   if (!business) {
-    return NextResponse.json({ error: "demo business not found" }, { status: 500 });
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const [card] = await sql`
