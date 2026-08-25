@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
-import { getPlans, getDemoBusiness } from "@/lib/db";
+import { redirect } from "next/navigation";
+import { getPlans } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { Nav } from "@/components/Nav";
 import { CheckoutForm } from "./CheckoutForm";
 
@@ -10,7 +12,10 @@ export default async function CheckoutPage({
 }) {
   const plans = await getPlans();
   const plan = plans.find((p: any) => p.code === (searchParams.plan || "standard")) || plans[1];
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
+  if (!business) {
+    redirect("/login");
+  }
 
   return (
     <main>
