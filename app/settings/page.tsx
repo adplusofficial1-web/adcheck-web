@@ -1,16 +1,14 @@
 export const dynamic = "force-dynamic";
+import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { SettingsClient } from "@/components/settings/SettingsClient";
-import { sql, getDemoBusiness, getPaymentMethods } from "@/lib/db";
+import { sql, getPaymentMethods } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 export default async function SettingsPage() {
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
   if (!business) {
-    return (
-      <main className="p-14">
-        <p>ยังไม่มีข้อมูลธุรกิจตัวอย่างในฐานข้อมูล กรุณารันสคริปต์ seed ก่อน</p>
-      </main>
-    );
+    redirect("/login");
   }
 
   const [cards, invoices] = await Promise.all([
