@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { signIn } from "@/auth";
 
 export default function LoginPage() {
   return (
@@ -11,17 +12,19 @@ export default function LoginPage() {
         <p className="text-sm text-secondary mb-8">
           เข้าสู่ระบบด้วยบัญชี Google เพื่อจัดการการตรวจสอบโฆษณาของคุณ
         </p>
-        {/*
-          NOTE: this is a UI stub. Wiring real Google OAuth requires a
-          Google Cloud OAuth client + NextAuth (or similar) configuration,
-          which needs credentials only the project owner can create.
-        */}
-        <Link
-          href="/dashboard"
-          className="flex items-center justify-center gap-2 rounded-md border border-border px-4 py-3 text-sm font-medium hover:bg-page"
+        <form
+          action={async () => {
+            "use server";
+            await signIn("google", { redirectTo: "/dashboard" });
+          }}
         >
-          เข้าสู่ระบบด้วย Google
-        </Link>
+          <button
+            type="submit"
+            className="w-full flex items-center justify-center gap-2 rounded-md border border-border px-4 py-3 text-sm font-medium hover:bg-page"
+          >
+            เข้าสู่ระบบด้วย Google
+          </button>
+        </form>
         <p className="text-xs text-tertiary mt-6">
           ยังไม่มีบัญชี?{" "}
           <Link href="/onboarding" className="underline">
