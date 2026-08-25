@@ -1,16 +1,17 @@
 export const dynamic = "force-dynamic";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
-import { sql, getDemoBusiness } from "@/lib/db";
+import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 export default async function DashboardPage() {
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
+  // middleware.ts already requires a session for this route, so this only
+  // triggers if that session somehow doesn't resolve to a business — bounce
+  // back to login rather than rendering with nothing to show.
   if (!business) {
-    return (
-      <main className="p-14">
-        <p>ยังไม่มีข้อมูลธุรกิจตัวอย่างในฐานข้อมูล กรุณารันสคริปต์ seed ก่อน</p>
-      </main>
-    );
+    redirect("/login");
   }
 
   const monthStats = (await sql`
