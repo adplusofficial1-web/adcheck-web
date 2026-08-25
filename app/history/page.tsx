@@ -1,7 +1,9 @@
 export const dynamic = "force-dynamic";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
-import { sql, getDemoBusiness } from "@/lib/db";
+import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
   passed: { label: "ผ่าน", badge: "bg-accentSoft text-accent" },
@@ -14,7 +16,10 @@ export default async function HistoryPage({
 }: {
   searchParams: { filter?: string };
 }) {
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
+  if (!business) {
+    redirect("/login");
+  }
   const filter = searchParams.filter;
 
   const images = (filter
