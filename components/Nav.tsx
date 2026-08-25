@@ -10,7 +10,7 @@ import { signOut } from "next-auth/react";
 // built, and it'll automatically become a normal link.
 const MENU_ITEMS: { href: string | null; label: string }[] = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: null, label: "บทความ" },
+  { href: "/articles", label: "บทความ" },
   { href: null, label: "เกี่ยวกับ" },
   { href: "/history", label: "ประวัติ" },
   { href: "/pricing", label: "ราคาแพ็กเกจ" },
