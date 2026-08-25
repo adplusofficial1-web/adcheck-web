@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { sql, getDemoBusiness } from "@/lib/db";
+import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 // Updates the clinic's display name and/or avatar photo.
 // avatarBase64 is a full data: URL produced client-side by FileReader
@@ -20,9 +21,9 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "ไม่มีข้อมูลให้บันทึก" }, { status: 400 });
   }
 
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
   if (!business) {
-    return NextResponse.json({ error: "demo business not found" }, { status: 500 });
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const [updated] = await sql`
