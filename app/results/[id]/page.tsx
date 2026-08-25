@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
 import { Nav } from "@/components/Nav";
 import { FlagDetail } from "@/components/FlagDetail";
-import { sql, getDemoBusiness } from "@/lib/db";
-import { notFound } from "next/navigation";
+import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { notFound, redirect } from "next/navigation";
 
 const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
   passed: { label: "ผ่าน", badge: "bg-accentSoft text-accent" },
@@ -11,7 +12,18 @@ const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
 };
 
 export default async function ResultsPage({ params }: { params: { id: string } }) {
-  const [submission] = await sql`SELECT * FROM submissions WHERE id = ${params.id}`;
+  const business = await getCurrentBusiness();
+  if (!business) {
+    redirect("/login");
+  }
+
+  // Scoped to this business from the query itself — a signed-in user can
+  // never even learn whether a submission id belonging to someone else's
+  // business exists (see the same pattern in processing/[id]/page.tsx and
+  // results/[id]/pdf/page.tsx).
+  const [submission] = await sql`
+    SELECT * FROM submissions WHERE id = ${params.id} AND business_id = ${business.id}
+  `;
   if (!submission) notFound();
 
   const images = (await sql`
@@ -31,7 +43,6 @@ export default async function ResultsPage({ params }: { params: { id: string } }
   const passedCount = images.filter((i) => i.status === "passed").length;
   const cautionCount = images.filter((i) => i.status === "caution").length;
   const violationCount = images.filter((i) => i.status === "violation").length;
-  const business = await getDemoBusiness();
 
   return (
     <main>
