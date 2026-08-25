@@ -491,7 +491,6 @@ function ClinicModal({
 }) {
   const [name, setName] = useState(business.name);
   const [type, setType] = useState(business.type);
-  const [email, setEmail] = useState(business.contact_email || "");
   const [phone, setPhone] = useState(business.phone || "");
   const [license, setLicense] = useState(business.license_number || "");
   const [address, setAddress] = useState(business.address || "");
@@ -508,7 +507,15 @@ function ClinicModal({
         </select>
       </Field>
       <Field label="อีเมลติดต่อ">
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
+        <input
+          type="email"
+          value={business.contact_email || ""}
+          disabled
+          className={`${inputClass} opacity-60 cursor-not-allowed`}
+        />
+        <p className="text-xs text-tertiary mt-1">
+          อีเมลนี้ผูกกับบัญชี Google ที่ใช้เข้าสู่ระบบ แก้ไขไม่ได้
+        </p>
       </Field>
       <Field label="เบอร์โทรศัพท์">
         <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} />
@@ -530,7 +537,6 @@ function ClinicModal({
             onSave({
               name,
               type,
-              contact_email: email,
               phone,
               license_number: license,
               address,
