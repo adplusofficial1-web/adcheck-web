@@ -1,11 +1,16 @@
 export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { getPlans, getDemoBusiness } from "@/lib/db";
+import { getPlans } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 export default async function PricingPage() {
   const plans = await getPlans();
-  const business = await getDemoBusiness();
+  // /pricing stays public (see middleware.ts) — an anonymous visitor
+  // legitimately has no business yet, so unlike the other pages this one
+  // doesn't redirect on null, it just renders the Nav without a credits
+  // count.
+  const business = await getCurrentBusiness();
 
   return (
     <main>
