@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 // Three separate belt-and-suspenders opt-outs, because any one alone left
 // this route serving a stale, frozen snapshot for a submission id polled
@@ -42,10 +43,18 @@ export const revalidate = 0;
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   noStore();
 
+  const business = await getCurrentBusiness();
+  if (!business) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  // Scoped to this business from the query itself — this endpoint previously
+  // had no ownership check, so any signed-in user who guessed a submission
+  // id could poll another business's in-progress review.
   const [submission] = await sql`
     SELECT id, status, credits_used
     FROM submissions
-    WHERE id = ${params.id}
+    WHERE id = ${params.id} AND business_id = ${business.id}
   `;
 
   if (!submission) {
