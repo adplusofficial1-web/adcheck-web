@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Sans_Thai } from "next/font/google";
+import { Prompt } from "next/font/google";
 import "./globals.css";
 
-const ibmPlexSansThai = IBM_Plex_Sans_Thai({
+const prompt = Prompt({
   subsets: ["thai", "latin"],
   weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-ibm-plex-sans-thai",
+  variable: "--font-prompt",
   display: "swap",
 });
 
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="th" className={ibmPlexSansThai.variable}>
+    <html lang="th" className={prompt.variable}>
       <body className="font-sans min-h-screen">{children}</body>
     </html>
   );
