@@ -54,26 +54,8 @@ export default async function DashboardPage() {
         <div className="flex justify-center mb-8">
           <Link
             href="/upload"
-            className="inline-flex items-center gap-3 text-2xl font-medium rounded-xl bg-inverse text-onInverse px-12 py-6"
+            className="text-2xl font-medium rounded-xl bg-inverse text-onInverse px-12 py-6"
           >
-            {/* Upload icon: arrow pointing up into a tray — inline SVG so this
-                doesn't need an icon library dependency, matching the logout
-                icon in Nav.tsx. */}
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M12 3v12" />
-              <polyline points="7 8 12 3 17 8" />
-              <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-            </svg>
             + อัปโหลด
           </Link>
         </div>
@@ -111,7 +93,7 @@ export default async function DashboardPage() {
         </div>
 
         <div className="border border-border rounded-lg p-5">
-          <div className="flex'items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3">
             <div className="text-sm font-medium">การตรวจสอบล่าสุด</div>
           </div>
           {recent.length === 0 && <p className="text-sm text-secondary">ยังไม่มีการตรวจสอบ</p>}
