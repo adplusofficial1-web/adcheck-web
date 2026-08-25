@@ -1,10 +1,14 @@
 export const dynamic = "force-dynamic";
+import { redirect } from "next/navigation";
 import { UploadForm } from "./UploadForm";
 import { Nav } from "@/components/Nav";
-import { getDemoBusiness } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 export default async function UploadPage() {
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
+  if (!business) {
+    redirect("/login");
+  }
 
   return (
     <main>
