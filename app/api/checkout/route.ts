@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { sql, getDemoBusiness } from "@/lib/db";
+import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { reviewImage } from "@/lib/reviewImage";
 
 type IncomingImage = {
@@ -17,9 +18,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "no images" }, { status: 400 });
   }
 
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
   if (!business) {
-    return NextResponse.json({ error: "demo business not found" }, { status: 500 });
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   if (business.credits_remaining < images.length) {
     return NextResponse.json({ error: "insufficient credits" }, { status: 402 });
