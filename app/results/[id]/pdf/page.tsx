@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { AutoPrint } from "@/components/AutoPrint";
 
 const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
@@ -22,7 +23,17 @@ const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
  * in full up front — there's no "อธิบายเพิ่มเติม" toggle to click on paper.
  */
 export default async function ResultsPdfPage({ params }: { params: { id: string } }) {
-  const [submission] = await sql`SELECT * FROM submissions WHERE id = ${params.id}`;
+  const business = await getCurrentBusiness();
+  if (!business) {
+    redirect("/login");
+  }
+
+  // Scoped to this business from the query itself — this route previously
+  // had no ownership check at all, so any signed-in user who guessed a
+  // submission id could open (and print/save) another business's report.
+  const [submission] = await sql`
+    SELECT * FROM submissions WHERE id = ${params.id} AND business_id = ${business.id}
+  `;
   if (!submission) notFound();
 
   const images = (await sql`
