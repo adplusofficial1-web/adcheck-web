@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ProcessingScreen } from "@/components/ProcessingScreen";
-import { getDemoBusiness, sql } from "@/lib/db";
+import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 /**
  * Real-time "กำลังตรวจสอบภาพ" page. UploadForm redirects here immediately
@@ -18,10 +19,18 @@ export default async function ProcessingPage({
   params: { id: string };
   searchParams: { files?: string };
 }) {
-  const [submission] = await sql`SELECT id FROM submissions WHERE id = ${params.id}`;
-  if (!submission) notFound();
+  const business = await getCurrentBusiness();
+  if (!business) {
+    redirect("/login");
+  }
 
-  const business = await getDemoBusiness();
+  // Scoped to this business from the query itself (rather than fetching by
+  // id and checking afterward) so a signed-in user can never learn whether
+  // a submission id belonging to a different business exists at all.
+  const [submission] = await sql`
+    SELECT id FROM submissions WHERE id = ${params.id} AND business_id = ${business.id}
+  `;
+  if (!submission) notFound();
 
   // UploadForm passes the original filenames it already has in memory via
   // ?files=<JSON array>, so this page can render every image slot
