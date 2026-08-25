@@ -5,6 +5,7 @@ import Google from "next-auth/providers/google";
 // Google provider reads AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET from the
 // environment automatically — see .env.example.
 export const { handlers, signIn, signOut, auth } = NextAuth({
+    trustHost: true,
     providers: [Google],
     pages: {
           signIn: "/login",
