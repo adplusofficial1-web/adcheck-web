@@ -14,20 +14,6 @@ export const sql = neon(process.env.DATABASE_URL || "", {
     fetchOptions: { cache: "no-store" },
 });
 
-// Demo tenant used throughout the app until real auth/session is wired up.
-export const DEMO_BUSINESS_EMAIL = "contact@abc-clinic.com";
-
-export async function getDemoBusiness() {
-    const rows = await sql`
-        SELECT b.*, p.name AS plan_name, p.code AS plan_code, p.price_thb, p.monthly_image_credits
-            FROM businesses b
-                LEFT JOIN plans p ON p.id = b.plan_id
-                    WHERE b.contact_email = ${DEMO_BUSINESS_EMAIL}
-                        LIMIT 1
-                          `;
-    return (rows[0] as any) ?? null;
-}
-
 export async function getPlans() {
     const rows = await sql`SELECT * FROM plans ORDER BY price_thb ASC`;
     return rows as any[];
@@ -43,12 +29,10 @@ export async function getPaymentMethods(businessId: string) {
     return rows as any[];
 }
 
-// Added alongside Google Login (see /login, /auth.ts). Not wired into the
-// dashboard/checkout/submissions routes yet — those still call
-// getDemoBusiness() unconditionally. Once each business row is meant to map
-// 1:1 to the Google account that owns it, swap those call sites to this
-// (falling back to onboarding when no match exists) instead of the demo
-// email.
+// Added alongside Google Login (see /login, /auth.ts). Each business row
+// maps 1:1 to the Google account that owns it (contact_email is UNIQUE) —
+// see lib/currentBusiness.ts:getCurrentBusiness(), which every page/route
+// calls to resolve "whose data is this" from the signed-in session.
 export async function getBusinessByEmail(email: string) {
     const rows = await sql`
         SELECT b.*, p.name AS plan_name, p.code AS plan_code, p.price_thb, p.monthly_image_credits
@@ -58,4 +42,22 @@ export async function getBusinessByEmail(email: string) {
                         LIMIT 1
                           `;
     return (rows[0] as any) ?? null;
+}
+
+// Provisions a new business the moment a Google account is first seen —
+// called from lib/currentBusiness.ts:getCurrentBusiness() when no existing
+// row matches the session's email. `credits_remaining` is intentionally
+// left out of the INSERT — the businesses table defaults it to 5, which is
+// exactly the free-credit welcome bonus every new Google account should
+// start with. ON CONFLICT DO NOTHING + the UNIQUE constraint on
+// contact_email make this safe under concurrent calls (e.g. two tabs
+// loading a protected page at once right after first sign-in) — at most
+// one row (and one bonus) is ever created per email.
+export async function createBusinessForEmail(email: string, name?: string | null) {
+    await sql`
+        INSERT INTO businesses (name, type, contact_email)
+        VALUES (${name?.trim() || "คลินิกของฉัน"}, 'clinic', ${email})
+        ON CONFLICT (contact_email) DO NOTHING
+    `;
+    return getBusinessByEmail(email);
 }
