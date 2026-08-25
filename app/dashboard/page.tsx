@@ -51,18 +51,23 @@ export default async function DashboardPage() {
         <h1 className="text-2xl font-medium mb-2">{business.name}</h1>
         <p className="text-sm text-secondary mb-8">{business.contact_email}</p>
 
+        <div className="flex justify-center mb-8">
+          <Link
+            href="/upload"
+            className="text-2xl font-medium rounded-xl bg-inverse text-onInverse px-12 py-6"
+          >
+            + อัปโหลดใหม่
+          </Link>
+        </div>
+
         {business.credits_remaining < 10 && (
           <div className="bg-warningSoft text-warning rounded-lg p-4 mb-8 flex items-center justify-between text-sm">
             <span>เครดิตใกล้หมด เหลือ {business.credits_remaining} ครั้ง — เติมเครดิตก่อนใช้งานต่อเนื่อง</span>
-            <Link href="/checkout" className="underline font-medium">เติมเครดิต →</Link>
+            <a href="https://adcheck.pro/pricing" className="underline font-medium">เติมเครดิต →</a>
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          <div className="border border-border rounded-lg p-5">
-            <div className="text-xs text-secondary mb-2">เครดิตคงเหลือ</div>
-            <div className="text-2xl font-medium">{business.credits_remaining}</div>
-          </div>
+        <div className="grid grid-cols-2 gap-4 mb-8">
           <div className="border border-border rounded-lg p-5">
             <div className="text-xs text-secondary mb-2">ตรวจแล้วเดือนนี้</div>
             <div className="text-2xl font-medium">{totalThisMonth}</div>
@@ -90,9 +95,6 @@ export default async function DashboardPage() {
         <div className="border border-border rounded-lg p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm font-medium">การตรวจสอบล่าสุด</div>
-            <Link href="/upload" className="text-sm rounded-md bg-inverse text-onInverse px-4 py-2">
-              + อัปโหลดใหม่
-            </Link>
           </div>
           {recent.length === 0 && <p className="text-sm text-secondary">ยังไม่มีการตรวจสอบ</p>}
           {recent.map((r) => (
