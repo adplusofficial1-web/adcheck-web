@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { signIn } from "@/auth";
+import { redirect } from "next/navigation";
+import { auth, signIn } from "@/auth";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 
 // Auth.js error codes passed via ?error=... when pages.error redirects here
@@ -19,13 +20,27 @@ const ERROR_MESSAGES: Record<string, string> = {
 const DEFAULT_ERROR_MESSAGE =
   "เข้าสู่ระบบไม่สำเร็จ กรุณาลองอีกครั้ง หากยังไม่สำเร็จ ลองรีเฟรชหน้านี้ก่อนกดเข้าสู่ระบบใหม่";
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
   searchParams: { [key: string]: string | string[] | undefined };
 }) {
   const errorCode =
     typeof searchParams?.error === "string" ? searchParams.error : undefined;
+
+  // The login flow intermittently races two callback requests to Google
+  // (root cause not yet fixed — see Google Login Setup doc), so the request
+  // that "loses" can land here with an error even after the other one
+  // already succeeded and set a valid session cookie. Rather than show a
+  // scary error page to someone who is, from the session's point of view,
+  // already logged in, check first and just send them on to the dashboard.
+  if (errorCode) {
+    const session = await auth();
+    if (session?.user) {
+      redirect("/dashboard");
+    }
+  }
+
   const errorMessage = errorCode
     ? ERROR_MESSAGES[errorCode] ?? DEFAULT_ERROR_MESSAGE
     : undefined;
