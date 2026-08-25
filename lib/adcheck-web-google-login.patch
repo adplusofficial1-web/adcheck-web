@@ -1,0 +1,520 @@
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..bebe171
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,21 @@
++# Copy to .env.local for local dev. In production these are set as
++# environment variables on the Render service (adcheck-web).
++
++# --- Existing (unchanged by this PR) ---
++DATABASE_URL=postgres://...          # Neon connection string
++ANTHROPIC_API_KEY=sk-ant-...         # used by lib/reviewImage.ts
++
++# --- Added for Google Login (Auth.js / NextAuth v5) ---
++# Create these in Google Cloud Console > APIs & Services > Credentials >
++# OAuth client ID (Web application). Authorized redirect URI must be:
++#   {AUTH_URL}/api/auth/callback/google
++# i.e. https://adcheck-web.onrender.com/api/auth/callback/google in prod,
++# and http://localhost:3000/api/auth/callback/google for local dev.
++AUTH_GOOGLE_ID=your-client-id.apps.googleusercontent.com
++AUTH_GOOGLE_SECRET=your-client-secret
++
++# Generate with: npx auth secret   (or: openssl rand -base64 33)
++AUTH_SECRET=replace-with-a-long-random-string
++
++# Must match the real deployed origin in production.
++AUTH_URL=http://localhost:3000
+diff --git a/app/api/auth/[...nextauth]/route.ts b/app/api/auth/[...nextauth]/route.ts
+new file mode 100644
+index 0000000..86c9f3d
+--- /dev/null
++++ b/app/api/auth/[...nextauth]/route.ts
+@@ -0,0 +1,3 @@
++import { handlers } from "@/auth";
++
++export const { GET, POST } = handlers;
+diff --git a/app/login/page.tsx b/app/login/page.tsx
+index fec9f46..4f1a28f 100644
+--- a/app/login/page.tsx
++++ b/app/login/page.tsx
+@@ -1,4 +1,5 @@
+ import Link from "next/link";
++import { signIn } from "@/auth";
+ 
+ export default function LoginPage() {
+   return (
+@@ -11,17 +12,25 @@ export default function LoginPage() {
+         <p className="text-sm text-secondary mb-8">
+           เข้าสู่ระบบด้วยบัญชี Google เพื่อจัดการการตรวจสอบโฆษณาของคุณ
+         </p>
+-        {/*
+-          NOTE: this is a UI stub. Wiring real Google OAuth requires a
+-          Google Cloud OAuth client + NextAuth (or similar) configuration,
+-          which needs credentials only the project owner can create.
+-        */}
+-        <Link
+-          href="/dashboard"
+-          className="flex items-center justify-center gap-2 rounded-md border border-border px-4 py-3 text-sm font-medium hover:bg-page"
++        <form
++          action={async () => {
++            "use server";
++            await signIn("google", { redirectTo: "/dashboard" });
++          }}
+         >
+-          เข้าสู่ระบบด้วย Google
+-        </Link>
++          <button
++            type="submit"
++            className="w-full flex items-center justify-center gap-2 rounded-md border border-border px-4 py-3 text-sm font-medium hover:bg-page"
++          >
++            <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true">
++              <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.87 2.7-6.62z"/>
++              <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/>
++              <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z"/>
++              <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
++            </svg>
++            เข้าสู่ระบบด้วย Google
++          </button>
++        </form>
+         <p className="text-xs text-tertiary mt-6">
+           ยังไม่มีบัญชี?{" "}
+           <Link href="/onboarding" className="underline">
+diff --git a/auth.ts b/auth.ts
+new file mode 100644
+index 0000000..5970868
+--- /dev/null
++++ b/auth.ts
+@@ -0,0 +1,22 @@
++import NextAuth from "next-auth";
++import Google from "next-auth/providers/google";
++
++// Auth.js (NextAuth v5) config for the App Router.
++// Google provider reads AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET from the
++// environment automatically — see .env.example and README.
++export const { handlers, signIn, signOut, auth } = NextAuth({
++  providers: [Google],
++  pages: {
++    signIn: "/login",
++  },
++  callbacks: {
++    // TODO: once businesses have a real 1-to-1 mapping to Google accounts
++    // (rather than the single DEMO_BUSINESS_EMAIL used throughout lib/db.ts
++    // and the API routes today), look the business up here by
++    // session.user.email — see lib/db.ts:getBusinessByEmail — and attach its
++    // id to the session so pages/routes stop hardcoding the demo tenant.
++    async session({ session }) {
++      return session;
++    },
++  },
++});
+diff --git a/components/Nav.tsx b/components/Nav.tsx
+index 2862816..3a4c313 100644
+--- a/components/Nav.tsx
++++ b/components/Nav.tsx
+@@ -1,4 +1,5 @@
+ import Link from "next/link";
++import { signOut } from "@/auth";
+ 
+ export function Nav({
+   credits,
+@@ -28,7 +29,18 @@ export function Nav({
+             ← {backLabel}
+           </Link>
+         )}
+-        <div className="h-8 w-8 rounded-full bg-accentSoft" />
++        <form
++          action={async () => {
++            "use server";
++            await signOut({ redirectTo: "/login" });
++          }}
++        >
++          <button
++            type="submit"
++            title="ออกจากระบบ"
++            className="h-8 w-8 rounded-full bg-accentSoft hover:opacity-80"
++          />
++        </form>
+       </div>
+     </nav>
+   );
+diff --git a/lib/db.ts b/lib/db.ts
+index 607ad3f..563f46c 100644
+--- a/lib/db.ts
++++ b/lib/db.ts
+@@ -24,3 +24,20 @@ export async function getPlans() {
+   const rows = await sql`SELECT * FROM plans ORDER BY price_thb ASC`;
+   return rows as any[];
+ }
++
++// Added alongside Google Login (see /login, /auth.ts). Not wired into the
++// dashboard/checkout/submissions routes yet — those still call
++// getDemoBusiness() unconditionally. Once each business row is meant to map
++// 1:1 to the Google account that owns it, swap those call sites to this
++// (falling back to onboarding when no match exists) instead of the demo
++// email.
++export async function getBusinessByEmail(email: string) {
++  const rows = await sql`
++    SELECT b.*, p.name AS plan_name, p.code AS plan_code, p.price_thb, p.monthly_image_credits
++    FROM businesses b
++    LEFT JOIN plans p ON p.id = b.plan_id
++    WHERE b.contact_email = ${email}
++    LIMIT 1
++  `;
++  return (rows[0] as any) ?? null;
++}
+diff --git a/middleware.ts b/middleware.ts
+new file mode 100644
+index 0000000..ef85c9f
+--- /dev/null
++++ b/middleware.ts
+@@ -0,0 +1,14 @@
++export { auth as middleware } from "@/auth";
++
++// Everything a signed-in business owner uses. /, /login, /onboarding, and
++// /pricing stay public. Add new authenticated routes here as they're built.
++export const config = {
++  matcher: [
++    "/dashboard/:path*",
++    "/history/:path*",
++    "/settings/:path*",
++    "/upload/:path*",
++    "/results/:path*",
++    "/checkout/:path*",
++  ],
++};
+diff --git a/package-lock.json b/package-lock.json
+index dca8282..8fbc048 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -11,6 +11,7 @@
+         "@anthropic-ai/sdk": "^0.32.1",
+         "@neondatabase/serverless": "^0.10.4",
+         "next": "14.2.5",
++        "next-auth": "5.0.0-beta.20",
+         "react": "^18.3.1",
+         "react-dom": "^18.3.1"
+       },
+@@ -65,6 +66,37 @@
+       "integrity": "sha512-JlCMO+ehdEIKqlFxk6IfVoAUVmgz7cU7zD/h9XZ0qzeosSHmUJVOzSQvvYSYWXkFXC+IfLKSIffhv0sVZup6pA==",
+       "license": "MIT"
+     },
++    "node_modules/@auth/core": {
++      "version": "0.34.2",
++      "resolved": "https://registry.npmjs.org/@auth/core/-/core-0.34.2.tgz",
++      "integrity": "sha512-KywHKRgLiF3l7PLyL73fjLSIBe1YNcA6sMeew4yMP6cfCWGXZrkkXd32AjRi1hlJ9nvovUBGZHvbn+LijO6ZeQ==",
++      "license": "ISC",
++      "dependencies": {
++        "@panva/hkdf": "^1.1.1",
++        "@types/cookie": "0.6.0",
++        "cookie": "0.6.0",
++        "jose": "^5.1.3",
++        "oauth4webapi": "^2.10.4",
++        "preact": "10.11.3",
++        "preact-render-to-string": "5.2.3"
++      },
++      "peerDependencies": {
++        "@simplewebauthn/browser": "^9.0.1",
++        "@simplewebauthn/server": "^9.0.2",
++        "nodemailer": "^6.8.0"
++      },
++      "peerDependenciesMeta": {
++        "@simplewebauthn/browser": {
++          "optional": true
++        },
++        "@simplewebauthn/server": {
++          "optional": true
++        },
++        "nodemailer": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/@jridgewell/gen-mapping": {
+       "version": "0.3.13",
+       "dev": true,
+@@ -153,6 +185,15 @@
+         "node": ">= 8"
+       }
+     },
++    "node_modules/@panva/hkdf": {
++      "version": "1.2.1",
++      "resolved": "https://registry.npmjs.org/@panva/hkdf/-/hkdf-1.2.1.tgz",
++      "integrity": "sha512-6oclG6Y3PiDFcoyk8srjLfVKyMfVCKJ27JwNPViuXziFpmdz+MZnZN/aKY0JGXgYuO/VghU0jcOAZgWXZ1Dmrw==",
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/panva"
++      }
++    },
+     "node_modules/@swc/counter": {
+       "version": "0.1.3",
+       "license": "Apache-2.0"
+@@ -165,6 +206,12 @@
+         "tslib": "^2.4.0"
+       }
+     },
++    "node_modules/@types/cookie": {
++      "version": "0.6.0",
++      "resolved": "https://registry.npmjs.org/@types/cookie/-/cookie-0.6.0.tgz",
++      "integrity": "sha512-4Kh9a6B2bQciAhf7FSuMRRkUWecJgJu9nPnx3yzpsfXX/c50REIqpHY4C82bXP90qrLtXtkDxTZosYO3UpOwlA==",
++      "license": "MIT"
++    },
+     "node_modules/@types/node": {
+       "version": "20.19.43",
+       "license": "MIT",
+@@ -486,6 +533,15 @@
+         "node": ">= 6"
+       }
+     },
++    "node_modules/cookie": {
++      "version": "0.6.0",
++      "resolved": "https://registry.npmjs.org/cookie/-/cookie-0.6.0.tgz",
++      "integrity": "sha512-U71cyTamuh1CRNCfpGY6to28lxvNwPG4Guz/EVjgf3Jmzv0vlDp1atT9eS5dDjMYHucpHbWns6Lwf3BKz6svdw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
+     "node_modules/cssesc": {
+       "version": "3.0.0",
+       "dev": true,
+@@ -869,6 +925,15 @@
+         "jiti": "bin/jiti.js"
+       }
+     },
++    "node_modules/jose": {
++      "version": "5.10.0",
++      "resolved": "https://registry.npmjs.org/jose/-/jose-5.10.0.tgz",
++      "integrity": "sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==",
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/panva"
++      }
++    },
+     "node_modules/js-tokens": {
+       "version": "4.0.0",
+       "license": "MIT"
+@@ -1029,6 +1094,33 @@
+         }
+       }
+     },
++    "node_modules/next-auth": {
++      "version": "5.0.0-beta.20",
++      "resolved": "https://registry.npmjs.org/next-auth/-/next-auth-5.0.0-beta.20.tgz",
++      "integrity": "sha512-+48SjV9k9AtUU3JbEIa4PXNjKIewfFjVGL7Xs2RKkuQ5QqegDNIQiIG8sLk6/qo7RTScQYIGKgeQ5IuQRtrTQg==",
++      "license": "ISC",
++      "dependencies": {
++        "@auth/core": "0.34.2"
++      },
++      "peerDependencies": {
++        "@simplewebauthn/browser": "^9.0.1",
++        "@simplewebauthn/server": "^9.0.2",
++        "next": "^14.0.0-0 || ^15.0.0-0",
++        "nodemailer": "^6.6.5",
++        "react": "^18.2.0 || ^19.0.0-0"
++      },
++      "peerDependenciesMeta": {
++        "@simplewebauthn/browser": {
++          "optional": true
++        },
++        "@simplewebauthn/server": {
++          "optional": true
++        },
++        "nodemailer": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/next/node_modules/@next/swc-darwin-arm64": {
+       "version": "14.2.5",
+       "resolved": "https://registry.npmjs.org/@next/swc-darwin-arm64/-/swc-darwin-arm64-14.2.5.tgz",
+@@ -1239,6 +1331,15 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/oauth4webapi": {
++      "version": "2.17.0",
++      "resolved": "https://registry.npmjs.org/oauth4webapi/-/oauth4webapi-2.17.0.tgz",
++      "integrity": "sha512-lbC0Z7uzAFNFyzEYRIC+pkSVvDHJTbEW+dYlSBAlCYDe6RxUkJ26bClhk8ocBZip1wfI9uKTe0fm4Ib4RHn6uQ==",
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/panva"
++      }
++    },
+     "node_modules/object-assign": {
+       "version": "4.1.1",
+       "dev": true,
+@@ -1505,6 +1606,34 @@
+       "version": "1.1.4",
+       "license": "MIT"
+     },
++    "node_modules/preact": {
++      "version": "10.11.3",
++      "resolved": "https://registry.npmjs.org/preact/-/preact-10.11.3.tgz",
++      "integrity": "sha512-eY93IVpod/zG3uMF22Unl8h9KkrcKIRs2EGar8hwLZZDU1lkjph303V9HZBwufh2s736U6VXuhD109LYqPoffg==",
++      "license": "MIT",
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/preact"
++      }
++    },
++    "node_modules/preact-render-to-string": {
++      "version": "5.2.3",
++      "resolved": "https://registry.npmjs.org/preact-render-to-string/-/preact-render-to-string-5.2.3.tgz",
++      "integrity": "sha512-aPDxUn5o3GhWdtJtW0svRC2SS/l8D9MAgo2+AWml+BhDImb27ALf04Q2d+AHqUUOc6RdSXFIBVa2gxzgMKgtZA==",
++      "license": "MIT",
++      "dependencies": {
++        "pretty-format": "^3.8.0"
++      },
++      "peerDependencies": {
++        "preact": ">=10"
++      }
++    },
++    "node_modules/pretty-format": {
++      "version": "3.8.0",
++      "resolved": "https://registry.npmjs.org/pretty-format/-/pretty-format-3.8.0.tgz",
++      "integrity": "sha512-WuxUnVtlWL1OfZFQFuqvnvs6MiAGk9UNsBostyBOB0Is9wb5uRESevA6rnl/rkksXaGX3GzZhPup5d6Vp1nFew==",
++      "license": "MIT"
++    },
+     "node_modules/queue-microtask": {
+       "version": "1.2.3",
+       "dev": true,
+@@ -1882,6 +2011,126 @@
+         "tr46": "~0.0.3",
+         "webidl-conversions": "^3.0.0"
+       }
++    },
++    "node_modules/@next/swc-darwin-arm64": {
++      "version": "14.2.5",
++      "resolved": "https://registry.npmjs.org/@next/swc-darwin-arm64/-/swc-darwin-arm64-14.2.5.tgz",
++      "integrity": "sha512-/9zVxJ+K9lrzSGli1///ujyRfon/ZneeZ+v4ptpiPoOU+GKZnm8Wj8ELWU1Pm7GHltYRBklmXMTUqM/DqQ99FQ==",
++      "cpu": [
++        "arm64"
++      ],
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-darwin-x64": {
++      "version": "14.2.5",
++      "resolved": "https://registry.npmjs.org/@next/swc-darwin-x64/-/swc-darwin-x64-14.2.5.tgz",
++      "integrity": "sha512-vXHOPCwfDe9qLDuq7U1OYM2wUY+KQ4Ex6ozwsKxp26BlJ6XXbHleOUldenM67JRyBfVjv371oneEvYd3H2gNSA==",
++      "cpu": [
++        "x64"
++      ],
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-linux-arm64-gnu": {
++      "version": "14.2.5",
++      "resolved": "https://registry.npmjs.org/@next/swc-linux-arm64-gnu/-/swc-linux-arm64-gnu-14.2.5.tgz",
++      "integrity": "sha512-vlhB8wI+lj8q1ExFW8lbWutA4M2ZazQNvMWuEDqZcuJJc78iUnLdPPunBPX8rC4IgT6lIx/adB+Cwrl99MzNaA==",
++      "cpu": [
++        "arm64"
++      ],
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-linux-arm64-musl": {
++      "version": "14.2.5",
++      "resolved": "https://registry.npmjs.org/@next/swc-linux-arm64-musl/-/swc-linux-arm64-musl-14.2.5.tgz",
++      "integrity": "sha512-NpDB9NUR2t0hXzJJwQSGu1IAOYybsfeB+LxpGsXrRIb7QOrYmidJz3shzY8cM6+rO4Aojuef0N/PEaX18pi9OA==",
++      "cpu": [
++        "arm64"
++      ],
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-linux-x64-musl": {
++      "version": "14.2.5",
++      "resolved": "https://registry.npmjs.org/@next/swc-linux-x64-musl/-/swc-linux-x64-musl-14.2.5.tgz",
++      "integrity": "sha512-6QLwi7RaYiQDcRDSU/os40r5o06b5ue7Jsk5JgdRBGGp8l37RZEh9JsLSM8QF0YDsgcosSeHjglgqi25+m04IQ==",
++      "cpu": [
++        "x64"
++      ],
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-win32-arm64-msvc": {
++      "version": "14.2.5",
++      "resolved": "https://registry.npmjs.org/@next/swc-win32-arm64-msvc/-/swc-win32-arm64-msvc-14.2.5.tgz",
++      "integrity": "sha512-1GpG2VhbspO+aYoMOQPQiqc/tG3LzmsdBH0LhnDS3JrtDx2QmzXe0B6mSZZiN3Bq7IOMXxv1nlsjzoS1+9mzZw==",
++      "cpu": [
++        "arm64"
++      ],
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-win32-ia32-msvc": {
++      "version": "14.2.5",
++      "resolved": "https://registry.npmjs.org/@next/swc-win32-ia32-msvc/-/swc-win32-ia32-msvc-14.2.5.tgz",
++      "integrity": "sha512-Igh9ZlxwvCDsu6438FXlQTHlRno4gFpJzqPjSIBZooD22tKeI4fE/YMRoHVJHmrQ2P5YL1DoZ0qaOKkbeFWeMg==",
++      "cpu": [
++        "ia32"
++      ],
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-win32-x64-msvc": {
++      "version": "14.2.5",
++      "resolved": "https://registry.npmjs.org/@next/swc-win32-x64-msvc/-/swc-win32-x64-msvc-14.2.5.tgz",
++      "integrity": "sha512-tEQ7oinq1/CjSG9uSTerca3v4AZ+dFa+4Yu6ihaG8Ud8ddqLQgFGcnwYls13H5X5CPDPZJdYxyeMui6muOLd4g==",
++      "cpu": [
++        "x64"
++      ],
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
+     }
+   }
+ }
+diff --git a/package.json b/package.json
+index 99a5a9e..c37bdef 100644
+--- a/package.json
++++ b/package.json
+@@ -12,6 +12,7 @@
+     "@anthropic-ai/sdk": "^0.32.1",
+     "@neondatabase/serverless": "^0.10.4",
+     "next": "14.2.5",
++    "next-auth": "5.0.0-beta.20",
+     "react": "^18.3.1",
+     "react-dom": "^18.3.1"
+   },
