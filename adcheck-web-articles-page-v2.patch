@@ -1,0 +1,372 @@
+From 62cdffe5afd04d05fc46daf93d6c0e8d49c48e75 Mon Sep 17 00:00:00 2001
+From: AD Plus <adplusofficial1@gmail.com>
+Date: Tue, 25 Aug 2026 15:48:28 +0000
+Subject: [PATCH] Add articles page sourced from government
+ advertising-compliance news
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/articles.ts: 3 curated articles summarized from real สบส./government
+  news coverage (hcpr.hss.moph.go.th, bangkokbiznews citing สบส., Thai PBS
+  citing สบส.+อย.), each tagged sourceType official/news for badge display
+- app/articles/page.tsx: listing page with a trust bar up front (explains
+  the sourcing model) + featured article + grid, each card showing a
+  verified-source badge and citation
+- app/articles/[slug]/page.tsx: statically generated detail page per
+  article with source badge, full citation box linking to the original,
+  and a legal-advice disclaimer
+- components/Nav.tsx: flip บทความ menu item from disabled (href: null) to
+  /articles, per the existing TODO comment
+
+Verified with tsc --noEmit (clean). Full 'next build' could not be run in
+this sandbox because outbound access to fonts.googleapis.com is blocked by
+the sandbox's network proxy (confirmed this also fails on bare main before
+this commit, unrelated to these changes) -- Render's build environment has
+normal internet access so this will not affect the real deploy.
+---
+ app/articles/[slug]/page.tsx | 113 ++++++++++++++++++++++++++++++++++
+ app/articles/page.tsx        | 115 +++++++++++++++++++++++++++++++++++
+ components/Nav.tsx           |   2 +-
+ lib/articles.ts              |  74 ++++++++++++++++++++++
+ 4 files changed, 303 insertions(+), 1 deletion(-)
+ create mode 100644 app/articles/[slug]/page.tsx
+ create mode 100644 app/articles/page.tsx
+ create mode 100644 lib/articles.ts
+
+diff --git a/app/articles/[slug]/page.tsx b/app/articles/[slug]/page.tsx
+new file mode 100644
+index 0000000..5f6fd2b
+--- /dev/null
++++ b/app/articles/[slug]/page.tsx
+@@ -0,0 +1,113 @@
++import Link from "next/link";
++import { notFound } from "next/navigation";
++import { Nav } from "@/components/Nav";
++import { ARTICLES, getArticleBySlug } from "@/lib/articles";
++
++export function generateStaticParams() {
++  return ARTICLES.map((a) => ({ slug: a.slug }));
++}
++
++export function generateMetadata({ params }: { params: { slug: string } }) {
++  const article = getArticleBySlug(params.slug);
++  if (!article) return {};
++  return {
++    title: `${article.title} — AdCheck`,
++    description: article.excerpt,
++  };
++}
++
++function formatThaiDate(iso: string) {
++  const d = new Date(iso);
++  return d.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
++}
++
++export default function ArticleDetailPage({ params }: { params: { slug: string } }) {
++  const article = getArticleBySlug(params.slug);
++  if (!article) notFound();
++
++  const more = ARTICLES.filter((a) => a.slug !== article.slug).slice(0, 2);
++
++  return (
++    <main>
++      <Nav />
++
++      <article className="max-w-3xl mx-auto px-6 py-14">
++        <p className="text-xs text-tertiary mb-3">
++          <Link href="/articles" className="hover:underline">
++            หน้าแรก &nbsp;/&nbsp; บทความ
++          </Link>
++          &nbsp;/&nbsp; {article.title}
++        </p>
++
++        <span className="inline-block rounded-pill bg-accentSoft text-accent text-xs font-medium px-3 py-1 mb-4">
++          {article.category}
++        </span>
++
++        <h1 className="text-3xl font-medium mb-3 leading-tight">{article.title}</h1>
++
++        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-10">
++          <span className="inline-flex items-center gap-1.5 text-xs text-tertiary">
++            <svg width="13" height="13" viewBox="0 0 20 20" fill="none" className="shrink-0 text-accent">
++              <path
++                d="M10 1.5 3 4.5v4c0 4.4 2.9 8.4 7 9.5 4.1-1.1 7-5.1 7-9.5v-4L10 1.5Z"
++                stroke="currentColor"
++                strokeWidth="1.3"
++                strokeLinejoin="round"
++              />
++              <path d="m6.8 10 2.2 2.2 4.2-4.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
++            </svg>
++            {article.sourceType === "official" ? "แหล่งข้อมูลทางการ" : "อ้างอิงข้อมูลภาครัฐ"} · {article.source}
++          </span>
++          <span className="text-xs text-tertiary">{formatThaiDate(article.publishedAt)}</span>
++        </div>
++
++        <div className="space-y-4 text-secondary leading-relaxed mb-10">
++          {article.body.map((paragraph, i) => (
++            <p key={i}>{paragraph}</p>
++          ))}
++        </div>
++
++        <div className="rounded-lg border border-border bg-page p-5 mb-10">
++          <p className="text-sm font-medium text-primary mb-1">ที่มา</p>
++          <p className="text-sm text-secondary mb-2">
++            บทความนี้สรุปและเรียบเรียงจาก{" "}
++            <a
++              href={article.sourceUrl}
++              target="_blank"
++              rel="noopener noreferrer"
++              className="text-accent underline"
++            >
++              {article.source}
++            </a>
++            . โปรดตรวจสอบข้อมูลล่าสุดกับหน่วยงานต้นทางก่อนนำไปใช้อ้างอิงทางกฎหมาย เนื้อหานี้ไม่ใช่คำแนะนำทางกฎหมาย
++          </p>
++        </div>
++
++        <Link href="/articles" className="text-sm underline">
++          ← กลับไปหน้าบทความ
++        </Link>
++
++        {more.length > 0 && (
++          <div className="mt-14 pt-10 border-t border-border">
++            <h2 className="text-lg font-medium mb-6">บทความอื่นๆ</h2>
++            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
++              {more.map((a) => (
++                <Link
++                  key={a.slug}
++                  href={`/articles/${a.slug}`}
++                  className="block rounded-lg border border-border p-6 hover:border-accent transition-colors"
++                >
++                  <span className="inline-block rounded-pill bg-accentSoft text-accent text-xs font-medium px-3 py-1 mb-3">
++                    {a.category}
++                  </span>
++                  <h3 className="text-base font-medium mb-2">{a.title}</h3>
++                  <p className="text-xs text-tertiary">{formatThaiDate(a.publishedAt)}</p>
++                </Link>
++              ))}
++            </div>
++          </div>
++        )}
++      </article>
++    </main>
++  );
++}
+diff --git a/app/articles/page.tsx b/app/articles/page.tsx
+new file mode 100644
+index 0000000..cdff290
+--- /dev/null
++++ b/app/articles/page.tsx
+@@ -0,0 +1,115 @@
++import Link from "next/link";
++import { Nav } from "@/components/Nav";
++import { ARTICLES, type Article } from "@/lib/articles";
++
++export const metadata = {
++  title: "บทความ — AdCheck",
++  description:
++    "สรุปข่าวและประกาศจากหน่วยงานภาครัฐเกี่ยวกับการโฆษณาสถานพยาบาล คัดสรรและเรียบเรียงให้เข้าใจง่าย พร้อมลิงก์ไปต้นฉบับทุกบทความ",
++};
++
++function formatThaiDate(iso: string) {
++  const d = new Date(iso);
++  return d.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
++}
++
++function SourceBadge({ article, className = "" }: { article: Article; className?: string }) {
++  return (
++    <span className={`inline-flex items-center gap-1.5 text-xs text-tertiary ${className}`}>
++      <svg width="13" height="13" viewBox="0 0 20 20" fill="none" className="shrink-0 text-accent">
++        <path
++          d="M10 1.5 3 4.5v4c0 4.4 2.9 8.4 7 9.5 4.1-1.1 7-5.1 7-9.5v-4L10 1.5Z"
++          stroke="currentColor"
++          strokeWidth="1.3"
++          strokeLinejoin="round"
++        />
++        <path d="m6.8 10 2.2 2.2 4.2-4.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
++      </svg>
++      <span>
++        {article.sourceType === "official" ? "แหล่งข้อมูลทางการ" : "อ้างอิงข้อมูลภาครัฐ"} · {article.source}
++      </span>
++    </span>
++  );
++}
++
++export default function ArticlesPage() {
++  const [featured, ...rest] = ARTICLES;
++
++  return (
++    <main>
++      <Nav />
++
++      <div className="max-w-5xl mx-auto px-6 py-14">
++        <p className="text-xs text-tertiary mb-3">หน้าแรก &nbsp;/&nbsp; บทความ</p>
++        <h1 className="text-3xl font-medium mb-3">บทความและอัปเดตกฎหมาย</h1>
++        <p className="text-secondary max-w-2xl mb-6">
++          สรุปข่าวและประกาศจากหน่วยงานภาครัฐเกี่ยวกับการโฆษณาสถานพยาบาล เพื่อให้ทีมการตลาดคลินิกติดตามความเคลื่อนไหวได้ง่ายขึ้น
++        </p>
++
++        {/* Trust bar — makes the sourcing model explicit up front */}
++        <div className="rounded-lg border border-border bg-accentSoft/40 px-6 py-4 mb-12 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
++          <span className="inline-flex items-center gap-2 text-sm font-medium text-accent shrink-0">
++            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
++              <path
++                d="M10 1.5 3 4.5v4c0 4.4 2.9 8.4 7 9.5 4.1-1.1 7-5.1 7-9.5v-4L10 1.5Z"
++                stroke="currentColor"
++                strokeWidth="1.4"
++                strokeLinejoin="round"
++              />
++              <path d="m6.8 10 2.2 2.2 4.2-4.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
++            </svg>
++            ทุกบทความอ้างอิงต้นฉบับได้จริง
++          </span>
++          <p className="text-xs text-secondary">
++            เนื้อหาสรุปจากประกาศและข่าวของกรมสนับสนุนบริการสุขภาพ (สบส.) กระทรวงสาธารณสุข และสื่อที่อ้างอิงข้อมูลจากหน่วยงานภาครัฐโดยตรง
++            พร้อมลิงก์ไปยังต้นฉบับในทุกบทความ — ไม่ใช่คำแนะนำทางกฎหมาย กรุณาตรวจสอบข้อมูลล่าสุดกับหน่วยงานต้นทางก่อนนำไปอ้างอิง
++          </p>
++        </div>
++
++        {/* Featured article */}
++        <Link
++          href={`/articles/${featured.slug}`}
++          className="block rounded-lg border border-border p-8 mb-6 hover:border-accent transition-colors"
++        >
++          <span className="inline-block rounded-pill bg-accentSoft text-accent text-xs font-medium px-3 py-1 mb-4">
++            {featured.category}
++          </span>
++          <h2 className="text-2xl font-medium mb-3">{featured.title}</h2>
++          <p className="text-secondary mb-4">{featured.excerpt}</p>
++          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
++            <SourceBadge article={featured} />
++            <span className="text-xs text-tertiary">{formatThaiDate(featured.publishedAt)}</span>
++          </div>
++        </Link>
++
++        {/* Rest of the list */}
++        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
++          {rest.map((article) => (
++            <Link
++              key={article.slug}
++              href={`/articles/${article.slug}`}
++              className="block rounded-lg border border-border p-6 hover:border-accent transition-colors"
++            >
++              <span className="inline-block rounded-pill bg-accentSoft text-accent text-xs font-medium px-3 py-1 mb-3">
++                {article.category}
++              </span>
++              <h3 className="text-lg font-medium mb-2">{article.title}</h3>
++              <p className="text-sm text-secondary mb-4">{article.excerpt}</p>
++              <div className="flex flex-col gap-1">
++                <SourceBadge article={article} />
++                <span className="text-xs text-tertiary">{formatThaiDate(article.publishedAt)}</span>
++              </div>
++            </Link>
++          ))}
++        </div>
++      </div>
++
++      <footer className="bg-inverse text-onInverse text-center py-12 mt-8">
++        <h3 className="text-lg font-medium mb-4">อยากให้ AdCheck ช่วยตรวจสอบโฆษณาก่อนเผยแพร่ไหม</h3>
++        <Link href="/onboarding" className="inline-block rounded-md bg-white text-inverse px-5 py-3 text-sm font-medium">
++          ทดลองใช้ฟรี 5 ครั้ง
++        </Link>
++      </footer>
++    </main>
++  );
++}
+diff --git a/components/Nav.tsx b/components/Nav.tsx
+index 57ee059..a8069bc 100644
+--- a/components/Nav.tsx
++++ b/components/Nav.tsx
+@@ -10,7 +10,7 @@ import { signOut } from "next-auth/react";
+ // built, and it'll automatically become a normal link.
+ const MENU_ITEMS: { href: string | null; label: string }[] = [
+   { href: "/dashboard", label: "Dashboard" },
+-  { href: null, label: "บทความ" },
++  { href: "/articles", label: "บทความ" },
+   { href: null, label: "เกี่ยวกับ" },
+   { href: "/history", label: "ประวัติ" },
+   { href: "/pricing", label: "ราคาแพ็กเกจ" },
+diff --git a/lib/articles.ts b/lib/articles.ts
+new file mode 100644
+index 0000000..3a47ec1
+--- /dev/null
++++ b/lib/articles.ts
+@@ -0,0 +1,74 @@
++export type Article = {
++  slug: string;
++  title: string;
++  category: string;
++  publishedAt: string; // ISO date
++  source: string;
++  sourceType: "official" | "news"; // official = government body itself, news = press citing government
++  sourceUrl: string;
++  excerpt: string;
++  body: string[];
++};
++
++// Curated and summarized from real Thai government / public-interest news
++// coverage about clinic & hospital advertising enforcement. Every article
++// links back to its original source — this page does not publish original
++// legal guidance, it summarizes public announcements so clinic marketing
++// teams can stay current. Always verify against the source before relying
++// on any detail here for a real decision.
++export const ARTICLES: Article[] = [
++  {
++    slug: "sbs-platform-crackdown-2569",
++    title: "สบส. จับมือแพลตฟอร์มออนไลน์ชั้นนำ สกัดโฆษณาคลินิกเกินจริง",
++    category: "ประกาศ สบส.",
++    publishedAt: "2026-04-23",
++    source: "สำนักสื่อสารและประชาสัมพันธ์ กรมสนับสนุนบริการสุขภาพ (สบส.)",
++    sourceType: "official",
++    sourceUrl: "https://hcpr.hss.moph.go.th/archives/hss-news/11021/",
++    excerpt:
++      "กรม สบส. ผนึกกำลังหน่วยงานรัฐและแพลตฟอร์มออนไลน์รายใหญ่ ร่วมสอดส่องโฆษณาสถานพยาบาลเชิงรุก พร้อมเผยสถิติตรวจพบโพสต์เข้าข่ายผิดกฎหมายกว่าครึ่งจากที่ตรวจสอบทั้งหมด",
++    body: [
++      "เมื่อวันที่ 23 เมษายน 2569 นายแพทย์ภูวเดช สุระโคตร อธิบดีกรมสนับสนุนบริการสุขภาพ (สบส.) เป็นประธานเปิดการประชุมซักซ้อมความเข้าใจและการบังคับใช้กฎหมายในการโฆษณาสถานพยาบาล สำหรับผู้ดูแลสื่อสังคมออนไลน์และแพลตฟอร์มดิจิทัล ณ อาคารกรม สบส. จังหวัดนนทบุรี",
++      "ความร่วมมือครั้งนี้มีทั้งหน่วยงานภาครัฐ ได้แก่ กสทช. อย. สคบ. และเจ้าหน้าที่ตำรวจ รวมถึงผู้ดูแลแพลตฟอร์มดิจิทัลภาคเอกชนรายใหญ่ เช่น Facebook, TikTok, วงใน, Gowabi และ HDmall โดยทุกฝ่ายจะแบ่งปันข้อมูลระหว่างกัน เมื่อพบโฆษณาสถานพยาบาลที่เข้าข่ายผิดกฎหมาย กรม สบส. จะมีคำสั่งให้ระงับการเผยแพร่และประสานแพลตฟอร์มให้ถอดโพสต์ หากเพิกเฉยอาจถูกดำเนินคดีเช่นเดียวกับผู้เผยแพร่โฆษณาเอง",
++      "ทันตแพทย์อาคม ประดิษฐสุวรรณ รองอธิบดีกรม สบส. เปิดเผยสถิติว่า ในปีงบประมาณ 2569 (ตุลาคม 2568 – มีนาคม 2569) กองกฎหมายตรวจสอบโพสต์โฆษณาสถานพยาบาลไปแล้ว 4,521 โพสต์ พบว่าเข้าข่ายผิดกฎหมายถึง 2,433 โพสต์ เกี่ยวข้องกับสถานพยาบาล 89 แห่ง โดยคำที่พบบ่อยในโพสต์ที่ผิด เช่น เก่งที่สุด ระดับโลก ขาวทั่วเรือนร่าง คืนความสาว ครบวงจร",
++      "พ.ร.บ.สถานพยาบาล พ.ศ. 2541 มาตรา 38 กำหนดให้การโฆษณาเกี่ยวกับการประกอบกิจการสถานพยาบาล นอกจากชื่อและที่ตั้ง ต้องได้รับอนุญาตก่อนเผยแพร่ทุกครั้ง และห้ามใช้ข้อความ เสียง หรือภาพที่เป็นเท็จ โอ้อวดเกินจริง หรือทำให้เข้าใจผิดในสาระสำคัญ",
++    ],
++  },
++  {
++    slug: "banned-ad-words-2569",
++    title: "เปิดลิสต์ “คำต้องห้าม” โฆษณาคลินิก ฉบับปรับปรุงปี 2569",
++    category: "แนวทางกฎหมาย",
++    publishedAt: "2026-04-08",
++    source: "กรุงเทพธุรกิจ (อ้างอิงข้อมูลกรม สบส.)",
++    sourceType: "news",
++    sourceUrl: "https://www.bangkokbiznews.com/health/public-health/1228807",
++    excerpt:
++      "กรม สบส. อัปเดตคู่มือคำโฆษณาต้องห้ามฉบับปี 2569 พร้อมโครงสร้างบทลงโทษที่เพิ่มขึ้นตามจำนวนครั้งที่กระทำผิดซ้ำ และเตรียมพิจารณาระเบียบ “รางวัลนำจับ” ให้ประชาชนช่วยเฝ้าระวัง",
++    body: [
++      "กรมสนับสนุนบริการสุขภาพ (สบส.) ออก “แนวทางข้อความการโฆษณาหรือประกาศเกี่ยวกับสถานพยาบาล” ฉบับอัปเดตปี 2569 แบ่งเป็นกลุ่มคำที่โฆษณาได้และไม่ได้ เพื่อให้สถานพยาบาลและเจ้าหน้าที่ใช้เป็นแนวทางเดียวกัน",
++      "ตัวอย่างคำที่เข้าข่ายโอ้อวดเกินจริงและห้ามใช้ ได้แก่ เก่งที่สุด กูรู การผ่าตัดขั้นสูง การันตีด้วยรางวัล การโฆษณาเปรียบเทียบกับคลินิกอื่น ขาวทั่วเรือนร่าง คิวทอง คลินิกที่ดาราและเซเลบริตี้ชั้นนำไว้วางใจ และวลีลักษณะ “ครบ…จบที่…” รวมถึงคำที่ก่อให้เกิดความเข้าใจผิด เช่น คอสเมติกเซอร์เจอรี ซึ่งแพทยสภายังไม่รับรองเป็นศาสตร์การแพทย์",
++      "ทันตแพทย์อาคม ประดิษฐสุวรรณ รองอธิบดีกรม สบส. ระบุว่าโครงสร้างบทลงโทษจะเพิ่มขึ้นตามจำนวนครั้งที่กระทำผิดซ้ำในช่องทางเดียวกัน โดยผิดครั้งแรกปรับ 25% ของอัตราสูงสุด 20,000 บาท ครั้งที่สองปรับ 50% ครั้งที่สามปรับ 75% และครั้งที่สี่จะส่งให้พนักงานสอบสวนดำเนินคดีฐานกระทำผิดซ้ำซาก",
++      "หากผู้ประกอบวิชาชีพ เช่น แพทย์ นำชื่อหรือภาพส่วนตัวไปใช้โฆษณาในลักษณะผิดกฎหมาย กรม สบส. จะส่งเรื่องให้สภาวิชาชีพที่เกี่ยวข้องพิจารณาโทษตั้งแต่การกระทำผิดครั้งแรก นอกจากนี้กรม สบส. ยังอยู่ระหว่างพิจารณาระเบียบ “รางวัลนำจับ” เพื่อให้ประชาชนมีส่วนร่วมแจ้งเบาะแสโฆษณาที่ผิดกฎหมาย",
++    ],
++  },
++  {
++    slug: "ram-inthra-clinic-closure-2569",
++    title: "สั่งปิดคลินิกย่านรามอินทรา 15 วัน หลังลูกค้าฉีดยาลดน้ำหนักแล้วต้องเข้า รพ.",
++    category: "กรณีศึกษาจริง",
++    publishedAt: "2026-06-05",
++    source: "Thai PBS (อ้างอิงข้อมูลกรม สบส. และ อย.)",
++    sourceType: "news",
++    sourceUrl: "https://www.thaipbs.or.th/news/content/506715",
++    excerpt:
++      "กรม สบส. ร่วมกับ อย. และตำรวจ ปคบ. ลงพื้นที่ตรวจคลินิกลดน้ำหนักย่านรามอินทรา หลังผู้ใช้บริการมีอาการรุนแรงจนต้องเข้าโรงพยาบาล พบความผิดหลายมาตรฐาน สั่งปิดคลินิกทันที 15 วัน",
++    body: [
++      "เมื่อวันที่ 4 มิถุนายน 2569 นายแพทย์ภูวเดช สุระโคตร อธิบดีกรม สบส. เปิดเผยว่าได้สั่งการให้เจ้าหน้าที่กองกฎหมายและกองสถานพยาบาลและการประกอบโรคศิลปะ ร่วมกับสำนักงานคณะกรรมการอาหารและยา (อย.) และตำรวจกองบังคับการปราบปรามการกระทำความผิดเกี่ยวกับการคุ้มครองผู้บริโภค (ปคบ.) ลงพื้นที่ตรวจสอบคลินิกลดน้ำหนักแห่งหนึ่งย่านรามอินทรา หลังมีผู้ป่วยหญิงเข้ารับบริการฉีดยาลดน้ำหนักแล้วมีอาการรุนแรงจนต้องส่งต่อโรงพยาบาล",
++      "จากการตรวจสอบพบว่า ผู้ทำหัตถการฉีดยาให้ผู้ป่วยไม่ใช่แพทย์ แต่เป็นผู้ช่วยแพทย์ นอกจากนี้ยังพบการปรับเปลี่ยนพื้นที่โดยไม่ได้รับอนุญาต บัตรบันทึกประวัติผู้ป่วยไม่ครบถ้วนและไม่มีลายมือชื่อผู้ประกอบวิชาชีพ อีกทั้งยาที่ใช้ฉีด “NOVOTRIMPLUS/VitaPeptix” เป็นยาที่ไม่ได้ขึ้นทะเบียนกับ อย. จึงสั่งปิดคลินิกดังกล่าวทันที 15 วัน",
++      "ทันตแพทย์อาคม ประดิษฐสุวรรณ รองอธิบดีกรม สบส. ให้ข้อมูลเพิ่มเติมว่ายาและเวชภัณฑ์ทุกชนิดที่นำมาใช้กับร่างกายผู้ป่วยต้องผ่านการขึ้นทะเบียนจาก อย. เพื่อยืนยันความปลอดภัย และแนะนำผู้บริโภคให้สอบถามชื่อยา/ผลิตภัณฑ์ทุกครั้งก่อนรับบริการ หากมีการโฆษณาอ้างผลลัพธ์เร็วผิดปกติ เช่น เห็นผลใน 3–7 วัน หรือไม่ต้องควบคุมอาหารและออกกำลังกาย ให้สันนิษฐานว่าเป็นการโอ้อวดเกินจริง และตรวจสอบเลขทะเบียนผลิตภัณฑ์ผ่านเว็บไซต์ อย. (oryor.com) ก่อนตัดสินใจใช้บริการ พร้อมแจ้งเบาะแสมาที่กรม สบส. โทร. 02 193 7000",
++    ],
++  },
++];
++
++export function getArticleBySlug(slug: string): Article | undefined {
++  return ARTICLES.find((a) => a.slug === slug);
++}
+-- 
+2.34.1
+
