@@ -56,7 +56,7 @@ export function Nav({ credits }: { credits?: number }) {
             upload/credits/avatar) is one group pushed to the right. Points
             at /dashboard (not the logged-out marketing page at "/") since
             this Nav only ever renders for someone already signed in. */}
-        <Link href="/dashboard" className="text-base font-medium shrink-0">
+        <Link href="/dashboard" className="text-2xl font-medium shrink-0">
           ADCheck
         </Link>
 
