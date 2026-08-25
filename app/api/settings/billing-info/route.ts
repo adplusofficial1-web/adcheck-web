@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { sql, getDemoBusiness } from "@/lib/db";
+import { sql } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 export async function PATCH(req: Request) {
   const body = await req.json();
@@ -9,9 +10,9 @@ export async function PATCH(req: Request) {
   const billingAddress: string | undefined =
     typeof body.billing_address === "string" ? body.billing_address.trim() : undefined;
 
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
   if (!business) {
-    return NextResponse.json({ error: "demo business not found" }, { status: 500 });
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const [updated] = await sql`
