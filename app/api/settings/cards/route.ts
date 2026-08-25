@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { sql, getDemoBusiness, getPaymentMethods } from "@/lib/db";
+import { sql, getPaymentMethods } from "@/lib/db";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 const BRAND_ALLOWLIST = ["Visa", "Mastercard", "American Express", "Discover", "บัตร"];
 
 export async function GET() {
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
   if (!business) {
-    return NextResponse.json({ error: "demo business not found" }, { status: 500 });
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const cards = await getPaymentMethods(business.id);
   return NextResponse.json({ cards });
@@ -36,9 +37,9 @@ export async function POST(req: Request) {
   }
   const safeBrand = BRAND_ALLOWLIST.includes(brand) ? brand : "บัตร";
 
-  const business = await getDemoBusiness();
+  const business = await getCurrentBusiness();
   if (!business) {
-    return NextResponse.json({ error: "demo business not found" }, { status: 500 });
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const existing = await getPaymentMethods(business.id);
