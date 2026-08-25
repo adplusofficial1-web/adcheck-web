@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 
 // href: null means the page for that section doesn't exist yet — the item
 // shows in the menu (per the requested layout) but isn't clickable, so it
@@ -87,7 +88,12 @@ export function Nav({ credits }: { credits?: number }) {
                 เครดิตคงเหลือ {credits}
               </Link>
             )}
-            <div className="h-8 w-8 rounded-full bg-accentSoft shrink-0" />
+            <button
+              type="button"
+              title="ออกจากระบบ"
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="h-8 w-8 rounded-full bg-accentSoft shrink-0 hover:opacity-80"
+            />
           </div>
         </div>
       </div>
