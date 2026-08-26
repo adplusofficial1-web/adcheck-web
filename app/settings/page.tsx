@@ -4,7 +4,6 @@ import { Nav } from "@/components/Nav";
 import { SettingsClient } from "@/components/settings/SettingsClient";
 import { sql, getPaymentMethods } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
-import { getClinicMonthlyStats } from "@/lib/agency";
 
 export default async function SettingsPage() {
   const business = await getCurrentBusiness();
@@ -12,7 +11,7 @@ export default async function SettingsPage() {
     redirect("/login");
   }
 
-  const [cards, invoices, monthlyStats] = await Promise.all([
+  const [cards, invoices] = await Promise.all([
     getPaymentMethods(business.id),
     // Every package purchase for this account, most recent first — no
     // LIMIT, since ประวัติการชำระเงิน here is meant to be the complete
@@ -27,10 +26,7 @@ export default async function SettingsPage() {
       WHERE t.business_id = ${business.id}
       ORDER BY t.created_at DESC
     ` as Promise<any[]>,
-    getClinicMonthlyStats([business.id]),
   ]);
-  const s = monthlyStats.get(business.id);
-  const checksThisMonth = (s?.passed ?? 0) + (s?.caution ?? 0) + (s?.violation ?? 0);
 
   return (
     <main>
@@ -40,7 +36,7 @@ export default async function SettingsPage() {
         <p className="text-sm text-secondary mb-8">
           จัดการข้อมูลคลินิก การเรียกเก็บเงิน แพ็กเกจ และบัตรที่ผูกไว้ทั้งหมดในที่เดียว
         </p>
-        <SettingsClient business={business} cards={cards} invoices={invoices} checksThisMonth={checksThisMonth} />
+        <SettingsClient business={business} cards={cards} invoices={invoices} />
       </div>
     </main>
   );
