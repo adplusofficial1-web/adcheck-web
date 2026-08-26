@@ -13,7 +13,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     "เกิดข้อผิดพลาดชั่วคราวระหว่างเชื่อมต่อกับ Google กรุณาลองเข้าสู่ระบบอีกครั้ง",
   OAuthSignin:
     "ไม่สามารถเริ่มการเข้าสู่ระบบด้วย Google ได้ กรุณาลองใหม่อีกครั้ง",
-  AccessDenied: "คุณยกเลิกการเข้าสู่ระบบ หรือไม่ได้อนุญาตสิทธิ์ที่จำเป็น",
+  AccessDenied: "คุณยกเลิกการเข้าสู่ระบบคุฒฤืเสิ฿.",
   Configuration: "ระบบเข้าสู่ระบบมีปัญหาการตั้งค่า กรุณาติดต่อผู้ดูแลระบบ",
 };
 
@@ -68,12 +68,6 @@ export default async function LoginPage({
         >
           <GoogleSignInButton />
         </form>
-        <p className="text-xs text-tertiary mt-6">
-          ยังไม่มีบัญชี?{" "}
-          <Link href="/onboarding" className="underline">
-            เริ่มต้นใช้งานฟรี
-          </Link>
-        </p>
       </div>
     </main>
   );
