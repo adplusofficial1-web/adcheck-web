@@ -8,14 +8,9 @@ const CHANNELS = ["บัตรเครดิต/เดบิต", "QR PromptPa
 export function CheckoutForm({
   planCode,
   amount,
-  businessId,
 }: {
   planCode: string;
   amount: number;
-  // Present only when an Agency account is paying for one of its child
-  // clinics (see app/checkout/page.tsx) — forwarded to the API so it bills
-  // that clinic's business row instead of the signed-in account's own.
-  businessId?: string;
 }) {
   const router = useRouter();
   const [channel, setChannel] = useState(CHANNELS[1]);
@@ -27,13 +22,16 @@ export function CheckoutForm({
     const res = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ planCode, channel, businessId }),
+      body: JSON.stringify({ planCode, channel }),
     });
     const data = await res.json();
     setLoading(false);
     if (res.ok) {
       setDone(data.invoiceNumber);
-      setTimeout(() => router.push(businessId ? "/agency/settings" : "/dashboard"), 1500);
+      // Buying the agency package lands back on the Agency dashboard
+      // (where the shared credit pool and per-clinic upload buttons live);
+      // any other plan is a solo clinic's own package, so back to /dashboard.
+      setTimeout(() => router.push(planCode === "agency" ? "/agency/dashboard" : "/dashboard"), 1500);
     }
   }
 
