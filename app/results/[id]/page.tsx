@@ -3,6 +3,7 @@ import { Nav } from "@/components/Nav";
 import { FlagDetail } from "@/components/FlagDetail";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { getAccessibleBusinessIds } from "@/lib/agency";
 import { notFound, redirect } from "next/navigation";
 
 const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
@@ -17,12 +18,14 @@ export default async function ResultsPage({ params }: { params: { id: string } }
     redirect("/login");
   }
 
-  // Scoped to this business from the query itself — a signed-in user can
-  // never even learn whether a submission id belonging to someone else's
-  // business exists (see the same pattern in processing/[id]/page.tsx and
-  // results/[id]/pdf/page.tsx).
+  // Scoped to every business id this session may act on — itself, plus any
+  // clinic it manages in Agency mode (see lib/agency.ts) — from the query
+  // itself, so a signed-in user can never even learn whether a submission
+  // id belonging to someone else's business exists (same pattern in
+  // processing/[id]/page.tsx and results/[id]/pdf/page.tsx).
+  const accessibleIds = await getAccessibleBusinessIds(business.id);
   const [submission] = await sql`
-    SELECT * FROM submissions WHERE id = ${params.id} AND business_id = ${business.id}
+    SELECT * FROM submissions WHERE id = ${params.id} AND business_id = ANY(${accessibleIds}::uuid[])
   `;
   if (!submission) notFound();
 
