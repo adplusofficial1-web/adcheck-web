@@ -47,7 +47,7 @@ export default async function LandingPage() {
           >
             เริ่มตรวจสอบฟรี
           </Link>
-          <Link href="/pricing" className="text-[15px] text-primary underline">
+          <Link href="/case-studies" className="text-[15px] text-primary underline">
             ดูตัวอย่างผลตรวจ →
           </Link>
         </div>
