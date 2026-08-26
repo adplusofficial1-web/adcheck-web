@@ -15,7 +15,13 @@ function initials(name: string) {
 // — billing itself is NOT handled here (per-clinic top-up goes through the
 // existing /checkout?business=<id> flow, same as a clinic buying for
 // itself) so this card only edits the clinic's profile fields.
-export function ClinicSettingsCard({ clinic }: { clinic: ChildClinic }) {
+export function ClinicSettingsCard({
+  clinic,
+  checksThisMonth,
+}: {
+  clinic: ChildClinic;
+  checksThisMonth?: number;
+}) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
@@ -196,7 +202,11 @@ export function ClinicSettingsCard({ clinic }: { clinic: ChildClinic }) {
             {clinic.price_thb ? `${Number(clinic.price_thb).toLocaleString()} บาท / รอบ` : "—"}
             {clinic.monthly_image_credits ? ` · ${clinic.monthly_image_credits} เครดิต/รอบ` : ""}
           </div>
-          <div className="text-xs text-secondary mt-1">เครดิตคงเหลือ {clinic.credits_remaining} ครั้ง</div>
+          <div className="text-xs text-secondary mt-1">
+            {checksThisMonth !== undefined
+              ? `ตรวจแล้วเดือนนี้ ${checksThisMonth} ครั้ง`
+              : `เครดิตคงเหลือ ${clinic.credits_remaining} ครั้ง`}
+          </div>
         </div>
         <Link
           href={`/checkout?business=${clinic.id}`}
