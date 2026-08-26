@@ -175,7 +175,7 @@ export function getPlanCycleStatus(business: {
 }
 
 // Whether this account's OWN plan unlocks uploading on behalf of the
-// clinics it manages in Agency mode — gates the per-clinic "+ อัปโหลด"
+// clinics it manages in Agency mode — gates the per-clinic "+ อัพโหลด"
 // buttons on /agency/dashboard and the ?business= path in
 // app/upload/page.tsx + app/api/submissions/route.ts. Requires the
 // *signed-in* account itself (never a child clinic — see the callers,
