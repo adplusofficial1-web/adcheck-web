@@ -128,7 +128,7 @@ export function Nav({ credits }: { credits?: number }) {
             <ModeToggle isAgency={isAgency} />
             {/* No single business id to upload against in Agency mode —
                 each clinic card on /agency/dashboard has its own "+
-                อัปโหลด" button instead. This global shortcut used to point
+                อัพโหลด" button instead. This global shortcut used to point
                 back at /agency/dashboard, which did nothing when someone
                 was already there (e.g. right after adding a clinic) and
                 looked like a dead button. */}
@@ -137,7 +137,7 @@ export function Nav({ credits }: { credits?: number }) {
                 href="/upload"
                 className="rounded-md bg-white text-inverse px-4 py-2 text-sm font-medium whitespace-nowrap hover:bg-white/90"
               >
-                + อัปโหลด
+                + อัพโหลด
               </Link>
             )}
             {typeof credits === "number" && (
