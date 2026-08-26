@@ -146,3 +146,56 @@ export async function getRecentImagesByBusiness(
   for (const r of rows) byBusiness.get(r.business_id)?.push(r);
   return byBusiness;
 }
+
+export type PlanCycleStatus = {
+  // Whether the account is currently inside a paid 30-day cycle at all
+  // (any plan, not just the Agency one) — see daysRemaining below.
+  withinCycle: boolean;
+  isAgencyPlan: boolean;
+  // Days left until credits_reset_at, ceil()'d so "today" still reads as
+  // at least 1. 0 or negative means the cycle has lapsed. null means the
+  // account has never completed a purchase (credits_reset_at was never
+  // set — see the DEFAULT-only row created at signup in
+  // lib/db.ts:createBusinessForEmail).
+  daysRemaining: number | null;
+};
+
+export function getPlanCycleStatus(business: {
+  plan_code?: string | null;
+  credits_reset_at?: string | Date | null;
+}): PlanCycleStatus {
+  const isAgencyPlan = business.plan_code === "agency";
+  let daysRemaining: number | null = null;
+  if (business.credits_reset_at) {
+    const ms = new Date(business.credits_reset_at).getTime() - Date.now();
+    daysRemaining = Math.ceil(ms / (1000 * 60 * 60 * 24));
+  }
+  const withinCycle = daysRemaining !== null && daysRemaining > 0;
+  return { withinCycle, isAgencyPlan, daysRemaining };
+}
+
+// Whether this account's OWN plan unlocks uploading on behalf of the
+// clinics it manages in Agency mode — gates the per-clinic "+ อัปโหลด"
+// buttons on /agency/dashboard and the ?business= path in
+// app/upload/page.tsx + app/api/submissions/route.ts. Requires the
+// *signed-in* account itself (never a child clinic — see the callers,
+// which always pass the signed-in `business`, not `target`) to be on the
+// code='agency' plan (the "หลายสาขา / Agency" row in `plans`, bought like
+// any other package via /checkout?plan=agency) with a 30-day cycle that
+// hasn't lapsed yet.
+//
+// A child clinic's own separate package (bought via
+// /checkout?business=<clinic id>, see components/agency/ClinicSettingsCard)
+// is a different, unrelated billing track — it still governs that clinic's
+// own credits_remaining regardless of whether the agency itself is on an
+// active Agency plan. Both have to hold for an upload to actually go
+// through: the agency plan unlocks the *button*, the clinic's own credits
+// pay for the *review* (see app/api/submissions/route.ts's separate
+// `credits_remaining < images.length` check).
+export function hasActiveAgencyPlan(business: {
+  plan_code?: string | null;
+  credits_reset_at?: string | Date | null;
+}): boolean {
+  const status = getPlanCycleStatus(business);
+  return status.isAgencyPlan && status.withinCycle;
+}
