@@ -116,13 +116,13 @@ export function ProcessingScreen({
           <div className="rounded-lg border border-border bg-dangerSoft px-6 py-8 text-center">
             <p className="text-danger font-medium mb-2">การตรวจสอบไม่สำเร็จ</p>
             <p className="text-sm text-secondary mb-5">
-              เกิดข้อผิดพลาดระหว่างประมวลผล เครดิตของคุณยังไม่ถูกหักในรอบนี้ ลองอัปโหลดใหม่อีกครั้ง
+              เกิดข้อผิดพลาดระหว่างประมวลผล เครดิตของคุณยังไม่ถูกหักในรอบนี้ ลองอัพโหลดใหม่อีกครั้ง
             </p>
             <a
               href="/upload"
               className="inline-block rounded-md bg-inverse text-onInverse px-6 py-3 text-sm font-medium"
             >
-              กลับไปหน้าอัปโหลด
+              กลับไปหน้าอัพโหลด
             </a>
           </div>
         ) : (
