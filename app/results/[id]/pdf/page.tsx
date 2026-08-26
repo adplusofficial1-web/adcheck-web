@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { notFound, redirect } from "next/navigation";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { getAccessibleBusinessIds } from "@/lib/agency";
 import { AutoPrint } from "@/components/AutoPrint";
 
 const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
@@ -28,11 +29,15 @@ export default async function ResultsPdfPage({ params }: { params: { id: string 
     redirect("/login");
   }
 
-  // Scoped to this business from the query itself — this route previously
-  // had no ownership check at all, so any signed-in user who guessed a
-  // submission id could open (and print/save) another business's report.
+  // Scoped to every business id this session may act on — itself, plus any
+  // clinic it manages in Agency mode (see lib/agency.ts) — from the query
+  // itself. This route previously had no ownership check at all, so any
+  // signed-in user who guessed a submission id could open (and print/save)
+  // another business's report (same pattern in results/[id]/page.tsx and
+  // processing/[id]/page.tsx).
+  const accessibleIds = await getAccessibleBusinessIds(business.id);
   const [submission] = await sql`
-    SELECT * FROM submissions WHERE id = ${params.id} AND business_id = ${business.id}
+    SELECT * FROM submissions WHERE id = ${params.id} AND business_id = ANY(${accessibleIds}::uuid[])
   `;
   if (!submission) notFound();
 
