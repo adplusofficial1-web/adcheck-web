@@ -47,7 +47,7 @@ export async function getBusinessByEmail(email: string) {
 // Provisions a new business the moment a Google account is first seen —
 // called from lib/currentBusiness.ts:getCurrentBusiness() when no existing
 // row matches the session's email. `credits_remaining` is intentionally
-// left out of the INSERT — the businesses table defaults it to 5, which is
+// left out of the INSERT — the businesses table defaults it to 15, which is
 // exactly the free-credit welcome bonus every new Google account should
 // start with. ON CONFLICT DO NOTHING + the UNIQUE constraint on
 // contact_email make this safe under concurrent calls (e.g. two tabs
