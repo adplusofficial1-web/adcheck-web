@@ -78,6 +78,6 @@ export async function POST(req: Request) {
     // error with no hint of what actually broke. A real JSON error body
     // here at least surfaces the actual message instead.
     console.error("POST /api/admin/knowledge-base/upload failed:", e);
-    return NextResponse.json({ error: e?.message || "อัปโหลดไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "อัพโหลดไม่สำเร็จ" }, { status: 500 });
   }
 }
