@@ -145,7 +145,7 @@ function AddRuleForm({ onCreated }: { onCreated: () => void }) {
               mode === m ? "bg-inverse text-onInverse" : "text-secondary"
             }`}
           >
-            {m === "text" ? "พิมพ์/วางข้อความ" : "อัปโหลดไฟล์ (PDF/DOCX/TXT)"}
+            {m === "text" ? "พิมพ์/วางข้อความ" : "อัพโหลดไฟล์ (PDF/DOCX/TXT)"}
           </button>
         ))}
       </div>
