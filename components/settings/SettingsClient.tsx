@@ -37,12 +37,32 @@ type Invoice = {
   invoice_number: string;
   created_at: string;
   amount_thb: string | number;
+  channel: string | null;
+  status: string;
+  plan_name: string | null;
+  plan_code: string | null;
 };
 
 const TYPE_LABEL: Record<string, string> = {
   clinic: "คลินิกเดี่ยว",
   agency: "เครือข่าย / เอเจนซี่",
 };
+
+// Status values are the Thai strings the DB itself uses (see
+// app/api/checkout/route.ts and the transactions_status_check
+// constraint) — no separate English enum to keep in sync.
+const STATUS_STYLE: Record<string, string> = {
+  สำเร็จ: "bg-accentSoft text-accent",
+  รอดำเนินการ: "bg-warningSoft text-warning",
+  ล้มเหลว: "bg-dangerSoft text-danger",
+};
+
+// Whole days left until `resetAt`, ceil()'d so "later today" still reads
+// as at least 1 day. 0 or negative means the 30-day cycle from the last
+// purchase has already lapsed.
+function daysRemaining(resetAt: string): number {
+  return Math.ceil((new Date(resetAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -254,12 +274,19 @@ export function SettingsClient({
               {business.price_thb ? `${Number(business.price_thb).toLocaleString()} บาท / เดือน` : "—"}
               {business.monthly_image_credits ? `  ·  ${business.monthly_image_credits} เครดิต/เดือน` : ""}
             </div>
-            {business.credits_reset_at && (
-              <div className="text-xs text-secondary mt-1">
-                เครดิตจะรีเซ็ตรอบถัดไปวันที่{" "}
-                {new Date(business.credits_reset_at).toLocaleDateString("th-TH")}
-              </div>
-            )}
+            {business.credits_reset_at && (() => {
+              const remaining = daysRemaining(business.credits_reset_at!);
+              const expired = remaining <= 0;
+              return (
+                <div className={`text-xs mt-1 ${expired ? "text-danger font-medium" : "text-secondary"}`}>
+                  {expired
+                    ? `แพ็กเกจหมดอายุแล้ว — กรุณาต่ออายุ`
+                    : `เหลืออีก ${remaining} วัน — เครดิตจะรีเซ็ตรอบถัดไปวันที่ ${new Date(
+                        business.credits_reset_at
+                      ).toLocaleDateString("th-TH")}`}
+                </div>
+              );
+            })()}
           </div>
           <div className="rounded-lg bg-accentSoft px-6 py-3.5 text-center shrink-0">
             <div className="text-2xl font-medium text-accent">{business.credits_remaining}</div>
@@ -350,17 +377,41 @@ export function SettingsClient({
         </button>
       </section>
 
-      {/* ---------- Invoice history (read-only) ---------- */}
+      {/* ---------- Payment history (read-only) ---------- */}
       <section className="border border-border rounded-lg p-6">
-        <div className="text-sm font-medium mb-4">ประวัติใบกำกับภาษี</div>
+        <div className="mb-4">
+          <div className="text-sm font-medium">ประวัติการชำระเงิน</div>
+          <p className="text-xs text-secondary mt-0.5">ทุกรายการแพ็กเกจที่ซื้อ เรียงจากล่าสุด</p>
+        </div>
         {invoices.length === 0 && <p className="text-sm text-secondary">ยังไม่มีรายการ</p>}
         <div className="space-y-2">
           {invoices.map((t) => (
-            <div key={t.id} className="flex items-center justify-between text-sm">
-              <span>
-                {t.invoice_number} · {new Date(t.created_at).toLocaleDateString("th-TH")}
-              </span>
-              <span>{Number(t.amount_thb).toLocaleString()} บาท</span>
+            <div key={t.id} className="rounded-md bg-page px-4 py-3">
+              <div className="flex items-start justify-between gap-3 mb-1.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">
+                    {t.plan_name ? `แพ็ก${t.plan_name}` : "แพ็กเกจ"}
+                  </div>
+                  <div className="text-xs text-tertiary">
+                    {t.invoice_number} ·{" "}
+                    {new Date(t.created_at).toLocaleString("th-TH", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-sm font-medium">{Number(t.amount_thb).toLocaleString()} บาท</div>
+                  <span
+                    className={`inline-block mt-1 rounded-pill text-[11px] font-medium px-2 py-0.5 ${
+                      STATUS_STYLE[t.status] || "bg-page text-secondary"
+                    }`}
+                  >
+                    {t.status}
+                  </span>
+                </div>
+              </div>
+              {t.channel && <div className="text-xs text-tertiary">ช่องทาง: {t.channel}</div>}
             </div>
           ))}
         </div>
