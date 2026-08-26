@@ -4,7 +4,12 @@ import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { AddClinicModal } from "@/components/agency/AddClinicModal";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
-import { getChildClinics, getClinicMonthlyStats, getRecentImagesByBusiness } from "@/lib/agency";
+import {
+  getChildClinics,
+  getClinicMonthlyStats,
+  getRecentImagesByBusiness,
+  hasActiveAgencyPlan,
+} from "@/lib/agency";
 
 const STATUS_LABEL: Record<string, string> = {
   passed: "ผ่าน",
@@ -36,6 +41,11 @@ export default async function AgencyDashboardPage() {
 
   const clinics = await getChildClinics(business.id);
   const ids = clinics.map((c) => c.id);
+  // Gates the "+ อัปโหลด" button on every clinic card below — see
+  // lib/agency.ts:hasActiveAgencyPlan. Only the upload action is gated;
+  // everything else here (viewing stats, adding clinics, drilling into
+  // history/settings) stays available regardless.
+  const agencyPlanActive = hasActiveAgencyPlan(business);
   const [stats, recent] = await Promise.all([
     getClinicMonthlyStats(ids),
     getRecentImagesByBusiness(ids, 1),
@@ -67,6 +77,24 @@ export default async function AgencyDashboardPage() {
         <p className="text-sm text-secondary mb-8">
           ภาพรวมลูกค้าทั้งหมด {clinics.length} คลินิก — เครดิตและผลตรวจของแต่ละที่แยกจากกัน
         </p>
+
+        {!agencyPlanActive && (
+          <div className="rounded-lg border border-warning bg-warningSoft p-5 mb-8 flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-sm font-medium mb-1">ยังไม่ได้สมัครแพ็กเกจ Agency</p>
+              <p className="text-sm text-secondary">
+                บัญชีนี้ยังไม่ได้สมัคร หรือแพ็กเกจ Agency (หลายสาขา) หมดอายุแล้ว — สมัครหรือต่ออายุเพื่อปลดล็อกปุ่ม
+                &quot;อัปโหลด&quot; ให้ทุกคลินิกในเครือข่ายด้านล่าง
+              </p>
+            </div>
+            <Link
+              href="/checkout?plan=agency"
+              className="shrink-0 rounded-md bg-inverse text-onInverse px-4 py-2.5 text-sm font-medium"
+            >
+              สมัคร/ต่ออายุ →
+            </Link>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="border border-border rounded-lg p-5">
@@ -124,12 +152,25 @@ export default async function AgencyDashboardPage() {
                         <div className="text-xs truncate text-secondary">{c.contact_email || "ยังไม่มีอีเมลติดต่อ"}</div>
                       </div>
                     </div>
-                    <Link
-                      href={`/upload?business=${c.id}`}
-                      className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium bg-inverse text-onInverse"
-                    >
-                      + อัปโหลด
-                    </Link>
+                    {agencyPlanActive ? (
+                      <Link
+                        href={`/upload?business=${c.id}`}
+                        className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium bg-inverse text-onInverse"
+                      >
+                        + อัปโหลด
+                      </Link>
+                    ) : (
+                      // No active Agency plan on this account — points at
+                      // checkout instead of upload, same as the banner
+                      // above, rather than being a dead disabled button.
+                      <Link
+                        href="/checkout?plan=agency"
+                        title="ต้องสมัครแพ็กเกจ Agency ก่อนอัปโหลดให้คลินิกในเครือข่าย"
+                        className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium border border-border text-secondary"
+                      >
+                        🔒 อัปโหลด
+                      </Link>
+                    )}
                   </div>
                   <div className="flex items-center justify-between text-xs mb-4">
                     <span className="text-secondary">เครดิตคงเหลือ</span>
