@@ -156,12 +156,16 @@ export default async function AgencyDashboardPage() {
                       </div>
                     </div>
                     <Link
-                      href={agencyPlanActive ? `/upload?business=${c.id}` : "/checkout?plan=agency"}
+                      href={agencyPlanActive ? `/agency/upload?business=${c.id}` : "/checkout?plan=agency"}
                       // No active Agency plan on this account — this points
                       // at checkout instead of upload, same as the banner
                       // above, but keeps the exact same look as the normal
                       // upload button (no lock icon / muted styling) rather
                       // than visibly marking it as disabled.
+                      //
+                      // CHANGE: points at /agency/upload (not /upload) so
+                      // clicking this stays in Agency-mode Nav chrome — see
+                      // app/agency/upload/page.tsx.
                       title={agencyPlanActive ? undefined : "ต้องสมัครแพ็กเกจ Agency ก่อนอัปโหลดให้คลินิกในเครือข่าย"}
                       className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium bg-inverse text-onInverse"
                     >
