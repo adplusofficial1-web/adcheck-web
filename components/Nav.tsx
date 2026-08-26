@@ -12,8 +12,11 @@ import { signOut } from "next-auth/react";
 // Every clickable item has an /agency-prefixed twin — Nav() below picks the
 // right list based on whether the current page is in Agency mode (see
 // ModeToggle), so switching modes keeps the same tab layout pointed at the
-// right screens. "บทความ" and "ราคาแพ็กเกจ" aren't clinic-specific, so both
-// lists point them at the same shared pages.
+// right screens. "บทความ" and "ราคาแพ็กเกจ" render identical content in
+// both modes (see components/articles/ArticlesListContent.tsx and
+// app/agency/pricing/page.tsx), but still get their own /agency-prefixed
+// routes — otherwise clicking them from Agency mode would navigate to a
+// non-/agency page and Nav would silently fall back to Clinic-mode chrome.
 const CLINIC_MENU_ITEMS: { href: string | null; label: string }[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/articles", label: "บทความ" },
@@ -24,10 +27,10 @@ const CLINIC_MENU_ITEMS: { href: string | null; label: string }[] = [
 ];
 const AGENCY_MENU_ITEMS: { href: string | null; label: string }[] = [
   { href: "/agency/dashboard", label: "Dashboard" },
-  { href: "/articles", label: "บทความ" },
+  { href: "/agency/articles", label: "บทความ" },
   { href: null, label: "เกี่ยวกับ" },
   { href: "/agency/history", label: "ประวัติ" },
-  { href: "/pricing", label: "ราคาแพ็กเกจ" },
+  { href: "/agency/pricing", label: "ราคาแพ็กเกจ" },
   { href: "/agency/settings", label: "ตั้งค่า" },
 ];
 
@@ -128,7 +131,7 @@ export function Nav({ credits }: { credits?: number }) {
             <ModeToggle isAgency={isAgency} />
             {/* No single business id to upload against in Agency mode —
                 each clinic card on /agency/dashboard has its own "+
-                อัพโหลด" button instead. This global shortcut used to point
+                อัปโหลด" button instead. This global shortcut used to point
                 back at /agency/dashboard, which did nothing when someone
                 was already there (e.g. right after adding a clinic) and
                 looked like a dead button. */}
@@ -137,7 +140,7 @@ export function Nav({ credits }: { credits?: number }) {
                 href="/upload"
                 className="rounded-md bg-white text-inverse px-4 py-2 text-sm font-medium whitespace-nowrap hover:bg-white/90"
               >
-                + อัพโหลด
+                + อัปโหลด
               </Link>
             )}
             {typeof credits === "number" && (
