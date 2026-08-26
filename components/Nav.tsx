@@ -7,7 +7,8 @@ import { signOut } from "next-auth/react";
 // href: null means the page for that section doesn't exist yet — the item
 // shows in the menu (per the requested layout) but isn't clickable, so it
 // never points people at a 404. Flip it to a real path once that page is
-// built, and it'll automatically become a normal link.
+// built, and it'll automatically become a normal link. ("เกี่ยวกับ" was the
+// last item using this — now wired to /about and /agency/about.)
 //
 // Every clickable item has an /agency-prefixed twin — Nav() below picks the
 // right list based on whether the current page is in Agency mode (see
@@ -20,7 +21,7 @@ import { signOut } from "next-auth/react";
 const CLINIC_MENU_ITEMS: { href: string | null; label: string }[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/articles", label: "บทความ" },
-  { href: null, label: "เกี่ยวกับ" },
+  { href: "/about", label: "เกี่ยวกับ" },
   { href: "/history", label: "ประวัติ" },
   { href: "/pricing", label: "ราคาแพ็กเกจ" },
   { href: "/settings", label: "ตั้งค่า" },
@@ -28,7 +29,7 @@ const CLINIC_MENU_ITEMS: { href: string | null; label: string }[] = [
 const AGENCY_MENU_ITEMS: { href: string | null; label: string }[] = [
   { href: "/agency/dashboard", label: "Dashboard" },
   { href: "/agency/articles", label: "บทความ" },
-  { href: null, label: "เกี่ยวกับ" },
+  { href: "/agency/about", label: "เกี่ยวกับ" },
   { href: "/agency/history", label: "ประวัติ" },
   { href: "/agency/pricing", label: "ราคาแพ็กเกจ" },
   { href: "/agency/settings", label: "ตั้งค่า" },
