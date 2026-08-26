@@ -127,7 +127,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
           </a>
           <button className="rounded-md border border-border px-4 py-2 text-sm">แชร์ลิงก์</button>
           <a href="/upload" className="rounded-md bg-inverse text-onInverse px-4 py-2 text-sm ml-auto">
-            + อัปโหลดชุดใหม่
+            + อัพโหลดชุดใหม่
           </a>
         </div>
       </div>
