@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
-import { getBusinessByIdForOwner } from "@/lib/agency";
+import { getBusinessByIdForOwner, hasActiveAgencyPlan } from "@/lib/agency";
 import { reviewImage } from "@/lib/reviewImage";
 
 type IncomingImage = {
@@ -33,6 +33,18 @@ export async function POST(req: Request) {
   const target = targetId ? await getBusinessByIdForOwner(targetId, business.id) : business;
   if (!target) {
     return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
+  }
+  // Uploading on behalf of a child clinic (targetId set and it isn't the
+  // signed-in account itself) additionally requires the AGENCY account's
+  // own package to be an active code='agency' plan — see
+  // lib/agency.ts:hasActiveAgencyPlan. Checked here too (not just hidden
+  // in the UI) so a direct POST can't bypass it. The target clinic's own
+  // credits_remaining check right below still applies on top of this.
+  if (targetId && target.id !== business.id && !hasActiveAgencyPlan(business)) {
+    return NextResponse.json(
+      { error: "บัญชีของคุณยังไม่ได้สมัคร หรือแพ็กเกจ Agency หมดอายุแล้ว กรุณาสมัคร/ต่ออายุก่อนอัปโหลดให้คลินิกในเครือข่าย" },
+      { status: 402 }
+    );
   }
   if (target.credits_remaining < images.length) {
     return NextResponse.json({ error: "insufficient credits" }, { status: 402 });
