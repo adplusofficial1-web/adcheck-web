@@ -5,6 +5,19 @@ import { sql } from "@/lib/db";
 // RULES_CONTEXT string. See migrations/002_compliance_rules.sql for the
 // schema this file assumes (already applied to the production Neon
 // project — see that file's header comment).
+//
+// source_file_base64/source_file_mime (added later, see
+// migrations/004_add_source_file_columns.sql) hold the ORIGINAL uploaded
+// document bytes (base64-encoded) so an admin can re-download exactly what
+// was uploaded — separate from `content`, which is the extracted text used
+// for search/review. Stored as base64 TEXT rather than a `bytea` column on
+// purpose: it avoids any ambiguity in how @neondatabase/serverless
+// serializes binary columns over its HTTP protocol, at the cost of ~33%
+// more storage — fine for legal documents, typically well under a few MB.
+// Every query below spells out its column list explicitly (never `SELECT
+// *`) so these two potentially-large columns are only ever fetched by
+// getComplianceRuleFile(), used solely by the download route — listing or
+// searching the knowledge base never has to move multi-megabyte blobs.
 
 export type ComplianceRule = {
   id: string;
@@ -13,6 +26,7 @@ export type ComplianceRule = {
   content: string;
   source_type: "manual" | "upload";
   source_filename: string | null;
+  has_file: boolean;
   always_include: boolean;
   is_active: boolean;
   created_by: string | null;
@@ -33,13 +47,22 @@ export async function listComplianceRules(opts: { q?: string } = {}): Promise<Co
   const q = opts.q?.trim();
   if (!q) {
     const rows = await sql`
-      SELECT *, 0::float8 AS score FROM compliance_rules
+      SELECT
+        id, title, category, content, source_type, source_filename, always_include,
+        is_active, created_by, created_at, updated_at,
+        (source_file_base64 IS NOT NULL) AS has_file,
+        0::float8 AS score
+      FROM compliance_rules
       ORDER BY created_at DESC
     `;
     return rows as ComplianceRuleMatch[];
   }
   const rows = await sql`
-    SELECT *, word_similarity(${q}, search_blob) AS score
+    SELECT
+      id, title, category, content, source_type, source_filename, always_include,
+      is_active, created_by, created_at, updated_at,
+      (source_file_base64 IS NOT NULL) AS has_file,
+      word_similarity(${q}, search_blob) AS score
     FROM compliance_rules
     ORDER BY score DESC, created_at DESC
   `;
@@ -47,8 +70,31 @@ export async function listComplianceRules(opts: { q?: string } = {}): Promise<Co
 }
 
 export async function getComplianceRule(id: string): Promise<ComplianceRule | null> {
-  const rows = await sql`SELECT * FROM compliance_rules WHERE id = ${id}`;
+  const rows = await sql`
+    SELECT
+      id, title, category, content, source_type, source_filename, always_include,
+      is_active, created_by, created_at, updated_at,
+      (source_file_base64 IS NOT NULL) AS has_file
+    FROM compliance_rules WHERE id = ${id}
+  `;
   return (rows[0] as ComplianceRule) ?? null;
+}
+
+// Fetches ONLY the original uploaded file's bytes (base64) + mime +
+// filename for a single row — used exclusively by the download route
+// (app/api/admin/knowledge-base/[id]/file/route.ts). Kept separate from
+// getComplianceRule() so nothing else ever accidentally pulls a
+// multi-megabyte base64 blob into memory.
+export async function getComplianceRuleFile(
+  id: string
+): Promise<{ base64: string; mime: string | null; filename: string | null } | null> {
+  const rows = await sql`
+    SELECT source_file_base64, source_file_mime, source_filename
+    FROM compliance_rules WHERE id = ${id}
+  `;
+  const row = rows[0] as any;
+  if (!row || !row.source_file_base64) return null;
+  return { base64: row.source_file_base64, mime: row.source_file_mime, filename: row.source_filename };
 }
 
 export async function createComplianceRule(input: {
@@ -57,22 +103,29 @@ export async function createComplianceRule(input: {
   content: string;
   sourceType: "manual" | "upload";
   sourceFilename?: string | null;
+  fileBase64?: string | null;
+  fileMime?: string | null;
   alwaysInclude?: boolean;
   createdBy?: string | null;
 }): Promise<ComplianceRule> {
   const rows = await sql`
     INSERT INTO compliance_rules
-      (title, category, content, source_type, source_filename, always_include, created_by)
+      (title, category, content, source_type, source_filename, source_file_base64, source_file_mime, always_include, created_by)
     VALUES (
       ${input.title},
       ${input.category ?? null},
       ${input.content},
       ${input.sourceType},
       ${input.sourceFilename ?? null},
+      ${input.fileBase64 ?? null},
+      ${input.fileMime ?? null},
       ${input.alwaysInclude ?? false},
       ${input.createdBy ?? null}
     )
-    RETURNING *
+    RETURNING
+      id, title, category, content, source_type, source_filename, always_include,
+      is_active, created_by, created_at, updated_at,
+      (source_file_base64 IS NOT NULL) AS has_file
   `;
   return rows[0] as ComplianceRule;
 }
@@ -102,7 +155,10 @@ export async function updateComplianceRule(
       is_active = COALESCE(${patch.isActive ?? null}, is_active),
       updated_at = now()
     WHERE id = ${id}
-    RETURNING *
+    RETURNING
+      id, title, category, content, source_type, source_filename, always_include,
+      is_active, created_by, created_at, updated_at,
+      (source_file_base64 IS NOT NULL) AS has_file
   `;
   return (rows[0] as ComplianceRule) ?? null;
 }
@@ -145,7 +201,12 @@ export async function searchComplianceRules(
   // score of a short or missing caption.
   if (!query) {
     const rows = await sql`
-      SELECT *, 1::float8 AS score FROM compliance_rules
+      SELECT
+        id, title, category, content, source_type, source_filename, always_include,
+        is_active, created_by, created_at, updated_at,
+        (source_file_base64 IS NOT NULL) AS has_file,
+        1::float8 AS score
+      FROM compliance_rules
       WHERE is_active = true AND always_include = true
       ORDER BY created_at DESC
     `;
@@ -154,10 +215,20 @@ export async function searchComplianceRules(
 
   const rows = await sql`
     SELECT * FROM (
-      SELECT *, 1::float8 AS score FROM compliance_rules
+      SELECT
+        id, title, category, content, source_type, source_filename, always_include,
+        is_active, created_by, created_at, updated_at,
+        (source_file_base64 IS NOT NULL) AS has_file,
+        1::float8 AS score
+      FROM compliance_rules
       WHERE is_active = true AND always_include = true
       UNION ALL
-      SELECT *, word_similarity(${query}, search_blob) AS score FROM compliance_rules
+      SELECT
+        id, title, category, content, source_type, source_filename, always_include,
+        is_active, created_by, created_at, updated_at,
+        (source_file_base64 IS NOT NULL) AS has_file,
+        word_similarity(${query}, search_blob) AS score
+      FROM compliance_rules
       WHERE is_active = true AND always_include = false
         AND word_similarity(${query}, search_blob) >= ${MIN_SCORE}
       ORDER BY score DESC
