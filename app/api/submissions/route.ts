@@ -25,10 +25,10 @@ export async function POST(req: Request) {
   }
 
   // body.businessId lets an Agency account upload on behalf of a clinic it
-  // manages (see app/upload/page.tsx's ?business= param) instead of always
-  // reviewing against the signed-in account's own credits/history.
-  // getBusinessByIdForOwner only resolves ids that are the signed-in
-  // business itself or one of its child clinics.
+  // manages (see app/upload/page.tsx's ?business= param). `target` only
+  // affects WHICH clinic the submission/history row is attributed to —
+  // billing is separate (see below). getBusinessByIdForOwner only resolves
+  // ids that are the signed-in business itself or one of its child clinics.
   const targetId = typeof body.businessId === "string" ? body.businessId : undefined;
   const target = targetId ? await getBusinessByIdForOwner(targetId, business.id) : business;
   if (!target) {
@@ -38,15 +38,21 @@ export async function POST(req: Request) {
   // signed-in account itself) additionally requires the AGENCY account's
   // own package to be an active code='agency' plan — see
   // lib/agency.ts:hasActiveAgencyPlan. Checked here too (not just hidden
-  // in the UI) so a direct POST can't bypass it. The target clinic's own
-  // credits_remaining check right below still applies on top of this.
+  // in the UI) so a direct POST can't bypass it.
   if (targetId && target.id !== business.id && !hasActiveAgencyPlan(business)) {
     return NextResponse.json(
       { error: "บัญชีของคุณยังไม่ได้สมัคร หรือแพ็กเกจ Agency หมดอายุแล้ว กรุณาสมัคร/ต่ออายุก่อนอัปโหลดให้คลินิกในเครือข่าย" },
       { status: 402 }
     );
   }
-  if (target.credits_remaining < images.length) {
+  // Billing is always against the SIGNED-IN business, never `target`. A
+  // child clinic has no package of its own any more — every review across
+  // every clinic in an agency's network draws from the agency's own
+  // credits_remaining (funded by its single code='agency' package
+  // purchase). When target === business (a solo clinic reviewing its own
+  // ad, or an agency reviewing for itself) this is the same row anyway, so
+  // nothing changes for that case.
+  if (business.credits_remaining < images.length) {
     return NextResponse.json({ error: "insufficient credits" }, { status: 402 });
   }
 
@@ -76,7 +82,9 @@ export async function POST(req: Request) {
   // that loop throwing (e.g. the final UPDATE queries below failing), which
   // would otherwise become an unhandled promise rejection that can crash
   // the Node process.
-  processSubmissionImages(submission.id, target, images).catch(async (e) => {
+  // Pass `business` (not `target`) — see the billing comment above:
+  // credits are always deducted from the signed-in account's own row.
+  processSubmissionImages(submission.id, business, images).catch(async (e) => {
     console.error(`processSubmissionImages crashed for submission ${submission.id}:`, e);
     try {
       await sql`UPDATE submissions SET status = 'failed' WHERE id = ${submission.id}`;
@@ -144,7 +152,7 @@ async function processSubmissionImages(
             detailed_explanation: `การเรียกระบบ AI เพื่อตรวจสอบภาพนี้ล้มเหลว (${
               e?.message || "ไม่ทราบสาเหตุ"
             }) จึงยังไม่ได้ตรวจสอบเนื้อหาจริงตามกฎหมาย/ระเบียบที่เกี่ยวข้อง ผลที่แสดงนี้ไม่ใช่ผลตรวจสอบที่สมบูรณ์`,
-            suggested_correction: "กรุณาส่งภาพนี้ตรวจใหม่อีกครั้ง หากยังล้มเหลวซ้ำให้ติดต่อทีมงาน",
+            suggested_correction: "กรุณาส่งภาพนี้ตรวจใหม่อีกครั้ง หากยังล้มเหลวซ้ำให้ติดต่อทีมขาน",
           },
         ],
       };
@@ -188,10 +196,10 @@ async function processSubmissionImages(
           legal_ref: "-",
           severity: derivedStatus === "violation" ? "ห้ามเด็ดขาด" : "ควรระวัง",
           confidence_level: "ต่ำ",
-          topic: "AI ระบุว่าพบความเสี่ยงแต่ไม่ได้ระบุรายละเอียด",
+          topic: "AI ระบุว่าพบความเสี่ยงแต่ไม่ได้ระบุรายละเอีฎ่าน",
           detailed_explanation:
             "ระบบ AI ประเมินว่าภาพนี้มีความเสี่ยงไม่ผ่านเกณฑ์ แต่ไม่ได้ระบุข้อความหรือจุดที่มีปัญหาอย่างเจาะจงในรอบนี้ " +
-            "จึงยังไม่สามารถแสดงเหตุผลและมาตรากฎหมายที่เกี่ยวข้องได้ครบถ้วน",
+            "จึงยังไม่สามารถแสดงเหตุผลและมาดรากฎหมายที่เกี่ววข้องได้ครบถ้วน",
           suggested_correction: "กรุณาให้เจ้าหน้าที่ตรวจสอบภาพนี้ด้วยตนเอง หรือกดส่งภาพนี้ตรวจซ้ำอีกครั้ง",
         } as any,
       ];
