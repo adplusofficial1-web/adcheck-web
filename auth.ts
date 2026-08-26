@@ -15,7 +15,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // (contact_email is UNIQUE) — see lib/currentBusiness.ts:
       // getCurrentBusiness(), which every page/API route calls to resolve
       // "whose data is this" from the session, lazily creating the business
-      // row (with its 5 free welcome credits) the first time a new email
+      // row (with its 15 free welcome credits) the first time a new email
       // is seen. That lookup deliberately isn't done here: this callback
       // runs as part of the middleware/edge auth bundle (middleware.ts
       // re-exports `auth` from this file), and lib/db.ts's Neon client is
