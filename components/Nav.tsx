@@ -8,7 +8,13 @@ import { signOut } from "next-auth/react";
 // shows in the menu (per the requested layout) but isn't clickable, so it
 // never points people at a 404. Flip it to a real path once that page is
 // built, and it'll automatically become a normal link.
-const MENU_ITEMS: { href: string | null; label: string }[] = [
+//
+// Every clickable item has an /agency-prefixed twin — Nav() below picks the
+// right list based on whether the current page is in Agency mode (see
+// ModeToggle), so switching modes keeps the same tab layout pointed at the
+// right screens. "บทความ" and "ราคาแพ็กเกจ" aren't clinic-specific, so both
+// lists point them at the same shared pages.
+const CLINIC_MENU_ITEMS: { href: string | null; label: string }[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/articles", label: "บทความ" },
   { href: null, label: "เกี่ยวกับ" },
@@ -16,6 +22,42 @@ const MENU_ITEMS: { href: string | null; label: string }[] = [
   { href: "/pricing", label: "ราคาแพ็กเกจ" },
   { href: "/settings", label: "ตั้งค่า" },
 ];
+const AGENCY_MENU_ITEMS: { href: string | null; label: string }[] = [
+  { href: "/agency/dashboard", label: "Dashboard" },
+  { href: "/articles", label: "บทความ" },
+  { href: null, label: "เกี่ยวกับ" },
+  { href: "/agency/history", label: "ประวัติ" },
+  { href: "/pricing", label: "ราคาแพ็กเกจ" },
+  { href: "/agency/settings", label: "ตั้งค่า" },
+];
+
+// Pill toggle for switching between the solo "คลินิก" view (this account's
+// own dashboard/history/settings) and "Agency" mode (managing a network of
+// clinics added under it — see lib/agency.ts). Every account can flip this;
+// there's no separate agency signup, becoming an agency is just adding a
+// clinic from /agency/dashboard.
+function ModeToggle({ isAgency }: { isAgency: boolean }) {
+  return (
+    <div className="hidden sm:flex items-center p-1 shrink-0 rounded-pill bg-white/10 border border-onInverse/30">
+      <Link
+        href="/dashboard"
+        className={`rounded-pill px-3 py-1 text-xs font-medium transition-colors ${
+          !isAgency ? "bg-white text-inverse" : "text-onInverse/75"
+        }`}
+      >
+        คลินิก
+      </Link>
+      <Link
+        href="/agency/dashboard"
+        className={`rounded-pill px-3 py-1 text-xs font-medium transition-colors ${
+          isAgency ? "bg-white text-inverse" : "text-onInverse/75"
+        }`}
+      >
+        Agency
+      </Link>
+    </div>
+  );
+}
 
 /**
  * Shared top nav for every logged-in app page (dashboard, history, pricing,
@@ -29,12 +71,20 @@ const MENU_ITEMS: { href: string | null; label: string }[] = [
  */
 export function Nav({ credits }: { credits?: number }) {
   const pathname = usePathname();
+  const isAgency = pathname?.startsWith("/agency") ?? false;
+  const menuItems = isAgency ? AGENCY_MENU_ITEMS : CLINIC_MENU_ITEMS;
+  // Agency mode has no single obvious upload/checkout target — those live
+  // per-clinic on the dashboard/settings cards instead — so the global nav
+  // shortcuts just route there rather than to a page that needs a business
+  // id it doesn't have.
+  const uploadHref = isAgency ? "/agency/dashboard" : "/upload";
+  const creditsHref = isAgency ? "/agency/settings" : "/checkout";
 
   function MenuLink({
     item,
     className,
   }: {
-    item: (typeof MENU_ITEMS)[number];
+    item: (typeof menuItems)[number];
     className: (active: boolean) => string;
   }) {
     if (!item.href) {
@@ -62,7 +112,7 @@ export function Nav({ credits }: { credits?: number }) {
 
         <div className="flex items-center gap-8 min-w-0">
           <div className="hidden md:flex items-center gap-6 text-sm">
-            {MENU_ITEMS.map((item) => (
+            {menuItems.map((item) => (
               <MenuLink
                 key={item.label}
                 item={item}
@@ -76,18 +126,19 @@ export function Nav({ credits }: { credits?: number }) {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
+            <ModeToggle isAgency={isAgency} />
             <Link
-              href="/upload"
+              href={uploadHref}
               className="rounded-md bg-white text-inverse px-4 py-2 text-sm font-medium whitespace-nowrap hover:bg-white/90"
             >
               + อัปโหลด
             </Link>
             {typeof credits === "number" && (
               <Link
-                href="/checkout"
+                href={creditsHref}
                 className="rounded-pill bg-white/10 border border-onInverse/30 px-4 py-2 text-sm whitespace-nowrap hover:bg-white/20"
               >
-                เครดิตคงเหลือ {credits}
+                {isAgency ? "เครดิตรวม" : "เครดิตคงเหลือ"} {credits}
               </Link>
             )}
             <button
@@ -122,14 +173,17 @@ export function Nav({ credits }: { credits?: number }) {
 
       {/* Small-screen menu: same items, wraps under the header row instead
           of being hidden, since there's no separate mobile nav component. */}
-      <div className="flex md:hidden flex-wrap gap-x-5 gap-y-2 text-sm mt-4">
-        {MENU_ITEMS.map((item) => (
-          <MenuLink
-            key={item.label}
-            item={item}
-            className={(active) => (active ? "text-onInverse font-medium" : "text-onInverse/70")}
-          />
-        ))}
+      <div className="flex md:hidden items-center justify-between gap-4 mt-4">
+        <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+          {menuItems.map((item) => (
+            <MenuLink
+              key={item.label}
+              item={item}
+              className={(active) => (active ? "text-onInverse font-medium" : "text-onInverse/70")}
+            />
+          ))}
+        </div>
+        <ModeToggle isAgency={isAgency} />
       </div>
     </nav>
   );
