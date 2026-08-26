@@ -41,7 +41,7 @@ export default async function AgencyDashboardPage() {
 
   const clinics = await getChildClinics(business.id);
   const ids = clinics.map((c) => c.id);
-  // Gates the "+ อัปโหลด" button on every clinic card below — see
+  // Gates the "+ อัพโหลด" button on every clinic card below — see
   // lib/agency.ts:hasActiveAgencyPlan. Only the upload action is gated;
   // everything else here (viewing stats, adding clinics, drilling into
   // history/settings) stays available regardless.
@@ -87,7 +87,7 @@ export default async function AgencyDashboardPage() {
               <p className="text-sm font-medium mb-1">ยังไม่ได้สมัครแพ็กเกจ Agency</p>
               <p className="text-sm text-secondary">
                 บัญชีนี้ยังไม่ได้สมัคร หรือแพ็กเกจ Agency (หลายสาขา) หมดอายุแล้ว — สมัครหรือต่ออายุเพื่อปลดล็อกปุ่ม
-                &quot;อัปโหลด&quot; ให้ทุกคลินิกในเครือข่ายด้านล่าง
+                &quot;อัพโหลด&quot; ให้ทุกคลินิกในเครือข่ายด้านล่าง
               </p>
             </div>
             <Link
@@ -132,7 +132,7 @@ export default async function AgencyDashboardPage() {
           </div>
         )}
 
-        <div className="text-sm font-medium mb-3">คลินิกทั้งหมด — อัปโหลดและติดตามแยกรายที่</div>
+        <div className="text-sm font-medium mb-3">คลินิกทั้งหมด — อัพโหลดและติดตามแยกรายที่</div>
         {clinics.length === 0 ? (
           <p className="text-sm text-secondary">
             ยังไม่มีคลินิกในเครือข่าย — กด &quot;เพิ่มคลินิก&quot; ด้านบนเพื่อเริ่มต้น
@@ -166,10 +166,10 @@ export default async function AgencyDashboardPage() {
                       // CHANGE: points at /agency/upload (not /upload) so
                       // clicking this stays in Agency-mode Nav chrome — see
                       // app/agency/upload/page.tsx.
-                      title={agencyPlanActive ? undefined : "ต้องสมัครแพ็กเกจ Agency ก่อนอัปโหลดให้คลินิกในเครือข่าย"}
+                      title={agencyPlanActive ? undefined : "ต้องสมัครแพ็กเกจ Agency ก่อนอัพโหลดให้คลินิกในเครือข่าย"}
                       className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium bg-inverse text-onInverse"
                     >
-                      + อัปโหลด
+                      + อัพโหลด
                     </Link>
                   </div>
                   <div className="flex items-center justify-between text-xs mb-4">
