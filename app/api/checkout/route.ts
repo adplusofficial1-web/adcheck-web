@@ -2,45 +2,42 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 
-// CHANGE (multi-package credits): buying a package used to always RESET
-// credits_remaining to the purchased plan's monthly allotment, overwriting
-// whatever was left from a previous purchase. It now INSERTs a new row
-// into business_packages instead — each purchase gets its own 30-day pool
-// that stacks on top of (never replaces) whatever credits were already
-// usable, per explicit direction. A business's total spendable credits is
-// computed live as legacy balance + every still-active package's
-// credits_remaining — see lib/db.ts:withActivePackageCredits, which every
-// page already reads through (Nav, upload, the submissions credit check),
-// so nothing else needed to change to show/use the combined total.
-// lib/credits.ts:deductCredits is the matching read side — it spends the
-// soonest-expiring package first, and only expired packages ever drop out
-// of the total (no separate reset/cleanup job needed).
+// No real payment gateway (Omise/Stripe/2C2P) is wired up yet —
+// payment_methods only stores display-only mock card info (brand/last4),
+// not a real charge token. This endpoint used to simulate a successful
+// charge and grant credits regardless, which meant anyone could "buy" a
+// package and get free credits without ever actually paying. Until a real
+// gateway is connected, checkout must always fail here, before any
+// business_packages/transactions row is written — no channel, plan, or
+// business is special-cased around this.
 //
-// businesses.plan_id / credits_reset_at are still updated below to the
-// LATEST purchase — kept purely as a "most recent plan" cache so existing
-// code that reads them directly (lib/agency.ts's hasActiveAgencyPlan /
-// getPlanCycleStatus, and the plan name/price shown in the settings page
-// header) keeps working unmodified. They are NOT used for credits math
-// any more — business_packages is the source of truth for that.
-//
-// NOTE: there is no real payment gateway wired up yet — payment_methods
-// only stores display-only mock card info (brand/last4), not a real
-// Omise/Stripe/2C2P token — so this endpoint simulates a successful charge
-// and issues a fake invoice number, same as it always has. Recurring
-// auto-charge off a saved card (so a package renews itself automatically)
-// is a separate follow-up once a real gateway is connected.
+// To re-enable once a gateway is connected: replace this early return with
+// a real charge call, and only reach the transaction/business_packages
+// INSERTs below on a confirmed successful charge.
+const PAYMENT_GATEWAY_ENABLED = false;
+
 export async function POST(req: Request) {
   const { planCode, channel } = await req.json();
 
-  // Always bills the signed-in business itself — there's no per-clinic
-  // package any more. Buying planCode='agency' funds the shared credit
-  // pool every clinic in that agency's network draws from (see
-  // lib/agency.ts:hasActiveAgencyPlan and app/api/submissions/route.ts).
   const business = await getCurrentBusiness();
   if (!business) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  if (!PAYMENT_GATEWAY_ENABLED) {
+    return NextResponse.json(
+      {
+        error:
+          "ระบบชำระเงินยังไม่เปิดให้บริการในขณะนี้ กรุณาติดต่อทีมงานเพื่อดำเนินการชำระเงินและเติมเครดิต",
+      },
+      { status: 503 }
+    );
+  }
+
+  // Always bills the signed-in business itself — there's no per-clinic
+  // package any more. Buying planCode='agency' funds the shared credit
+  // pool every clinic in that agency's network draws from (see
+  // lib/agency.ts:hasActiveAgencyPlan and app/api/submissions/route.ts).
   const [plan] = (await sql`SELECT * FROM plans WHERE code = ${planCode}`) as any[];
   if (!plan) {
     return NextResponse.json({ error: "invalid plan" }, { status: 400 });
