@@ -14,7 +14,17 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export function UploadForm({ creditsRemaining }: { creditsRemaining: number }) {
+export function UploadForm({
+  creditsRemaining,
+  businessId,
+}: {
+  creditsRemaining: number;
+  // Present only when uploading on behalf of a clinic from Agency mode
+  // (see app/upload/page.tsx's ?business= param) — forwarded to the API so
+  // it reviews against and deducts that clinic's credits, not the
+  // signed-in account's own.
+  businessId?: string;
+}) {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
@@ -53,7 +63,7 @@ export function UploadForm({ creditsRemaining }: { creditsRemaining: number }) {
       const res = await fetch("/api/submissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ images: rows }),
+        body: JSON.stringify({ images: rows, businessId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
