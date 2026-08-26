@@ -4,6 +4,7 @@ import { Nav } from "@/components/Nav";
 import { SettingsClient } from "@/components/settings/SettingsClient";
 import { sql, getPaymentMethods } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { getActivePackages } from "@/lib/credits";
 
 export default async function SettingsPage() {
   const business = await getCurrentBusiness();
@@ -11,7 +12,7 @@ export default async function SettingsPage() {
     redirect("/login");
   }
 
-  const [cards, invoices] = await Promise.all([
+  const [cards, invoices, packages] = await Promise.all([
     getPaymentMethods(business.id),
     // Every package purchase for this account, most recent first — no
     // LIMIT, since ประวัติการชำระเงิน here is meant to be the complete
@@ -26,6 +27,11 @@ export default async function SettingsPage() {
       WHERE t.business_id = ${business.id}
       ORDER BY t.created_at DESC
     ` as Promise<any[]>,
+    // Still-active (unexpired) package purchases only — the "history" list
+    // above already covers every purchase ever made, expired or not; this
+    // is just the rows that still count toward business.credits_remaining
+    // right now, rendered as separate rows in the Plan & credits section.
+    getActivePackages(business.id),
   ]);
 
   return (
@@ -36,7 +42,7 @@ export default async function SettingsPage() {
         <p className="text-sm text-secondary mb-8">
           จัดการข้อมูลคลินิก การเรียกเก็บเงิน แพ็กเกจ และบัตรที่ผูกไว้ทั้งหมดในที่เดียว
         </p>
-        <SettingsClient business={business} cards={cards} invoices={invoices} />
+        <SettingsClient business={business} cards={cards} invoices={invoices} packages={packages} />
       </div>
     </main>
   );
