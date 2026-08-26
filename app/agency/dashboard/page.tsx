@@ -166,13 +166,9 @@ export default async function AgencyDashboardPage() {
                     </Link>
                   </div>
                   <div className="flex items-center justify-between text-xs mb-4">
-                    <span className="text-secondary">เครดิตคงเหลือ</span>
-                    <span
-                      className={`px-3 py-1 font-medium rounded-pill ${
-                        c.credits_remaining <= 10 ? "bg-dangerSoft text-danger" : "bg-accentSoft text-accent"
-                      }`}
-                    >
-                      {c.credits_remaining} ครั้ง
+                    <span className="text-secondary">เครดิตที่ใช้ไป</span>
+                    <span className="px-3 py-1 font-medium rounded-pill bg-accentSoft text-accent">
+                      {total} ครั้ง
                     </span>
                   </div>
                   <div className="text-xs mb-1.5 text-secondary">ผลตรวจเดือนนี้ ({total} ภาพ)</div>
