@@ -16,9 +16,11 @@ export function CheckoutForm({
   const [channel, setChannel] = useState(CHANNELS[1]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function pay() {
     setLoading(true);
+    setError(null);
     const res = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -32,6 +34,12 @@ export function CheckoutForm({
       // (where the shared credit pool and per-clinic upload buttons live);
       // any other plan is a solo clinic's own package, so back to /dashboard.
       setTimeout(() => router.push(planCode === "agency" ? "/agency/dashboard" : "/dashboard"), 1500);
+    } else {
+      // Payment gateway isn't connected yet (see app/api/checkout/route.ts)
+      // — every attempt fails here on purpose, and no credit is granted.
+      // Surface the real reason instead of leaving the button just reset
+      // with no feedback, which read as a silent do-nothing before this.
+      setError(data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
     }
   }
 
@@ -60,6 +68,9 @@ export function CheckoutForm({
           </button>
         ))}
       </div>
+
+      {error && <div className="text-sm text-danger mb-4">{error}</div>}
+
       <button
         onClick={pay}
         disabled={loading}
