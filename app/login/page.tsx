@@ -68,12 +68,6 @@ export default async function LoginPage({
         >
           <GoogleSignInButton />
         </form>
-        <p className="text-xs text-tertiary mt-6">
-          ยังไม่มีบัญชี?{" "}
-          <Link href="/onboarding" className="underline">
-            เริ่มต้นใช้งานฟรี
-          </Link>
-        </p>
       </div>
     </main>
   );
