@@ -15,13 +15,7 @@ function initials(name: string) {
 // — billing itself is NOT handled here (per-clinic top-up goes through the
 // existing /checkout?business=<id> flow, same as a clinic buying for
 // itself) so this card only edits the clinic's profile fields.
-export function ClinicSettingsCard({
-  clinic,
-  checksThisMonth,
-}: {
-  clinic: ChildClinic;
-  checksThisMonth: number;
-}) {
+export function ClinicSettingsCard({ clinic }: { clinic: ChildClinic }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
@@ -32,6 +26,8 @@ export function ClinicSettingsCard({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   async function save() {
     setSaving(true);
@@ -52,6 +48,28 @@ export function ClinicSettingsCard({
       setError(e.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Permanently removes this clinic from the network — the API cascades
+  // the delete to every submission, review, transaction, and payment
+  // method tied to it (see the FK constraints on those tables), so this is
+  // irreversible. That's why it needs the explicit "ยืนยันลบคลินิก" tap in
+  // the banner below rather than deleting straight from the trash icon.
+  // On success there's nothing to reset back — router.refresh() re-fetches
+  // the clinic list from the server without this row, so this component
+  // just unmounts.
+  async function remove() {
+    setRemoving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/agency/clinics/${clinic.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
+      router.refresh();
+    } catch (e: any) {
+      setError(e.message);
+      setRemoving(false);
     }
   }
 
@@ -78,14 +96,49 @@ export function ClinicSettingsCard({
             {saving ? "กำลังบันทึก..." : "บันทึก"}
           </button>
         ) : (
-          <button
-            onClick={() => setEditing(true)}
-            className="shrink-0 rounded-md px-3.5 py-2 text-xs font-medium border border-border"
-          >
-            แก้ไข
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setEditing(true)}
+              className="rounded-md px-3.5 py-2 text-xs font-medium border border-border"
+            >
+              แก้ไข
+            </button>
+            <button
+              onClick={() => setDeleting(true)}
+              aria-label="ลบคลินิก"
+              title="ลบคลินิก"
+              className="w-9 h-9 rounded-md border border-dangerSoft text-danger flex items-center justify-center hover:bg-dangerSoft"
+            >
+              🗑
+            </button>
+          </div>
         )}
       </div>
+
+      {deleting && (
+        <div className="rounded-md bg-dangerSoft px-4 py-3 mb-5 flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-sm text-danger">
+            ลบคลินิก <span className="font-medium">{clinic.name}</span> ใช่ไหม? ประวัติการตรวจ เครดิต และข้อมูลทั้งหมดของ
+            คลินิกนี้จะถูกลบถาวร กู้คืนไม่ได้
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <button
+              disabled={removing}
+              onClick={remove}
+              className="rounded-md bg-danger text-onInverse px-3.5 py-2 text-xs font-medium disabled:opacity-50"
+            >
+              {removing ? "กำลังลบ..." : "ยืนยันลบคลินิก"}
+            </button>
+            <button
+              disabled={removing}
+              onClick={() => setDeleting(false)}
+              className="rounded-md border border-border px-3.5 py-2 text-xs disabled:opacity-50"
+            >
+              ยกเลิก
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && <div className="text-sm text-danger mb-4">{error}</div>}
 
@@ -143,7 +196,7 @@ export function ClinicSettingsCard({
             {clinic.price_thb ? `${Number(clinic.price_thb).toLocaleString()} บาท / รอบ` : "—"}
             {clinic.monthly_image_credits ? ` · ${clinic.monthly_image_credits} เครดิต/รอบ` : ""}
           </div>
-          <div className="text-xs text-secondary mt-1">เครดิตที่ใช้ไป {checksThisMonth} ครั้ง</div>
+          <div className="text-xs text-secondary mt-1">เครดิตคงเหลือ {clinic.credits_remaining} ครั้ง</div>
         </div>
         <Link
           href={`/checkout?business=${clinic.id}`}
