@@ -13,8 +13,18 @@ export default async function SettingsPage() {
 
   const [cards, invoices] = await Promise.all([
     getPaymentMethods(business.id),
+    // Every package purchase for this account, most recent first — no
+    // LIMIT, since ประวัติการชำระเงิน here is meant to be the complete
+    // record, not just a recent sample. Joins plans so each row can show
+    // which package it was (a business's plan_id only ever reflects its
+    // *current* plan — a past purchase of a since-changed plan would
+    // otherwise be unlabeled).
     sql`
-      SELECT * FROM transactions WHERE business_id = ${business.id} ORDER BY created_at DESC LIMIT 10
+      SELECT t.*, p.name AS plan_name, p.code AS plan_code
+      FROM transactions t
+      LEFT JOIN plans p ON p.id = t.plan_id
+      WHERE t.business_id = ${business.id}
+      ORDER BY t.created_at DESC
     ` as Promise<any[]>,
   ]);
 
