@@ -29,6 +29,30 @@ export async function getPaymentMethods(businessId: string) {
     return rows as any[];
 }
 
+// CHANGE (multi-package credits): a business can now hold several
+// still-active package purchases at once (see migrations for
+// business_packages, and app/api/checkout/route.ts which INSERTs a new
+// row per purchase instead of overwriting a single plan). This business
+// row's own `credits_remaining` column is now only the NON-expiring
+// "legacy" balance (the free signup bonus, or whatever was left over from
+// before this table existed) — the number every page/component actually
+// wants to show is that plus every still-unexpired package's remaining
+// credits. Centralizing that sum here means every caller that already
+// reads `business.credits_remaining` (Nav badge, upload gating, the
+// submissions credit check, …) keeps working unmodified and just sees the
+// correct combined number, instead of every call site needing its own
+// SUM query.
+export async function withActivePackageCredits<T extends { id: string; credits_remaining: number }>(
+    business: T
+): Promise<T> {
+    const [row] = (await sql`
+        SELECT COALESCE(SUM(credits_remaining), 0)::int AS total
+            FROM business_packages
+                WHERE business_id = ${business.id} AND expires_at > now()
+                  `) as any[];
+    return { ...business, credits_remaining: business.credits_remaining + (row?.total ?? 0) };
+}
+
 // Added alongside Google Login (see /login, /auth.ts). Each business row
 // maps 1:1 to the Google account that owns it (contact_email is UNIQUE) —
 // see lib/currentBusiness.ts:getCurrentBusiness(), which every page/route
@@ -41,7 +65,9 @@ export async function getBusinessByEmail(email: string) {
                     WHERE b.contact_email = ${email}
                         LIMIT 1
                           `;
-    return (rows[0] as any) ?? null;
+    const business = (rows[0] as any) ?? null;
+    if (!business) return null;
+    return withActivePackageCredits(business);
 }
 
 // Provisions a new business the moment a Google account is first seen —
