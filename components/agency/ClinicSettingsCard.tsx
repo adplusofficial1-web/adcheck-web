@@ -113,9 +113,9 @@ export function ClinicSettingsCard({
               onClick={() => setDeleting(true)}
               aria-label="ลบคลินิก"
               title="ลบคลินิก"
-              className="w-9 h-9 rounded-md border border-dangerSoft text-danger flex items-center justify-center hover:bg-dangerSoft"
+              className="w-9 h-9 rounded-md border border-dangerSoft text-danger flex items-center justify-center hover:bg-dangerSoft text-base leading-none"
             >
-              🗑
+              ✕
             </button>
           </div>
         )}
