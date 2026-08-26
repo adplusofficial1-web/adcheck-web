@@ -3,6 +3,7 @@ import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getBusinessByIdForOwner, hasActiveAgencyPlan } from "@/lib/agency";
 import { reviewImage } from "@/lib/reviewImage";
+import { deductCredits } from "@/lib/credits";
 
 type IncomingImage = {
   filename: string;
@@ -196,10 +197,10 @@ async function processSubmissionImages(
           legal_ref: "-",
           severity: derivedStatus === "violation" ? "ห้ามเด็ดขาด" : "ควรระวัง",
           confidence_level: "ต่ำ",
-          topic: "AI ระบุว่าพบความเสี่ยงแต่ไม่ได้ระบุรายละเอีฎ่าน",
+          topic: "AI ระบุว่าพบความเสี่ยงแต่ไม่ได้ระบุรายละเอียด",
           detailed_explanation:
             "ระบบ AI ประเมินว่าภาพนี้มีความเสี่ยงไม่ผ่านเกณฑ์ แต่ไม่ได้ระบุข้อความหรือจุดที่มีปัญหาอย่างเจาะจงในรอบนี้ " +
-            "จึงยังไม่สามารถแสดงเหตุผลและมาดรากฎหมายที่เกี่ววข้องได้ครบถ้วน",
+            "จึงยังไม่สามารถแสดงเหตุผลและมาดรากฎหมายที่เกี่ยวข้องได้ครบถ้วน",
           suggested_correction: "กรุณาให้เจ้าหน้าที่ตรวจสอบภาพนี้ด้วยตนเอง หรือกดส่งภาพนี้ตรวจซ้ำอีกครั้ง",
         } as any,
       ];
@@ -255,8 +256,11 @@ async function processSubmissionImages(
     UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
     WHERE id = ${submissionId}
   `;
-  await sql`
-    UPDATE businesses SET credits_remaining = credits_remaining - ${images.length}, updated_at = now()
-    WHERE id = ${business.id}
-  `;
+  // CHANGE (multi-package credits): a business's spendable credits can now
+  // be spread across several still-active package purchases (see
+  // migrations for business_packages) plus a non-expiring legacy balance
+  // on the business row itself. deductCredits() spends the
+  // soonest-expiring package first and only falls back to the legacy
+  // balance once every active package is exhausted — see lib/credits.ts.
+  await deductCredits(business.id, images.length);
 }
