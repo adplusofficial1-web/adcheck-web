@@ -43,6 +43,22 @@ type Invoice = {
   plan_code: string | null;
 };
 
+// One still-active (unexpired) package purchase — see lib/credits.ts on
+// the server. A business can hold several of these at once now; each
+// keeps its own 30-day expiry and its own remaining-credits pool, and
+// they're rendered as separate rows below instead of one single plan.
+type ActivePackage = {
+  id: string;
+  plan_id: string;
+  plan_name: string;
+  plan_code: string;
+  price_thb: string | number | null;
+  credits_granted: number;
+  credits_remaining: number;
+  purchased_at: string;
+  expires_at: string;
+};
+
 const TYPE_LABEL: Record<string, string> = {
   clinic: "คลินิกเดี่ยว",
   agency: "เครือข่าย / เอเจนซี่",
@@ -158,10 +174,12 @@ export function SettingsClient({
   business,
   cards,
   invoices,
+  packages,
 }: {
   business: Business;
   cards: Card[];
   invoices: Invoice[];
+  packages: ActivePackage[];
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<null | "profile" | "clinic" | "billing" | "addCard">(null);
@@ -169,6 +187,15 @@ export function SettingsClient({
   const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // business.credits_remaining is already the combined total (legacy
+  // balance + every active package's remaining credits — see
+  // lib/db.ts:withActivePackageCredits on the server). Subtracting the
+  // packages back out gives just the non-expiring legacy portion, so the
+  // per-package rows below plus this one row always add back up to the
+  // total shown above them.
+  const packageCreditsSum = packages.reduce((sum, p) => sum + p.credits_remaining, 0);
+  const legacyCredits = Math.max(business.credits_remaining - packageCreditsSum, 0);
 
   function closeAll() {
     setModal(null);
@@ -255,6 +282,14 @@ export function SettingsClient({
       </section>
 
       {/* ---------- Plan & credits ---------- */}
+      {/* CHANGE (multi-package credits): a business can hold several
+          still-active package purchases at once now — buying a new one
+          adds a row here alongside any that are still running, instead of
+          replacing them. Each row keeps its own 30-day expiry and its own
+          remaining-credits pool; the total at the top is the sum of all of
+          them plus any non-expiring legacy/free credits. A package simply
+          stops appearing (and stops counting toward the total) once its
+          own expiry passes — see lib/credits.ts on the server. */}
       <section className="border border-border rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="text-sm font-medium">แพ็กเกจและเครดิต</div>
@@ -262,37 +297,64 @@ export function SettingsClient({
             href="/pricing"
             className="shrink-0 rounded-md bg-inverse text-onInverse px-3.5 py-2 text-xs font-medium"
           >
-            เปลี่ยนแพ็กเกจ
+            ซื้อแพ็กเกจเพิ่ม
           </Link>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <span className="inline-block rounded-pill bg-accentSoft text-accent text-xs font-medium px-3 py-1 mb-2">
-              {business.plan_name || "ยังไม่มีแพ็กเกจ"}
-            </span>
-            <div className="text-sm font-medium">
-              {business.price_thb ? `${Number(business.price_thb).toLocaleString()} บาท / เดือน` : "—"}
-              {business.monthly_image_credits ? `  ·  ${business.monthly_image_credits} เครดิต/เดือน` : ""}
-            </div>
-            {business.credits_reset_at && (() => {
-              const remaining = daysRemaining(business.credits_reset_at!);
-              const expired = remaining <= 0;
+
+        <div className="flex items-center justify-between rounded-lg bg-accentSoft px-5 py-4 mb-5">
+          <div className="text-sm text-accent">เครดิตคงเหลือรวมทุกแพ็กเกจ</div>
+          <div className="text-2xl font-medium text-accent">{business.credits_remaining}</div>
+        </div>
+
+        {packages.length === 0 && legacyCredits <= 0 ? (
+          <div className="text-sm text-secondary">ยังไม่มีแพ็กเกจ</div>
+        ) : (
+          <div className="space-y-3">
+            {packages.map((pkg) => {
+              const remaining = daysRemaining(pkg.expires_at);
               return (
-                <div className={`text-xs mt-1 ${expired ? "text-danger font-medium" : "text-secondary"}`}>
-                  {expired
-                    ? `แพ็กเกจหมดอายุแล้ว — กรุณาต่ออายุ`
-                    : `เหลืออีก ${remaining} วัน — เครดิตจะรีเซ็ตรอบถัดไปวันที่ ${new Date(
-                        business.credits_reset_at
-                      ).toLocaleDateString("th-TH")}`}
+                <div
+                  key={pkg.id}
+                  className="flex items-center gap-4 border border-border rounded-md p-4"
+                >
+                  <div className="flex-1 min-w-0">
+                    <span className="inline-block rounded-pill bg-accentSoft text-accent text-xs font-medium px-3 py-1 mb-2">
+                      {pkg.plan_name}
+                    </span>
+                    <div className="text-sm font-medium">
+                      {pkg.price_thb ? `${Number(pkg.price_thb).toLocaleString()} บาท` : "—"}
+                      {pkg.credits_granted ? `  ·  ${pkg.credits_granted} เครดิต/แพ็กเกจ` : ""}
+                    </div>
+                    <div className="text-xs text-secondary mt-1">
+                      {remaining > 0
+                        ? `เหลืออีก ${remaining} วัน — หมดอายุวันที่ ${new Date(
+                            pkg.expires_at
+                          ).toLocaleDateString("th-TH")}`
+                        : "กำลังจะหมดอายุ"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-page border border-border px-5 py-3 text-center shrink-0">
+                    <div className="text-xl font-medium">{pkg.credits_remaining}</div>
+                    <div className="text-xs text-secondary">/{pkg.credits_granted} เครดิต</div>
+                  </div>
                 </div>
               );
-            })()}
+            })}
+            {legacyCredits > 0 && (
+              <div className="flex items-center gap-4 border border-dashed border-border rounded-md p-4">
+                <div className="flex-1 min-w-0">
+                  <span className="inline-block rounded-pill bg-page text-secondary text-xs font-medium px-3 py-1 mb-2">
+                    เครดิตฟรี / ไม่มีวันหมดอายุ
+                  </span>
+                  <div className="text-xs text-secondary">เครดิตคงเหลือที่ไม่ได้ผูกกับแพ็กเกจใดๆ</div>
+                </div>
+                <div className="rounded-lg bg-page border border-border px-5 py-3 text-center shrink-0">
+                  <div className="text-xl font-medium">{legacyCredits}</div>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="rounded-lg bg-accentSoft px-6 py-3.5 text-center shrink-0">
-            <div className="text-2xl font-medium text-accent">{business.credits_remaining}</div>
-            <div className="text-xs text-accent">เครดิตคงเหลือ</div>
-          </div>
-        </div>
+        )}
       </section>
 
       {/* ---------- Linked cards ---------- */}
