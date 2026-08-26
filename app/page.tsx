@@ -19,7 +19,7 @@ export default async function LandingPage() {
             เข้าสู่ระบบ
           </Link>
           <Link
-            href="/onboarding"
+            href="/login"
             className="rounded-md bg-surface text-primary px-5 py-2.5 text-base font-medium hover:bg-surface/90"
           >
             ทดลองใช้ฟรี
@@ -42,7 +42,7 @@ export default async function LandingPage() {
         </p>
         <div className="flex items-center justify-center gap-6 pt-3">
           <Link
-            href="/onboarding"
+            href="/login"
             className="rounded-md bg-inverse text-onInverse px-8 py-4 text-[15px] font-medium hover:bg-inverse/90"
           >
             เริ่มตรวจสอบฟรี
@@ -104,7 +104,7 @@ export default async function LandingPage() {
                 ))}
               </ul>
               <Link
-                href="/onboarding"
+                href="/login"
                 className={`block text-center rounded-md px-4 py-3 text-sm font-medium ${
                   p.is_popular
                     ? "bg-inverse text-onInverse"
@@ -121,7 +121,7 @@ export default async function LandingPage() {
       <section className="bg-inverse flex flex-col items-center gap-5 px-16 py-24">
         <h3 className="text-[28px] font-medium text-onInverse">เริ่มตรวจสอบโฆษณาคลินิกของคุณวันนี้</h3>
         <Link
-          href="/onboarding"
+          href="/login"
           className="rounded-md bg-page text-primary px-8 py-3.5 text-[15px] font-medium hover:bg-page/90"
         >
           ทดลองใช้ฟรี 5 ครั้ง
