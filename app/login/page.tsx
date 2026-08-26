@@ -49,7 +49,7 @@ export default async function LoginPage({
     <main className="min-h-screen flex flex-col items-center justify-center px-6">
       <Link
         href="/"
-        className="inline-block bg-black text-white text-[32px] font-medium px-6 py-3 rounded-lg mb-10"
+        className="w-full max-w-sm bg-black text-white text-[32px] font-medium px-6 py-3 rounded-lg mb-10 text-center"
       >
         ADCheck
       </Link>
