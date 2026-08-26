@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   // in the UI) so a direct POST can't bypass it.
   if (targetId && target.id !== business.id && !hasActiveAgencyPlan(business)) {
     return NextResponse.json(
-      { error: "บัญชีของคุณยังไม่ได้สมัคร หรือแพ็กเกจ Agency หมดอายุแล้ว กรุณาสมัคร/ต่ออายุก่อนอัปโหลดให้คลินิกในเครือข่าย" },
+      { error: "บัญชีของคุณยังไม่ได้สมัคร หรือแพ็กเกจ Agency หมดอายุแล้ว กรุณาสมัคร/ต่ออายุก่อนอัพโหลดให้คลินิกในเครือข่าย" },
       { status: 402 }
     );
   }
