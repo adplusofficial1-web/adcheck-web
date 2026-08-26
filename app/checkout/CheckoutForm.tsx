@@ -5,7 +5,18 @@ import { useRouter } from "next/navigation";
 
 const CHANNELS = ["บัตรเครดิต/เดบิต", "QR PromptPay", "Mobile Banking", "Direct Debit"];
 
-export function CheckoutForm({ planCode, amount }: { planCode: string; amount: number }) {
+export function CheckoutForm({
+  planCode,
+  amount,
+  businessId,
+}: {
+  planCode: string;
+  amount: number;
+  // Present only when an Agency account is paying for one of its child
+  // clinics (see app/checkout/page.tsx) — forwarded to the API so it bills
+  // that clinic's business row instead of the signed-in account's own.
+  businessId?: string;
+}) {
   const router = useRouter();
   const [channel, setChannel] = useState(CHANNELS[1]);
   const [loading, setLoading] = useState(false);
@@ -16,13 +27,13 @@ export function CheckoutForm({ planCode, amount }: { planCode: string; amount: n
     const res = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ planCode, channel }),
+      body: JSON.stringify({ planCode, channel, businessId }),
     });
     const data = await res.json();
     setLoading(false);
     if (res.ok) {
       setDone(data.invoiceNumber);
-      setTimeout(() => router.push("/dashboard"), 1500);
+      setTimeout(() => router.push(businessId ? "/agency/settings" : "/dashboard"), 1500);
     }
   }
 
