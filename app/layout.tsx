@@ -11,7 +11,7 @@ const prompt = Prompt({
 
 export const metadata: Metadata = {
   title: "AdCheck — ตรวจสอบโฆษณาคลินิกให้ถูกกฎหมายด้วย AI",
-  description: "อัปโหลดภาพโฆษณา ให้ AI ตรวจตามแนวทาง สบส. ก่อนเผยแพร่จริง",
+  description: "อัพโหลดภาพโฆษณา ให้ AI ตรวจตามแนวทาง สบส. ก่อนเผยแพร่จริง",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
