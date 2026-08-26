@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { ClinicSettingsCard } from "@/components/agency/ClinicSettingsCard";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
-import { getChildClinics } from "@/lib/agency";
+import { getChildClinics, getClinicMonthlyStats } from "@/lib/agency";
 
 export default async function AgencySettingsPage({
   searchParams,
@@ -21,6 +21,7 @@ export default async function AgencySettingsPage({
   const ordered = [...clinics].sort((a, b) =>
     a.id === searchParams.clinic ? -1 : b.id === searchParams.clinic ? 1 : 0
   );
+  const stats = await getClinicMonthlyStats(clinics.map((c) => c.id));
 
   return (
     <main>
@@ -36,9 +37,13 @@ export default async function AgencySettingsPage({
           </p>
         ) : (
           <div className="space-y-6">
-            {ordered.map((c) => (
-              <ClinicSettingsCard key={c.id} clinic={c} />
-            ))}
+            {ordered.map((c) => {
+              const s = stats.get(c.id);
+              const checksThisMonth = (s?.passed ?? 0) + (s?.caution ?? 0) + (s?.violation ?? 0);
+              return (
+                <ClinicSettingsCard key={c.id} clinic={c} checksThisMonth={checksThisMonth} />
+              );
+            })}
           </div>
         )}
       </div>
