@@ -48,12 +48,21 @@ export async function POST(req: Request) {
   const category = typeof categoryField === "string" && categoryField.trim() ? categoryField.trim() : null;
   const alwaysInclude = form.get("alwaysInclude") === "true";
 
+  // Keep the ORIGINAL file bytes too (base64), separate from `text` (the
+  // extracted content used for search/review) — lets an admin download the
+  // exact document they uploaded later from the knowledge base list. See
+  // lib/complianceRules.ts's header comment for why this is base64 text
+  // rather than a `bytea` column.
+  const fileBase64 = buffer.toString("base64");
+
   const rule = await createComplianceRule({
     title,
     category,
     content: text,
     sourceType: "upload",
     sourceFilename: file.name,
+    fileBase64,
+    fileMime: file.type || null,
     alwaysInclude,
     createdBy: adminEmail,
   });
