@@ -54,3 +54,33 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   return NextResponse.json({ business: updated });
 }
+
+// Permanently removes a child clinic from this agency's network — the
+// businesses/submissions/transactions FK constraints (ON DELETE CASCADE)
+// mean this also wipes that clinic's submissions, review flags, payment
+// methods, and transaction history. There's no undo, which is why the UI
+// (components/agency/ClinicSettingsCard) requires an explicit second
+// "ยืนยันลบคลินิก" tap before calling this.
+//
+// Reuses getBusinessByIdForOwner like PATCH above, but with one extra
+// guard: that helper's WHERE clause resolves an id that's EITHER the
+// signed-in business itself OR one of its child clinics (by design, so
+// PATCH/checkout/upload can target "my own account" too) — deleting the
+// signed-in business's own row here would be catastrophic, so this route
+// explicitly rejects target.id === business.id even though
+// getBusinessByIdForOwner would happily resolve it.
+export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+  const business = await getCurrentBusiness();
+  if (!business) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const target = await getBusinessByIdForOwner(params.id, business.id);
+  if (!target || target.id === business.id) {
+    return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
+  }
+
+  await sql`DELETE FROM businesses WHERE id = ${target.id}`;
+
+  return NextResponse.json({ ok: true });
+}
