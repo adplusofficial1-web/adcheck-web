@@ -12,7 +12,7 @@ const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
   violation: { label: "เข้าข่ายผิด", badge: "bg-dangerSoft text-danger" },
 };
 const FILTERS: { key?: string; label: string }[] = [
-  { key: undefined, label: "ทั้งหมด" },
+  { key: undefined, label: "ทัฉหมด" },
   { key: "violation", label: "เข้าข่ายผิด" },
   { key: "caution", label: "ควรระวัง" },
   { key: "passed", label: "ผ่าน" },
@@ -48,7 +48,8 @@ export default async function AgencyHistoryPage({
 
   return (
     <main>
-      <Nav credits={clinics.reduce((s, c) => s + c.credits_remaining, 0)} />
+      {/* Shared pool — see app/agency/dashboard/page.tsx's totalCredits comment. */}
+      <Nav credits={business.credits_remaining} />
       <div className="max-w-3xl mx-auto px-6 py-14">
         <h1 className="text-2xl font-medium mb-6">
           ประวัติการตรวจสอบ{focused ? ` — ${focused.name}` : " — แยกตามคลินิก"}

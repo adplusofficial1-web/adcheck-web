@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { Nav } from "@/components/Nav";
 import { ClinicSettingsCard } from "@/components/agency/ClinicSettingsCard";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
@@ -25,11 +26,22 @@ export default async function AgencySettingsPage({
 
   return (
     <main>
-      <Nav credits={clinics.reduce((s, c) => s + c.credits_remaining, 0)} />
+      {/* Shows the agency's own credits_remaining — the single shared pool
+          every clinic below draws from, not a sum of per-clinic balances
+          (child clinics no longer have their own). */}
+      <Nav credits={business.credits_remaining} />
       <div className="max-w-2xl mx-auto px-6 py-14">
-        <h1 className="text-2xl font-medium mb-2">ตั้งค่าคลินิก — แยกรายที่</h1>
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-2">
+          <h1 className="text-2xl font-medium">ตั้งค่าคลินิก — แยกรายที่</h1>
+          <Link
+            href="/checkout?plan=agency"
+            className="shrink-0 rounded-md bg-inverse text-onInverse px-4 py-2.5 text-sm font-medium"
+          >
+            จัดการแพ็กเกจ Agency →
+          </Link>
+        </div>
         <p className="text-sm text-secondary mb-8">
-          แก้ไขข้อมูลและซื้อ/เติมแพ็กเกจของแต่ละคลินิกได้อิสระ ไม่กระทบคลินิกอื่นในเครือข่าย
+          แก้ไขข้อมูลของแต่ละคลินิกได้อิสระ — เครดิตใช้ร่วมกันจากแพ็กเกจ Agency เดียว ไม่ได้แยกต่อคลินิก
         </p>
         {ordered.length === 0 ? (
           <p className="text-sm text-secondary">

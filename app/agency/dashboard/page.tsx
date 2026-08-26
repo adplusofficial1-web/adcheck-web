@@ -51,7 +51,10 @@ export default async function AgencyDashboardPage() {
     getRecentImagesByBusiness(ids, 1),
   ]);
 
-  const totalCredits = clinics.reduce((s, c) => s + c.credits_remaining, 0);
+  // The agency's own credits_remaining IS the shared pool every clinic
+  // below draws from — not a sum of per-clinic balances (those columns are
+  // unused for billing now, see lib/agency.ts:hasActiveAgencyPlan).
+  const totalCredits = business.credits_remaining;
   const totals = { passed: 0, caution: 0, violation: 0 };
   for (const id of ids) {
     const s = stats.get(id)!;
@@ -75,7 +78,7 @@ export default async function AgencyDashboardPage() {
           <AddClinicModal />
         </div>
         <p className="text-sm text-secondary mb-8">
-          ภาพรวมลูกค้าทั้งหมด {clinics.length} คลินิก — เครดิตและผลตรวจของแต่ละที่แยกจากกัน
+          ภาพรวมลูกค้าทั้งหมด {clinics.length} คลินิก — ผลตรวจของแต่ละที่แยกจากกัน แต่ใช้เครดิตรวมจากแพ็กเกจ Agency เดียว
         </p>
 
         {!agencyPlanActive && (
@@ -98,7 +101,7 @@ export default async function AgencyDashboardPage() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="border border-border rounded-lg p-5">
-            <div className="text-xs text-secondary mb-2">เครดิตรวมทุกคลินิก</div>
+            <div className="text-xs text-secondary mb-2">เครดิตคงเหลือ (ฉ้ร่วมกันทุกคลินิก)</div>
             <div className="text-2xl font-medium">{totalCredits}</div>
           </div>
           <div className="border border-border rounded-lg p-5">
@@ -171,12 +174,12 @@ export default async function AgencyDashboardPage() {
                       {total} ครั้ง
                     </span>
                   </div>
-                  <div className="text-xs mb-1.5 text-secondary">ผลตรวจเดือนนี้ ({total} ภาพ)</div>
+                  <div className="text-xs mb-1.5 text-secondary">ผลีรวจเดือนนี้ ({total} ภาพ)</div>
                   <RiskBar passed={s.passed} caution={s.caution} violation={s.violation} />
                   <div className="flex gap-4 text-xs mb-4 text-secondary">
                     <span>ผ่าน {s.passed}</span>
                     <span>ควรระวัง {s.caution}</span>
-                    <span>เข้าข่ายผิด {s.violation}</span>
+                    <span>เข้าข่าผิด {s.violation}</span>
                   </div>
                   {top && (
                     <div className="flex items-center justify-between text-xs pt-3 mb-3 border-t border-border text-secondary">

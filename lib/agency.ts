@@ -184,14 +184,15 @@ export function getPlanCycleStatus(business: {
 // any other package via /checkout?plan=agency) with a 30-day cycle that
 // hasn't lapsed yet.
 //
-// A child clinic's own separate package (bought via
-// /checkout?business=<clinic id>, see components/agency/ClinicSettingsCard)
-// is a different, unrelated billing track — it still governs that clinic's
-// own credits_remaining regardless of whether the agency itself is on an
-// active Agency plan. Both have to hold for an upload to actually go
-// through: the agency plan unlocks the *button*, the clinic's own credits
-// pay for the *review* (see app/api/submissions/route.ts's separate
-// `credits_remaining < images.length` check).
+// There is no separate per-clinic package any more: a child clinic's
+// credits_remaining/plan_id columns are unused for billing purposes (left
+// in the schema, just ignored) — every review across every clinic in the
+// network is paid for out of the AGENCY's own credits_remaining, funded by
+// this one code='agency' purchase. So this single check does double duty:
+// it unlocks the upload *button* AND its purchase is what funds the shared
+// credit pool the *review* is actually paid from (see
+// app/api/submissions/route.ts, which checks/decrements `business`, i.e.
+// the signed-in agency, never `target`).
 export function hasActiveAgencyPlan(business: {
   plan_code?: string | null;
   credits_reset_at?: string | Date | null;
