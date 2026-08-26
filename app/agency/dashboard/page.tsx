@@ -152,30 +152,27 @@ export default async function AgencyDashboardPage() {
                         <div className="text-xs truncate text-secondary">{c.contact_email || "ยังไม่มีอีเมลติดต่อ"}</div>
                       </div>
                     </div>
-                    {agencyPlanActive ? (
-                      <Link
-                        href={`/upload?business=${c.id}`}
-                        className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium bg-inverse text-onInverse"
-                      >
-                        + อัปโหลด
-                      </Link>
-                    ) : (
-                      // No active Agency plan on this account — points at
-                      // checkout instead of upload, same as the banner
-                      // above, rather than being a dead disabled button.
-                      <Link
-                        href="/checkout?plan=agency"
-                        title="ต้องสมัครแพ็กเกจ Agency ก่อนอัปโหลดให้คลินิกในเครือข่าย"
-                        className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium border border-border text-secondary"
-                      >
-                        🔒 อัปโหลด
-                      </Link>
-                    )}
+                    <Link
+                      href={agencyPlanActive ? `/upload?business=${c.id}` : "/checkout?plan=agency"}
+                      // No active Agency plan on this account — this points
+                      // at checkout instead of upload, same as the banner
+                      // above, but keeps the exact same look as the normal
+                      // upload button (no lock icon / muted styling) rather
+                      // than visibly marking it as disabled.
+                      title={agencyPlanActive ? undefined : "ต้องสมัครแพ็กเกจ Agency ก่อนอัปโหลดให้คลินิกในเครือข่าย"}
+                      className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium bg-inverse text-onInverse"
+                    >
+                      + อัปโหลด
+                    </Link>
                   </div>
                   <div className="flex items-center justify-between text-xs mb-4">
-                    <span className="text-secondary">เครดิตที่ใช้ไป</span>
-                    <span className="px-3 py-1 font-medium rounded-pill bg-accentSoft text-accent">
-                      {total} ครั้ง
+                    <span className="text-secondary">เครดิตคงเหลือ</span>
+                    <span
+                      className={`px-3 py-1 font-medium rounded-pill ${
+                        c.credits_remaining <= 10 ? "bg-dangerSoft text-danger" : "bg-accentSoft text-accent"
+                      }`}
+                    >
+                      {c.credits_remaining} ครั้ง
                     </span>
                   </div>
                   <div className="text-xs mb-1.5 text-secondary">ผลตรวจเดือนนี้ ({total} ภาพ)</div>
