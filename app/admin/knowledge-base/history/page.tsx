@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { listComplianceRules } from "@/lib/complianceRules";
-import { formatThaiDateTime } from "@/lib/formatDateTime";
+import { formatThaiDateTime, wasEdited } from "@/lib/formatDateTime";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,7 @@ export default async function KnowledgeBaseHistoryPage() {
           </thead>
           <tbody>
             {rules.map((rule) => {
-              const edited = rule.updated_at !== rule.created_at;
+              const edited = wasEdited(rule.created_at, rule.updated_at);
               return (
                 <tr key={rule.id} className="border-b border-border last:border-0">
                   <td className="px-4 py-3 text-primary max-w-xs truncate">{rule.title}</td>
