@@ -41,7 +41,7 @@ export default function ArticlesPage() {
 
       <div className="max-w-5xl mx-auto px-6 py-14">
         <p className="text-xs text-tertiary mb-3">หน้าแรก &nbsp;/&nbsp; บทความ</p>
-        <h1 className="text-3xl font-medium mb-3">บทความและอัปเดตกฎหมาย</h1>
+        <h1 className="text-3xl font-medium mb-3">บทความแ෥ะอัปเดตกฎหมาย</h1>
         <p className="text-secondary max-w-2xl mb-6">
           สรุปข่าวและประกาศจากหน่วยงานภาครัฐเกี่ยวกับการโฆษณาสถานพยาบาล เพื่อให้ทีมการตลาดคลินิกติดตามความเคลื่อนไหวได้ง่ายขึ้น
         </p>
@@ -61,7 +61,7 @@ export default function ArticlesPage() {
             ทุกบทความอ้างอิงต้นฉบับได้จริง
           </span>
           <p className="text-xs text-secondary">
-            เนื้อหาสรุปจากประกาศและข่าวของกรมสนับสนุนบริการสุขภาพ (สบส.) กระทรวงสาธารณสุข และสื่อที่อ้างอิงข้อมูลจากหน่วยงานภาครัฐโดยตรง
+            เนื้อหาสรุปจากประกาศแ෥ะข่าวของกรมสนับสนุนบริการสุขภาพ (สบส.) กระทรวงสาธารณสุข แ෥ะสื่อที่อ้างอิงข้อมูลจากหน่วยงานภาครัฐโดยตรง
             พร้อมลิงก์ไปยังต้นฉบับในทุกบทความ — ไม่ใช่คำแนะนำทางกฎหมาย กรุณาตรวจสอบข้อมูลล่าสุดกับหน่วยงานต้นทางก่อนนำไปอ้างอิง
           </p>
         </div>
@@ -106,7 +106,7 @@ export default function ArticlesPage() {
 
       <footer className="bg-inverse text-onInverse text-center py-12 mt-8">
         <h3 className="text-lg font-medium mb-4">อยากให้ AdCheck ช่วยตรวจสอบโฆษณาก่อนเผยแพร่ไหม</h3>
-        <Link href="/onboarding" className="inline-block rounded-md bg-white text-inverse px-5 py-3 text-sm font-medium">
+        <Link href="/login" className="inline-block rounded-md bg-white text-inverse px-5 py-3 text-sm font-medium">
           ทดลองใช้ฟรี 5 ครั้ง
         </Link>
       </footer>
