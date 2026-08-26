@@ -73,11 +73,10 @@ export function Nav({ credits }: { credits?: number }) {
   const pathname = usePathname();
   const isAgency = pathname?.startsWith("/agency") ?? false;
   const menuItems = isAgency ? AGENCY_MENU_ITEMS : CLINIC_MENU_ITEMS;
-  // Agency mode has no single obvious upload/checkout target — those live
-  // per-clinic on the dashboard/settings cards instead — so the global nav
-  // shortcuts just route there rather than to a page that needs a business
-  // id it doesn't have.
-  const uploadHref = isAgency ? "/agency/dashboard" : "/upload";
+  // Agency mode has no single obvious checkout target — that lives
+  // per-clinic on the settings cards instead — so the global nav shortcut
+  // just routes there rather than to a page that needs a business id it
+  // doesn't have.
   const creditsHref = isAgency ? "/agency/settings" : "/checkout";
 
   function MenuLink({
@@ -127,12 +126,20 @@ export function Nav({ credits }: { credits?: number }) {
 
           <div className="flex items-center gap-3 shrink-0">
             <ModeToggle isAgency={isAgency} />
-            <Link
-              href={uploadHref}
-              className="rounded-md bg-white text-inverse px-4 py-2 text-sm font-medium whitespace-nowrap hover:bg-white/90"
-            >
-              + อัปโหลด
-            </Link>
+            {/* No single business id to upload against in Agency mode —
+                each clinic card on /agency/dashboard has its own "+
+                อัปโหลด" button instead. This global shortcut used to point
+                back at /agency/dashboard, which did nothing when someone
+                was already there (e.g. right after adding a clinic) and
+                looked like a dead button. */}
+            {!isAgency && (
+              <Link
+                href="/upload"
+                className="rounded-md bg-white text-inverse px-4 py-2 text-sm font-medium whitespace-nowrap hover:bg-white/90"
+              >
+                + อัปโหลด
+              </Link>
+            )}
             {typeof credits === "number" && (
               <Link
                 href={creditsHref}
