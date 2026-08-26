@@ -306,6 +306,14 @@ function RuleRow({
             <span className="rounded-pill bg-page border border-border text-tertiary px-2.5 py-0.5 text-xs">
               {rule.source_type === "upload" ? `ไฟล์: ${rule.source_filename ?? ""}` : "พิมพ์เอง"}
             </span>
+            {rule.has_file && (
+              <a
+                href={`/api/admin/knowledge-base/${rule.id}/file`}
+                className="rounded-pill bg-accentSoft text-accent px-2.5 py-0.5 text-xs hover:underline"
+              >
+                ดาวน์โหลดไฟล์ต้นฉบับ
+              </a>
+            )}
             {!rule.is_active && (
               <span className="rounded-pill bg-dangerSoft text-danger px-2.5 py-0.5 text-xs">ปิดใช้งาน</span>
             )}
