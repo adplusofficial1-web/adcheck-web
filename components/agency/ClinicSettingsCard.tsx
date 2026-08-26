@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import type { ChildClinic } from "@/lib/agency";
 
 function initials(name: string) {
@@ -10,11 +9,12 @@ function initials(name: string) {
   return parts.length > 1 ? (parts[0][0] + parts[1][0]).toUpperCase() : name.slice(0, 2).toUpperCase();
 }
 
-// One clinic's editable info + plan/credit summary on /agency/settings.
-// Saves via PATCH /api/agency/clinics/[id] (ownership-checked server-side)
-// — billing itself is NOT handled here (per-clinic top-up goes through the
-// existing /checkout?business=<id> flow, same as a clinic buying for
-// itself) so this card only edits the clinic's profile fields.
+// One clinic's editable info + this-month usage on /agency/settings.
+// Saves via PATCH /api/agency/clinics/[id] (ownership-checked server-side).
+// There's no per-clinic billing any more — every clinic in the network
+// draws from the agency's own shared credit pool (see lib/agency.ts's
+// hasActiveAgencyPlan comment), so this card only edits the clinic's
+// profile fields and shows how much of the shared pool it used this month.
 export function ClinicSettingsCard({
   clinic,
   checksThisMonth,
@@ -88,7 +88,7 @@ export function ClinicSettingsCard({
         <div className="flex-1 min-w-0">
           <div className="text-lg font-medium truncate">{clinic.name}</div>
           <div className="text-sm truncate text-secondary">
-            {clinic.contact_email || "ยังไม่มีอีเมลติดต่อ"} · {clinic.plan_name || "ยังไม่มีแพ็กเกจ"}
+            {clinic.contact_email || "ยังไม่มีอีเมลติดต่อ"}
           </div>
         </div>
         {saved ? (
@@ -124,7 +124,7 @@ export function ClinicSettingsCard({
       {deleting && (
         <div className="rounded-md bg-dangerSoft px-4 py-3 mb-5 flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm text-danger">
-            ลบคลินิก <span className="font-medium">{clinic.name}</span> ใช่ไหม? ประวัติการตรวจ เครดิต และข้อมูลทั้งหมดของ
+            ลบคลินิก <span className="font-medium">{clinic.name}</span> ใช่ไหม? ประวัติการตรวจ เครดีต และข้อมูลทั้งหมดของ
             คลินิกนี้จะถูกลบถาวร กู้คืนไม่ได้
           </p>
           <div className="flex gap-2 shrink-0">
@@ -168,7 +168,7 @@ export function ClinicSettingsCard({
             />
           </div>
           <div>
-            <label className="block text-xs mb-1.5 text-secondary">เลขที่ใบอนุญาตสถานพยาบาล</label>
+            <label className="block text-xs mb-1.5 text-secondary">เลขที่ใบอนุญาตสถานพลาบาล
             <input
               className="w-full text-sm rounded-md px-3 py-2 outline-none border border-border bg-page"
               value={draft.license_number}
@@ -196,24 +196,12 @@ export function ClinicSettingsCard({
       <div className="flex items-center justify-between flex-wrap gap-3 pt-4 border-t border-border">
         <div>
           <span className="inline-block text-xs font-medium px-3 py-1 mb-2 rounded-pill bg-accentSoft text-accent">
-            {clinic.plan_name || "ยังไม่มีแพ็กเกจ"}
+            ใช้เคริดิกรวม่กแพ็กเงิน Agency
           </span>
-          <div className="text-sm font-medium">
-            {clinic.price_thb ? `${Number(clinic.price_thb).toLocaleString()} บาท / รอบ` : "—"}
-            {clinic.monthly_image_credits ? ` · ${clinic.monthly_image_credits} เครดิต/รอบ` : ""}
-          </div>
-          <div className="text-xs text-secondary mt-1">
-            {checksThisMonth !== undefined
-              ? `ตรวจแล้วเดือนนี้ ${checksThisMonth} ครั้ง`
-              : `เครดิตคงเหลือ ${clinic.credits_remaining} ครั้ง`}
+          <div className="text-xs text-secondary">
+            {checksThisMonth !== undefined ? `ตรวจแล้วเดือนนี้ ${checksThisMonth} ครั้ง` : null}
           </div>
         </div>
-        <Link
-          href={`/checkout?business=${clinic.id}`}
-          className="shrink-0 rounded-md px-4 py-2.5 text-sm font-medium bg-inverse text-onInverse"
-        >
-          ซื้อ/เติมแพ็กเกจให้คลินิกนี้ →
-        </Link>
       </div>
     </section>
   );
