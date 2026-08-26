@@ -44,7 +44,7 @@ export default async function UploadPage({
         {isForOther && !agencyPlanBlocked && (
           <p className="text-sm text-secondary mb-2">
             กำลังอัปโหลดให้ <span className="font-medium text-primary">{target.name}</span> ในเครือข่ายของคุณ —
-            ใช้เครดิตของคลินิกนี้
+            ใช้เครดิตรวมจากแพ็กเกจ Agency ของคุณ
           </p>
         )}
         {agencyPlanBlocked ? (
@@ -68,7 +68,12 @@ export default async function UploadPage({
             <p className="text-sm text-secondary mb-8">
               เลือกได้สูงสุด 5 ภาพต่อครั้ง รองรับ JPG, PNG, PDF ไม่เกิน 10MB ต่อไฟล์
             </p>
-            <UploadForm creditsRemaining={target.credits_remaining ?? 0} businessId={isForOther ? target.id : undefined} />
+            {/* creditsRemaining always reflects `business` (the signed-in
+                account), never `target` — that's what actually gets billed,
+                see app/api/submissions/route.ts. For a solo clinic
+                reviewing its own ad, business === target, so this is
+                unchanged for that case. */}
+            <UploadForm creditsRemaining={business.credits_remaining ?? 0} businessId={isForOther ? target.id : undefined} />
           </>
         )}
       </div>
