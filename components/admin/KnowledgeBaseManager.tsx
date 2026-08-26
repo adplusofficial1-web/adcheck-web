@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ComplianceRuleMatch } from "@/lib/complianceRules";
+import { formatThaiDateTime } from "@/lib/formatDateTime";
 
 type Props = { initialRules: ComplianceRuleMatch[] };
 
@@ -341,6 +342,12 @@ function RuleRow({
             >
               {expanded ? "ย่อ" : "ดูเนื้อหาเต็ม"}
             </button>
+          )}
+          {!editing && (
+            <p className="mt-2 text-xs text-tertiary">
+              เพิ่มเมื่อ {formatThaiDateTime(rule.created_at)}
+              {rule.updated_at !== rule.created_at && ` · แก้ไขล่าสุด ${formatThaiDateTime(rule.updated_at)}`}
+            </p>
           )}
         </div>
 
