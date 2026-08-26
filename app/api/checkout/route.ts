@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { getBusinessByIdForOwner } from "@/lib/agency";
 
 // Buying a package — first purchase, an upgrade, or a manual top-up mid-cycle
 // — always RESETS credits_remaining to the purchased plan's monthly
@@ -20,11 +21,22 @@ import { getCurrentBusiness } from "@/lib/currentBusiness";
 // every 30 days without the user manually revisiting /checkout) is a
 // separate follow-up once a real gateway is connected.
 export async function POST(req: Request) {
-  const { planCode, channel } = await req.json();
+  const { planCode, channel, businessId } = await req.json();
 
   const business = await getCurrentBusiness();
   if (!business) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  // businessId lets an Agency account pay for a specific clinic it manages
+  // (see app/agency/settings — "ซื้อ/เติมแพ็กเกจให้คลินิกนี้") instead of
+  // always billing the signed-in account itself. getBusinessByIdForOwner
+  // only resolves ids that are either the signed-in business or one of its
+  // child clinics, so this can't be used to pay into (or read the plan of)
+  // a business that isn't ours.
+  const target = businessId ? await getBusinessByIdForOwner(businessId, business.id) : business;
+  if (!target) {
+    return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
   }
 
   const [plan] = (await sql`SELECT * FROM plans WHERE code = ${planCode}`) as any[];
@@ -36,7 +48,7 @@ export async function POST(req: Request) {
 
   await sql`
     INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number)
-    VALUES (${business.id}, ${plan.id}, ${plan.price_thb}, 0, ${plan.price_thb}, ${channel}, 'สำเร็จ', ${invoiceNumber})
+    VALUES (${target.id}, ${plan.id}, ${plan.price_thb}, 0, ${plan.price_thb}, ${channel}, 'สำเร็จ', ${invoiceNumber})
   `;
 
   await sql`
@@ -46,7 +58,7 @@ export async function POST(req: Request) {
       credits_remaining = ${plan.monthly_image_credits},
       credits_reset_at = now() + interval '30 days',
       updated_at = now()
-    WHERE id = ${business.id}
+    WHERE id = ${target.id}
   `;
 
   return NextResponse.json({ ok: true, invoiceNumber });
