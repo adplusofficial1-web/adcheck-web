@@ -67,7 +67,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section className="bg-surface border-t border-border flex flex-col items-center gap-14 px-16 py-[100px]">
+      <section className="bg-surface border-t border-border flex flex-col items-center gap-14 px-16 py-20">
         <h2 className="text-[28px] font-medium text-primary">ใช้งานง่ายใน 3 ขั้นตอน</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
           {[
