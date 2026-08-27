@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
 import { DisclaimerBox } from "@/components/DisclaimerBox";
+import { DbdTrustBadge } from "@/components/DbdTrustBadge";
 import { getPlans } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 
@@ -55,7 +56,11 @@ export default async function PricingPage() {
           ))}
         </div>
 
-        <DisclaimerBox className="mt-12" />
+        <div className="flex justify-center mt-12">
+          <DbdTrustBadge />
+        </div>
+
+        <DisclaimerBox className="mt-8" />
       </div>
     </main>
   );
