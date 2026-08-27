@@ -63,6 +63,40 @@ export default async function ResultsPage({ params }: { params: { id: string } }
           <span className="rounded-pill bg-dangerSoft text-danger px-3 py-1">{violationCount} ภาพเข้าข่ายผิด</span>
         </div>
 
+        <details className="mb-8 rounded-lg border border-border bg-surface p-4 text-sm">
+          <summary className="cursor-pointer font-medium text-primary">
+            ความหมายของแต่ละสถานะ
+          </summary>
+          <div className="mt-4 space-y-3 text-secondary">
+            <div className="flex gap-3">
+              <span className="shrink-0 rounded-pill bg-accentSoft text-accent px-3 py-1 text-xs font-medium">ผ่าน</span>
+              <p>
+                AI ไม่พบข้อความหรือภาพที่เข้าข่ายผิดกฎตามเกณฑ์ที่ใช้ตรวจ พร้อมเผยแพร่ได้ แต่ยังต้องยื่นขออนุมัติกับ สบส.
+                ตามขั้นตอนปกติเช่นเดิม
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <span className="shrink-0 rounded-pill bg-warningSoft text-warning px-3 py-1 text-xs font-medium">ควรระวัง</span>
+              <p>
+                พบจุดที่มีความเสี่ยงในระดับที่ควรพิจารณาแก้ไข แต่ไม่ถึงขั้นห้ามใช้โดยเด็ดขาด สามารถแก้ไขตามคำแนะนำ
+                หรือพิจารณารับความเสี่ยงเองได้หากมั่นใจว่าเนื้อหาไม่ขัดกฎหมายจริง
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <span className="shrink-0 rounded-pill bg-dangerSoft text-danger px-3 py-1 text-xs font-medium">เข้าข่ายผิด</span>
+              <p>
+                พบข้อความหรือภาพที่เข้าข่ายขัดกฎหมาย/ระเบียบที่ใช้ตรวจอย่างชัดเจน ควรแก้ไขก่อนเผยแพร่จริง
+                เพื่อลดความเสี่ยงถูกสั่งระงับโฆษณาหรือถูกปรับ
+              </p>
+            </div>
+            <p className="text-xs text-tertiary pt-2 border-t border-border">
+              หมายเหตุ: ป้าย "ห้ามเด็ดขาด" และ "ควรระวัง" ที่แสดงในแต่ละจุดด้านล่าง เป็นระดับความเสี่ยงเฉพาะจุดนั้น
+              ซึ่งเป็นคนละส่วนกับสถานะรวมของทั้งภาพด้านบน — "ห้ามเด็ดขาด" หมายถึงจุดที่ตรงกับคำหรือลักษณะที่กฎหมาย/คู่มือ สบส./อย.
+              ระบุห้ามใช้ชัดเจน ควรแก้ไขก่อนเผยแพร่เสมอ ส่วน "ควรระวัง" หมายถึงจุดที่มีความเสี่ยงแต่ยังตีความได้มากกว่าหนึ่งทาง
+            </p>
+          </div>
+        </details>
+
         <div className="space-y-4">
           {images.map((img, idx) => {
             const s = STATUS_LABEL[img.status] || STATUS_LABEL.passed;
