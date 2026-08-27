@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { getPlans } from "@/lib/db";
 import { DbdTrustBadge } from "@/components/DbdTrustBadge";
+import { MAX_UPLOAD_IMAGES } from "@/lib/uploadLimits";
 
 export default async function LandingPage() {
   let plans: any[] = [];
@@ -72,7 +73,7 @@ export default async function LandingPage() {
         <h2 className="text-[28px] font-medium text-primary">ใช้งานง่ายใน 3 ขั้นตอน</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
           {[
-            ["1", "อัพโหลดภาพโฆษณา", "ลากภาพหรือเลือกไฟล์ที่ต้องการตรวจสอบ สูงสุด 5 ภาพต่อครั้ง"],
+            ["1", "อัพโหลดภาพโฆษณา", `ลากภาพหรือเลือกไฟล์ที่ต้องการตรวจสอบ สูงสุด ${MAX_UPLOAD_IMAGES} ภาพต่อครั้ง`],
             ["2", "AI ตรวจตามแนวทาง สบส.", "วิเคราะห์คำและภาพเทียบกับมาตรา 38 และคู่มือโฆษณาฉบับล่าสุด"],
             ["3", "รับผลพร้อมคำแนะนำ", "เห็นจุดที่เสี่ยง เหตุผลอ้างอิงกฎหมาย และวิธีแก้ไขทันที"],
           ].map(([n, title, desc]) => (
