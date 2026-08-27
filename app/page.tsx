@@ -15,6 +15,12 @@ export default async function LandingPage() {
       <nav className="bg-inverse text-onInverse flex items-center justify-between px-16 py-7">
         <span className="text-2xl font-medium">ADCheck</span>
         <div className="flex items-center gap-8">
+          <Link href="#pricing" className="text-xl text-onInverse/90 hover:text-onInverse">
+            ราคา
+          </Link>
+          <Link href="/case-studies" className="text-xl text-onInverse/90 hover:text-onInverse">
+            ตัวอย่างผลตรวจ
+          </Link>
           <Link href="/login" className="text-xl text-onInverse/90 hover:text-onInverse">
             เข้าสู่ระบบ
           </Link>
@@ -57,7 +63,7 @@ export default async function LandingPage() {
         <h2 className="text-[28px] font-medium text-primary">ใช้งานง่ายใน 3 ขั้นตอน</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
           {[
-            ["1", "อัพโหลดภาพโฆษณา", "ลากภาพหรือเลือกไฟล์ที่ต้องการตรวจสอบ สูงสุด 10 ภาพต่อครั้ง"],
+            ["1", "อัพโหลดภาพโฆษณา", "ลากภาพหรือเลือกไฟล์ที่ต้องการตรวจสอบ สูงสุด 5 ภาพต่อครั้ง"],
             ["2", "AI ตรวจตามแนวทาง สบส.", "วิเคราะห์คำและภาพเทียบกับมาตรา 38 และคู่มือโฆษณาฉบับล่าสุด"],
             ["3", "รับผลพร้อมคำแนะนำ", "เห็นจุดที่เสี่ยง เหตุผลอ้างอิงกฎหมาย และวิธีแก้ไขทันที"],
           ].map(([n, title, desc]) => (
@@ -70,7 +76,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section className="bg-surface border-t border-border flex flex-col items-center gap-12 px-16 py-[100px]">
+      <section id="pricing" className="bg-surface border-t border-border flex flex-col items-center gap-12 px-16 py-[100px]">
         <h2 className="text-[28px] font-medium text-primary text-center">
           ราคาแพ็กเกจรายเดือน - เลือกตามการใช้งาน
         </h2>
@@ -94,7 +100,7 @@ export default async function LandingPage() {
                 </span>
                 <span className="text-sm text-secondary">บาท/เดือน</span>
               </div>
-              <div className="text-sm text-secondary">{p.monthly_image_credits} รูปภาพ/เดือน</div>
+              <div className="text-sm text-secondary">{Number(p.monthly_image_credits).toLocaleString()} รูปภาพ/เดือน</div>
               <ul className="text-xs text-secondary flex flex-col gap-2">
                 {(p.features || []).map((f: string) => (
                   <li key={f} className="flex items-center gap-2">
