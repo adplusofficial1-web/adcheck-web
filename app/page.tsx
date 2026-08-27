@@ -33,29 +33,37 @@ export default async function LandingPage() {
         </div>
       </nav>
 
-      <section className="bg-surface flex flex-col items-center gap-6 px-16 py-[140px] text-center">
-        <span className="inline-block rounded-pill bg-accentSoft text-accent text-xs font-medium tracking-wide px-3.5 py-1.5">
-          ตรวจสอบโฆษณาคลินิกสถานพยาบาลด้วย AI
-        </span>
-        <h1 className="max-w-full w-[760px] text-[56px] font-medium leading-[1.12] tracking-tight text-primary">
-          โฆษณาคลินิกให้ถูกกฎหมาย
-          <br />
-          ก่อนเผยแพร่จริง
-        </h1>
-        <p className="max-w-full w-[560px] text-secondary text-lg leading-[1.6]">
-          อัพโหลดภาพโฆษณา ให้ AI ตรวจตามแนวทาง สบส. ก่อนเผยแพร่จริง
-          พร้อมคำอธิบายว่าผิดตรงไหนและควรแก้อย่างไร
-        </p>
-        <div className="flex items-center justify-center gap-6 pt-3">
-          <Link
-            href="/login"
-            className="rounded-md bg-inverse text-onInverse px-8 py-4 text-[15px] font-medium hover:bg-inverse/90"
-          >
-            เริ่มตรวจสอบฟรี
-          </Link>
-          <Link href="/case-studies" className="text-[15px] text-primary underline">
-            ดูตัวอย่างผลตรวจ →
-          </Link>
+      <section className="bg-surface flex flex-col md:flex-row items-center gap-16 px-16 py-[100px]">
+        <div className="w-full md:w-[46%] rounded-2xl overflow-hidden border border-border shadow-[0_20px_50px_-20px_rgba(27,27,24,0.18)]">
+          <video autoPlay muted loop playsInline className="block w-full h-full object-cover">
+            <source src="/hero/adcheck-hero.webm" type="video/webm" />
+            <source src="/hero/adcheck-hero.mp4" type="video/mp4" />
+          </video>
+        </div>
+        <div className="flex flex-col items-start gap-6 text-left">
+          <span className="inline-block rounded-pill bg-accentSoft text-accent text-xs font-medium tracking-wide px-3.5 py-1.5">
+            ตรวจสอบโฆษณาคลินิกสถานพยาบาลด้วย AI
+          </span>
+          <h1 className="max-w-full w-[560px] text-[46px] font-medium leading-[1.16] tracking-tight text-primary">
+            โฆษณาคลินิกให้ถูกกฎหมาย
+            <br />
+            ก่อนเผยแพร่จริง
+          </h1>
+          <p className="max-w-full w-[480px] text-secondary text-lg leading-[1.6]">
+            อัพโหลดภาพโฆษณา ให้ AI ตรวจตามแนวทาง สบส. ก่อนเผยแพร่จริง
+            พร้อมคำอธิบายว่าผิดตรงไหนและควรแก้อย่างไร
+          </p>
+          <div className="flex items-center gap-6 pt-3">
+            <Link
+              href="/login"
+              className="rounded-md bg-inverse text-onInverse px-8 py-4 text-[15px] font-medium hover:bg-inverse/90"
+            >
+              เริ่มตรวจสอบฟรี
+            </Link>
+            <Link href="/case-studies" className="text-[15px] text-primary underline">
+              ดูตัวอย่างผลตรวจ →
+            </Link>
+          </div>
         </div>
       </section>
 
