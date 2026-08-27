@@ -5,6 +5,7 @@ import { UploadForm } from "@/app/upload/UploadForm";
 import { Nav } from "@/components/Nav";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getBusinessByIdForOwner, hasActiveAgencyPlan } from "@/lib/agency";
+import { MAX_UPLOAD_IMAGES } from "@/lib/uploadLimits";
 
 // Agency-mode twin of app/upload/page.tsx — lives under /agency/... so
 // components/Nav.tsx's path-prefix check (isAgency =
@@ -73,7 +74,7 @@ export default async function AgencyUploadPage({
         ) : (
           <>
             <p className="text-sm text-secondary mb-8">
-              เลือกได้สูงสุด 5 ภาพต่อครั้ง รองรับ JPG, PNG, PDF ไม่เกิน 10MB ต่อไฟล์
+              เลือกได้สูงสุด {MAX_UPLOAD_IMAGES} ภาพต่อครั้ง รองรับ JPG, PNG, PDF ไม่เกิน 10MB ต่อไฟล์
             </p>
             <UploadForm creditsRemaining={business.credits_remaining ?? 0} businessId={target.id} />
           </>

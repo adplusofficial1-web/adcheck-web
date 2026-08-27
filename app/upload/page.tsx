@@ -5,6 +5,7 @@ import { UploadForm } from "./UploadForm";
 import { Nav } from "@/components/Nav";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getBusinessByIdForOwner, hasActiveAgencyPlan } from "@/lib/agency";
+import { MAX_UPLOAD_IMAGES } from "@/lib/uploadLimits";
 
 export default async function UploadPage({
   searchParams,
@@ -66,7 +67,7 @@ export default async function UploadPage({
         ) : (
           <>
             <p className="text-sm text-secondary mb-8">
-              เลือกได้สูงสุด 5 ภาพต่อครั้ง รองรับ JPG, PNG, PDF ไม่เกิน 10MB ต่อไฟล์
+              เลือกได้สูงสุด {MAX_UPLOAD_IMAGES} ภาพต่อครั้ง รองรับ JPG, PNG, PDF ไม่เกิน 10MB ต่อไฟล์
             </p>
             {/* creditsRemaining always reflects `business` (the signed-in
                 account), never `target` — that's what actually gets billed,

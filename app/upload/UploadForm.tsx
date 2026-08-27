@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { MAX_UPLOAD_IMAGES } from "@/lib/uploadLimits";
 
 type Row = { filename: string; caption: string; base64: string; mediaType: string };
 
@@ -91,7 +92,7 @@ export function UploadForm({
   async function onFiles(files: FileList | null) {
     if (!files) return;
     setLoadingFiles(true);
-    const remainingSlots = Math.max(0, 5 - rows.length);
+    const remainingSlots = Math.max(0, MAX_UPLOAD_IMAGES - rows.length);
     const picked = Array.from(files).slice(0, remainingSlots);
     const added = await Promise.all(
       picked.map(async (f) => {
@@ -141,7 +142,7 @@ export function UploadForm({
     }
   }
 
-  const atLimit = rows.length >= 5;
+  const atLimit = rows.length >= MAX_UPLOAD_IMAGES;
 
   return (
     <div>
@@ -162,10 +163,10 @@ export function UploadForm({
           {loadingFiles
             ? "กำลังโหลดไฟล์..."
             : atLimit
-            ? "เลือกครบ 5 ภาพแล้ว — ลบภาพออกก่อนเพื่อเพิ่มใหม่"
+            ? `เลือกครบ ${MAX_UPLOAD_IMAGES} ภาพแล้ว — ลบภาพออกก่อนเพื่อเพิ่มใหม่`
             : rows.length > 0
-            ? `ลากภาพมาวาง หรือคลิกเพื่อเพิ่มภาพ (เลือกแล้ว ${rows.length}/5)`
-            : "ลากภาพมาวาง หรือคลิกเพื่อเลือกไฟล์ (สูงสุด 5 ภาพ)"}
+            ? `ลากภาพมาวาง หรือคลิกเพื่อเพิ่มภาพ (เลือกแล้ว ${rows.length}/${MAX_UPLOAD_IMAGES})`
+            : `ลากภาพมาวาง หรือคลิกเพื่อเลือกไฟล์ (สูงสุด ${MAX_UPLOAD_IMAGES} ภาพ)`}
         </div>
       </label>
 
