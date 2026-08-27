@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { getPlans } from "@/lib/db";
+import { DbdTrustBadge } from "@/components/DbdTrustBadge";
 
 export default async function LandingPage() {
   let plans: any[] = [];
@@ -142,11 +143,12 @@ export default async function LandingPage() {
         </Link>
       </section>
 
-      <footer className="bg-surface flex flex-col items-center gap-2 px-16 py-8 text-xs text-tertiary">
+      <footer className="bg-surface flex flex-col items-center gap-4 px-16 py-8 text-xs text-tertiary">
         <p className="max-w-full w-[600px] text-center">
           AdCheck เป็นเครื่องมือคัดกรองเบื้องต้น ไม่ใช่การอนุมัติโฆษณาตามกฎหมาย
           สถานพยาบาลยังต้องยื่นขออนุมัติกับ สบส. ก่อนเผยแพร่จริงทุกครั้ง
         </p>
+        <DbdTrustBadge />
         <p>© 2026 AdCheck</p>
       </footer>
     </main>
