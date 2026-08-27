@@ -6,6 +6,13 @@ import { DbdTrustBadge } from "@/components/DbdTrustBadge";
 
 const CHANNELS = ["บัตรเครดิต/เดบิต", "QR PromptPay", "Mobile Banking", "Direct Debit"];
 
+// Mirrors PAYMENT_GATEWAY_ENABLED in app/api/checkout/route.ts — that route
+// already rejects every charge, but leaving the button looking clickable
+// meant someone had to pick a channel and hit "ชำระเงิน" just to find out
+// (C2). Flip both together once a real gateway is wired up; until then the
+// button stays disabled and says so up front instead of failing silently.
+const PAYMENT_ENABLED = false;
+
 export function CheckoutForm({
   planCode,
   amount,
@@ -74,10 +81,14 @@ export function CheckoutForm({
 
       <button
         onClick={pay}
-        disabled={loading}
+        disabled={loading || !PAYMENT_ENABLED}
         className="w-full rounded-md bg-inverse text-onInverse py-3 text-sm font-medium disabled:opacity-50"
       >
-        {loading ? "กำลังดำเนินการ..." : `ชำระเงิน ${amount.toLocaleString()} บาท`}
+        {loading
+          ? "กำลังดำเนินการ..."
+          : !PAYMENT_ENABLED
+          ? "ระบบชำระเงินยังไม่เปิดให้บริการ"
+          : `ชำระเงิน ${amount.toLocaleString()} บาท`}
       </button>
 
       {/* Trust signal right at the payment decision point — see
