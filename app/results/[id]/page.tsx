@@ -78,8 +78,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
             <div className="flex gap-3">
               <span className="shrink-0 rounded-pill bg-warningSoft text-warning px-3 py-1 text-xs font-medium">ควรระวัง</span>
               <p>
-                พบจุดที่มีความเสี่ยงในระดับที่ควรพิจารณาแก้ไข แต่ไม่ถึงขั้นห้ามใช้โดยเด็ดขาด สามารถแก้ไขตามคำแนะนำ
-                หรือพิจารณารับความเสี่ยงเองได้หากมั่นใจว่าเนื้อหาไม่ขัดกฎหมายจริง
+                พบจุดที่มีความเสี่ยงควรพิจารณาแก้ไข ยังไม่ถึงขั้นห้ามใช้เด็ดขาด แก้ไขตามคำแนะนำหรือรับความเสี่ยงเองได้
               </p>
             </div>
             <div className="flex gap-3">
@@ -89,12 +88,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
                 เพื่อลดความเสี่ยงถูกสั่งระงับโฆษณาหรือถูกปรับ
               </p>
             </div>
-            <p className="text-xs text-tertiary pt-2 border-t border-border">
-              หมายเหตุ: ป้าย "ห้ามเด็ดขาด" และ "ควรระวัง" ที่แสดงในแต่ละจุดด้านล่าง เป็นระดับความเสี่ยงเฉพาะจุดนั้น
-              ซึ่งเป็นคนละส่วนกับสถานะรวมของทั้งภาพด้านบน — "ห้ามเด็ดขาด" หมายถึงจุดที่ตรงกับคำหรือลักษณะที่กฎหมาย/คู่มือ สบส./อย.
-              ระบุห้ามใช้ชัดเจน ควรแก้ไขก่อนเผยแพร่เสมอ ส่วน "ควรระวัง" หมายถึงจุดที่มีความเสี่ยงแต่ยังตีความได้มากกว่าหนึ่งทาง
-            </p>
-          </div>
+        </div>
         </details>
 
         <div className="space-y-4">
@@ -109,7 +103,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
                   </div>
                   <span className={`rounded-pill px-3 py-1 text-xs font-medium ${s.badge}`}>
                     {s.label}
-                    {imgFlags.length > 0 ? ` ${imgFlags.length} จุด` : ""}
+                    {imgFlags.length > 0 ? ` ${imgFlags.length} จิด` : ""}
                   </span>
                 </div>
 
@@ -126,14 +120,14 @@ export default async function ResultsPage({ params }: { params: { id: string } }
                   <div className="flex-1 min-w-0">
                     {img.caption && (
                       <div className="text-xs text-secondary mb-2">
-                        คำบรรยาย: &quot;{img.caption}&quot;
+                        คำบรรยาฉ: &quot;{img.caption}&quot;
                       </div>
                     )}
                     {imgFlags.length === 0 && (
                       <div className="text-sm text-secondary">
                         {img.status === "passed"
                           ? "ไม่พบประเด็นที่เข้าข่ายผิดกฎ"
-                          : `AI ให้ผล "${s.label}" แต่ไม่ได้ระบุข้อความที่มีปัญหาชัดเจน — ลองพิจารณาด้วยสายตาอีกครั้ง`}
+                          : `AI ไม่ทไม่ใช้สามระมำหร้ดที่ชมีปัญหาฉสัดเจน — ลองพิจารณาด้วยสายตาอีกครั้ง`}
                       </div>
                     )}
                     {imgFlags.map((f) => (
