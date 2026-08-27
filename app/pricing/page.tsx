@@ -37,7 +37,7 @@ export default async function PricingPage() {
                 {Number(p.price_thb).toLocaleString()}
                 <span className="text-sm font-normal text-secondary"> บาท/เดือน</span>
               </div>
-              <div className="text-sm text-secondary mb-4">{p.monthly_image_credits} รูปภาพ/เดือน</div>
+              <div className="text-sm text-secondary mb-4">{Number(p.monthly_image_credits).toLocaleString()} รูปภาพ/เดือน</div>
               <ul className="text-sm space-y-1 mb-6">
                 {(p.features || []).map((f: string) => (
                   <li key={f}>✓ {f}</li>
