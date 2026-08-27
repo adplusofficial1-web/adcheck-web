@@ -1,15 +1,15 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "ตัวอย่างผลงาน — AdCheck",
+  title: "ตัวอย่างการตรวจสอบโฆษณา — AdCheck",
   description:
-    "กรณีศึกษาจริงจากคลินิกและเอเจนซี่ที่ใช้ AdCheck ตรวจสอบโฆษณาก่อนเผยแพร่ พร้อมผลลัพธ์และตัวอย่างการแก้ไขที่วัดผลได้จริง",
+    "ตัวอย่างจริงว่า AI ของ AdCheck ตรวจจับข้อความโฆษณาที่เข้าข่ายผิดกฎหมายอย่างไร พร้อมคำอธิบายและตัวอย่างการแก้ไขที่ใช้ได้จริง",
 };
 
-// Shared scrollbar + bottom fade for the three "scroll for more" panels
-// below. Same visual language as components/DisclaimerBox.tsx
-// (adc-disc-scroll) — kept page-scoped here since this is the only page
-// that needs it at this width/height.
+// Shared scrollbar + bottom fade for the "scroll for more" panel below.
+// Same visual language as components/DisclaimerBox.tsx (adc-disc-scroll) —
+// kept page-scoped here since this is the only page that needs it at this
+// width/height.
 const SCROLLBAR_CSS = `
 .adc-cs-scroll{scrollbar-width:thin;scrollbar-color:#DCD8CF transparent;overscroll-behavior:contain}
 .adc-cs-scroll::-webkit-scrollbar{width:10px}
@@ -25,6 +25,14 @@ type Compare = {
   passPoints: string[];
 };
 
+// These are illustrative example ad copy (not real customer submissions or
+// quotes) written to demonstrate how the AI review reads against มาตรา 38
+// and สบส. guidance — kept deliberately generic/unattributed so this page
+// never implies a specific clinic or customer said these things. See C1 in
+// claude/UX Audit Findings.md: this page used to also show a "1,200+
+// clinics trust us" stat plus fabricated named case studies and
+// testimonials, which were removed as dishonest — the product has only a
+// couple of real test accounts so far.
 const COMPARE_EXAMPLES: Compare[] = [
   {
     riskText: "รักษาสิว หายขาด 100% การันตีผลลัพธ์ดีที่สุดในไทย ปลอดภัย ไม่มีผลข้างเคียงแน่นอน",
@@ -168,36 +176,10 @@ const COMPARE_EXAMPLES: Compare[] = [
   },
 ];
 
-const CASE_STUDIES = [
-  { tag: "คลินิกความงาม (เชียงใหม่)", metric: "-95%", label: "เวลาที่ใช้ตรวจสอบต่อโพสต์", desc: "ลดเวลาตรวจสอบโฆษณาจาก 2 ชั่วโมง เหลือเพียง 5 นาทีต่อโพสต์ ทีมการตลาดโพสต์ได้เร็วขึ้นมาก" },
-  { tag: "เอเจนซี่โฆษณาคลินิก (กรุงเทพฯ)", metric: "0 ครั้ง", label: "การถูกร้องเรียนหลังใช้งาน", desc: "ตรวจพบข้อความเสี่ยงก่อนเผยแพร่กว่า 40 โพสต์ต่อเดือน ไม่มีเคสถูกดำเนินการเลย" },
-  { tag: "เครือข่ายคลินิกทันตกรรม (หลายสาขา)", metric: "12 สาขา", label: "ใช้งานพร้อมกันในระบบเดียว", desc: "รวมการตรวจสอบโฆษณาของทุกสาขาไว้ในที่เดียว บริหารจัดการง่ายจากส่วนกลาง" },
-  { tag: "คลินิกเสริมความงาม (ภูเก็ต)", metric: "320 โพสต์/เดือน", label: "ปริมาณโฆษณาที่ตรวจสอบผ่านระบบ", desc: "ทีมการตลาดตรวจสอบโฆษณาได้เองโดยไม่ต้องรอทีมกฎหมาย ลดคอขวดในการทำงาน" },
-  { tag: "โรงพยาบาลเอกชน (ขอนแก่น)", metric: "8 เดือน", label: "ระยะเวลาที่ไม่มีการแจ้งเตือนจาก สบส.", desc: "ใช้ AdCheck ตรวจสอบทุกแคมเปญก่อนเผยแพร่ ไม่มีประวัติถูกตักเตือนเรื่องข้อความโฆษณาเลย" },
-  { tag: "คลินิกกระดูกและข้อ (นนทบุรี)", metric: "-80%", label: "เวลาการอนุมัติโฆษณาภายในทีม", desc: "จากเดิมต้องรอทีมกฎหมายตรวจ 1-2 วัน เหลือเพียงไม่กี่นาทีต่อโพสต์" },
-  { tag: "เอเจนซี่ดิจิทัลมาร์เก็ตติ้ง (หาดใหญ่)", metric: "6 คลินิก", label: "ลูกค้าที่ใช้ระบบร่วมกัน", desc: "บริหารการตรวจสอบโฆษณาให้ลูกค้าหลายคลินิกพร้อมกันในระบบเดียว ลดความผิดพลาดของทีม" },
-  { tag: "คลินิกสัตวแพทย์ (พัทยา)", metric: "100%", label: "โพสต์ที่ผ่านการตรวจสอบก่อนเผยแพร่", desc: "ปรับมาตรฐานการเขียนคอนเทนต์ให้ทีมทุกคนตรวจสอบก่อนโพสต์ทุกครั้งโดยไม่มีข้อยกเว้น" },
-  { tag: "คลินิกเวชกรรมความงาม (อุดรธานี)", metric: "-60%", label: "ค่าใช้จ่ายจ้างที่ปรึกษากฎหมาย", desc: "ลดการพึ่งพาที่ปรึกษากฎหมายภายนอกสำหรับตรวจสอบโฆษณารายเดือน" },
-  { tag: "เครือข่ายร้านขายยา (หลายจังหวัด)", metric: "25 สาขา", label: "ใช้งานภายใต้นโยบายเดียวกัน", desc: "สร้างมาตรฐานการโฆษณาที่สอดคล้องกันในทุกสาขาทั่วประเทศ" },
-];
-
-const TESTIMONIALS = [
-  { initials: "สว", name: "คุณสิรินทร์ วงศ์สกุล", role: "เจ้าของคลินิกความงาม", quote: "AdCheck ช่วยให้ทีมมั่นใจก่อนโพสต์ทุกครั้ง ไม่ต้องกังวลเรื่องคำที่อาจผิดกฎหมายอีกต่อไป" },
-  { initials: "กอ", name: "คุณกิตติพงษ์ อารยะ", role: "ผู้จัดการเอเจนซี่โฆษณา", quote: "ประหยัดเวลาทีมงานไปมาก จากที่ต้องส่งให้ทนายตรวจทุกโพสต์ ตอนนี้ตรวจเองได้ในไม่กี่นาที" },
-  { initials: "ปธ", name: "คุณปวีณา ธนกิจ", role: "หัวหน้าฝ่ายการตลาด เครือข่ายคลินิกทันตกรรม", quote: "ระบบอธิบายเหตุผลชัดเจน ไม่ใช่แค่บอกผ่านหรือไม่ผ่าน ทีมเรียนรู้และเขียนโฆษณาได้ดีขึ้นเรื่อยๆ" },
-  { initials: "ณจ", name: "คุณณัฐวุฒิ เจริญสุข", role: "ผู้อำนวยการโรงพยาบาลเอกชน", quote: "ทีมกฎหมายของเราแทบไม่ต้องตรวจโฆษณาซ้ำอีกแล้ว AdCheck ช่วยคัดกรองตั้งแต่ต้นทาง" },
-  { initials: "อศ", name: "คุณอรวรรณ ศรีสุข", role: "เจ้าของคลินิกเสริมความงาม", quote: "ใช้งานง่ายมาก แค่วางข้อความก็รู้ทันทีว่าจุดไหนเสี่ยง ไม่ต้องรอทีมกฎหมายเป็นวัน" },
-  { initials: "ธพ", name: "คุณธีรพงศ์ ไพศาล", role: "หัวหน้าทีมคอนเทนต์ เอเจนซี่ดิจิทัล", quote: "ลูกค้าหลายคลินิกใช้ระบบเดียวกันได้ ทำให้เราควบคุมคุณภาพงานได้ง่ายขึ้นมาก" },
-  { initials: "มก", name: "คุณมนัสวี เกียรติกุล", role: "ผู้จัดการฝ่ายการตลาด คลินิกกระดูกและข้อ", quote: "ก่อนหน้านี้เคยถูกเตือนเรื่องคำโฆษณา ตอนนี้มั่นใจขึ้นเยอะเพราะมีระบบช่วยตรวจก่อนโพสต์" },
-  { initials: "สว", name: "คุณสุพัตรา วิริยะกุล", role: "เจ้าของร้านขายยา", quote: "ทุกสาขาใช้มาตรฐานเดียวกันในการเขียนโฆษณา ลดปัญหาการตีความกฎหมายที่ไม่ตรงกัน" },
-  { initials: "อร", name: "นพ. เอกชัย รุ่งเรือง", role: "แพทย์เจ้าของคลินิกเวชกรรมความงาม", quote: "AdCheck ช่วยให้ผมมั่นใจว่าคอนเทนต์ที่ทีมการตลาดเขียน ไม่ขัดกับหลักจริยธรรมทางการแพทย์" },
-  { initials: "จพ", name: "คุณจิรัชยา พงษ์พันธุ์", role: "ผู้จัดการคลินิกสัตวแพทย์", quote: "แม้จะไม่ใช่คลินิกคน แต่ระบบก็ช่วยตรวจจับคำโฆษณาที่เกินจริงได้ดีมาก ใช้งานง่าย" },
-];
-
 function ScrollHint({ count }: { count: number }) {
   return (
     <span className="inline-flex items-center gap-1.5 mt-3 rounded-pill bg-page px-3 py-1.5 text-[12.5px] font-medium text-tertiary">
-      แสดงทั้งหมด {count} เคส — เลื่อนลงเพื่อดูเพิ่มเติม
+      แสดงทั้งหมด {count} ตัวอย่าง — เลื่อนลงเพื่อดูเพิ่มเติม
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <path d="M1 3.5L5 7.5L9 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -225,29 +207,24 @@ export default function CaseStudiesPage() {
         </div>
       </nav>
 
-      <div className="bg-surface flex flex-col items-start gap-3 px-16 pt-16 pb-10">
+      <div className="bg-surface flex flex-col items-start gap-3 px-16 pt-16 pb-12">
         <p className="text-tertiary text-sm">
-          <Link href="/" className="hover:text-primary">หน้าแรก</Link> &nbsp;/&nbsp; ตัวอย่างผลงาน
+          <Link href="/" className="hover:text-primary">หน้าแรก</Link> &nbsp;/&nbsp; ตัวอย่างการตรวจสอบ
         </p>
-        <h1 className="text-[44px] font-medium text-primary">ตัวอย่างผลงานจากการใช้งานจริง</h1>
+        <h1 className="text-[44px] font-medium text-primary">ตัวอย่างการตรวจสอบโฆษณา</h1>
         <p className="max-w-[720px] text-secondary text-lg leading-[1.6]">
-          กรณีศึกษาจริงจากคลินิกและเอเจนซี่ที่ใช้ AdCheck ตรวจสอบโฆษณาก่อนเผยแพร่
-          พร้อมผลลัพธ์และตัวอย่างการแก้ไขที่วัดผลได้จริง
-        </p>
-      </div>
-
-      <div className="bg-surface flex flex-col items-center gap-0 px-16 pb-12 text-center">
-        <p className="text-tertiary text-[13px]">
-          ได้รับความไว้วางใจจากคลินิกและเอเจนซี่กว่า 1,200 แห่งทั่วประเทศ
+          ดูตัวอย่างจริงว่า AI ของ AdCheck จับจุดเสี่ยงในข้อความโฆษณาและช่วยแนะนำการแก้ไขอย่างไร
+          ก่อนเผยแพร่โฆษณาจริง
         </p>
       </div>
 
       {/* Before / After Showcase */}
       <div className="bg-surface flex flex-col items-start gap-7 px-16 pb-20">
         <div>
-          <p className="text-[28px] font-medium text-primary mb-1.5">ตัวอย่างการตรวจสอบจริง</p>
+          <p className="text-[28px] font-medium text-primary mb-1.5">ตัวอย่างการตรวจสอบ</p>
           <p className="max-w-[640px] text-secondary text-[15px] leading-snug">
-            ดูตัวอย่างจริงว่า AI ของ AdCheck จับจุดเสี่ยงและช่วยแนะนำการแก้ไขอย่างไร ก่อนเผยแพร่โฆษณาจริง
+            ตัวอย่างข้อความโฆษณาสมมติ ใช้เพื่อสาธิตวิธีที่ AI วิเคราะห์เทียบกับมาตรา 38 และแนวทาง สบส. —
+            ไม่ใช่โฆษณาจริงของคลินิกใดคลินิกหนึ่ง
           </p>
           <ScrollHint count={COMPARE_EXAMPLES.length} />
         </div>
@@ -304,67 +281,9 @@ export default function CaseStudiesPage() {
         </div>
       </div>
 
-      {/* Case Study Cards */}
-      <div className="bg-surface flex flex-col items-start gap-7 px-16 pb-20">
-        <div>
-          <p className="text-[26px] font-medium text-primary">ผลลัพธ์จากลูกค้าจริง</p>
-          <ScrollHint count={CASE_STUDIES.length} />
-        </div>
-
-        <div className="relative w-full">
-          <div className="adc-cs-scroll max-h-[640px] overflow-y-auto pr-3 -mr-3">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {CASE_STUDIES.map((c, i) => (
-                <div key={i} className="rounded-xl border border-border p-6 flex flex-col gap-4">
-                  <span className="inline-flex w-fit rounded-pill bg-accentSoft text-accent text-[11px] font-medium px-3 py-1.5">
-                    {c.tag}
-                  </span>
-                  <div className="text-[34px] font-medium text-accent">{c.metric}</div>
-                  <p className="text-[13px] text-secondary -mt-2">{c.label}</p>
-                  <div className="h-px bg-border" />
-                  <p className="text-[14px] leading-relaxed text-primary">{c.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-b from-transparent to-surface rounded-b-xl" />
-        </div>
-      </div>
-
-      {/* Testimonials */}
-      <div className="bg-surface flex flex-col items-start gap-7 px-16 pb-20">
-        <div>
-          <p className="text-[26px] font-medium text-primary">เสียงจากผู้ใช้งานจริง</p>
-          <ScrollHint count={TESTIMONIALS.length} />
-        </div>
-
-        <div className="relative w-full">
-          <div className="adc-cs-scroll max-h-[640px] overflow-y-auto pr-3 -mr-3">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {TESTIMONIALS.map((t, i) => (
-                <div key={i} className="rounded-xl border border-border p-6 flex flex-col gap-4">
-                  <div className="text-accent text-sm font-medium tracking-wide">★★★★★</div>
-                  <p className="text-[14.5px] leading-relaxed text-primary min-h-[78px]">“{t.quote}”</p>
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accentSoft text-accent text-sm font-semibold">
-                      {t.initials}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-primary">{t.name}</p>
-                      <p className="text-xs text-tertiary">{t.role}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-b from-transparent to-surface rounded-b-xl" />
-        </div>
-      </div>
-
       <div className="bg-inverse flex flex-col items-center gap-5 px-16 py-24">
         <h2 className="text-[28px] font-medium text-onInverse text-center max-w-[600px]">
-          อยากได้ผลลัพธ์แบบนี้บ้างไหม ลองใช้ AdCheck วันนี้
+          อยากตรวจโฆษณาของคุณแบบนี้บ้างไหม ลองใช้ AdCheck วันนี้
         </h2>
         <Link
           href="/login"
