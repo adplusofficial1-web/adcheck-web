@@ -63,7 +63,7 @@ export default async function DashboardPage() {
         {business.credits_remaining < 10 && (
           <div className="bg-warningSoft text-warning rounded-lg p-4 mb-8 flex items-center justify-between text-sm">
             <span>เครดิตใกล้หมด เหลือ {business.credits_remaining} ครั้ง — เติมเครดิตก่อนใช้งานต่อเนื่อง</span>
-            <a href="https://adcheck.pro/pricing" className="underline font-medium">เติมเครดิต →</a>
+            <Link href="/pricing" className="underline font-medium">เติมเครดิต →</Link>
           </div>
         )}
 
