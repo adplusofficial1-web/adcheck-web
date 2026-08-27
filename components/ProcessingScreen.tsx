@@ -100,9 +100,8 @@ export function ProcessingScreen({
             กำลังประมวลผลด้วย AI
           </div>
           <h1 className="text-2xl font-medium mb-2">กำลังตรวจสอบภาพโฆษณาของคุณ</h1>
-          <p className="text-sm text-secondary max-w-xl">
-            AI กำลังตรวจภาพทีละภาพตามคู่มือ สบส. — ใช้เวลาไม่นาน คุณสามารถรอที่หน้านี้
-            หรือทำงานอื่นระหว่างรอได้
+          <p className="text-sm text-secondary lg:whitespace-nowrap">
+            AI กำลังตรวจภาพทีละภาพตามคู่มือ สบส. — ใช้เวลาไม่นาน คุณสามารถรอที่หน้านี้หรือทำงานอื่นระหว่างรอได้
           </p>
         </div>
 
