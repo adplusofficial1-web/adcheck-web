@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { DbdTrustBadge } from "@/components/DbdTrustBadge";
 
 const CHANNELS = ["บัตรเครดิต/เดบิต", "QR PromptPay", "Mobile Banking", "Direct Debit"];
 
@@ -78,6 +79,14 @@ export function CheckoutForm({
       >
         {loading ? "กำลังดำเนินการ..." : `ชำระเงิน ${amount.toLocaleString()} บาท`}
       </button>
+
+      {/* Trust signal right at the payment decision point — see
+          components/DbdTrustBadge.tsx for why this placement matters. */}
+      <div className="flex items-center justify-center gap-3 mt-4 text-xs text-tertiary">
+        <span>🔒 ชำระเงินปลอดภัย</span>
+        <span className="w-px h-4 bg-border" />
+        <DbdTrustBadge variant="compact" />
+      </div>
     </div>
   );
 }
