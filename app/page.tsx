@@ -69,12 +69,6 @@ export default async function LandingPage() {
 
       <section className="bg-surface border-t border-border flex flex-col items-center gap-14 px-16 py-[100px]">
         <h2 className="text-[28px] font-medium text-primary">ใช้งานง่ายใน 3 ขั้นตอน</h2>
-        <div className="w-full max-w-[720px] rounded-2xl overflow-hidden border border-border shadow-[0_20px_50px_-20px_rgba(27,27,24,0.18)]">
-          <video autoPlay muted loop playsInline className="block w-full h-full object-cover">
-            <source src="/steps/adcheck-3steps.webm" type="video/webm" />
-            <source src="/steps/adcheck-3steps.mp4" type="video/mp4" />
-          </video>
-        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
           {[
             ["1", "อัพโหลดภาพโฆษณา", "ลากภาพหรือเลือกไฟล์ที่ต้องการตรวจสอบ สูงสุด 5 ภาพต่อครั้ง"],
