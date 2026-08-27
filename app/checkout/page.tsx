@@ -37,6 +37,13 @@ export default async function CheckoutPage({
           </div>
           <div className="text-xl font-medium">{Number(plan.price_thb).toLocaleString()} บาท</div>
         </div>
+        {/* Payment gateway isn't connected yet — every charge attempt fails
+            server-side by design (see app/api/checkout/route.ts). Warn
+            before the user picks a channel and fills anything in, instead
+            of only surfacing the failure after they hit "ชำระเงิน" (C2). */}
+        <div className="bg-warningSoft text-warning rounded-lg p-4 mb-6 text-sm">
+          ระบบชำระเงินออนไลน์ยังไม่เปิดให้บริการในขณะนี้ กรุณาติดต่อทีมงานเพื่อเติมเครดิตด้วยตนเองก่อน
+        </div>
         <CheckoutForm planCode={plan.code} amount={Number(plan.price_thb)} />
       </div>
     </main>
