@@ -201,7 +201,24 @@ ${buildLegalContextBlock(matchedRules)}`;
     // truncating. If truncation is ever seen again at this budget, tighten
     // the prompt further rather than raising max_tokens.
     max_tokens: 3000,
-    system: systemPrompt,
+    // Prompt caching: systemPrompt is REVIEW_INSTRUCTIONS + every
+    // always_include compliance rule's full content — currently ~140,000+
+    // characters — and is byte-for-byte identical across every reviewImage()
+    // call until an admin edits a rule in Admin > คลังความรู้. Marking it as
+    // an ephemeral cache breakpoint means only the first call in the cache
+    // window pays full input-token price for it; every later call within the
+    // window (e.g. images 2-10 of one multi-image submission — see
+    // processSubmissionImages() in app/api/submissions/route.ts, which
+    // reviews images ONE AT A TIME with `await`, never in parallel, so a
+    // later image always lands after the cache write from an earlier one —
+    // no race condition) pays roughly a tenth of the normal input price for
+    // it instead. `tools` is sent before `system` in the request, so this one
+    // breakpoint covers the REVIEW_TOOL schema too, not just systemPrompt.
+    // 1-hour TTL (rather than the default 5-minute) is used because review
+    // traffic is still low enough that a 5-minute window would often expire
+    // between separate submissions. The cache invalidates itself the moment
+    // this text changes (e.g. a rule edit) — nothing to invalidate by hand.
+    system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
     tools: [REVIEW_TOOL],
     tool_choice: { type: "tool", name: "submit_review" },
     messages: [{ role: "user", content }],
