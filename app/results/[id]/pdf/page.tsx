@@ -63,9 +63,31 @@ export default async function ResultsPdfPage({ params }: { params: { id: string 
     <main className="bg-page text-primary print:bg-white [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
       <AutoPrint />
 
-      {/* Header — always black with white text, on screen and on paper. */}
+      {/* Header — always black with white text, on screen and on paper.
+          Leads with the clinic's own logo/name (from Settings → avatar_url)
+          so a saved report reads as the clinic's document when handed to
+          สบส. or management, with ADCheck credited underneath rather than
+          as the headline. Falls back to plain "ADCheck" branding when the
+          business hasn't set a logo. */}
       <header className="bg-inverse text-onInverse px-14 py-8 flex items-center justify-between">
-        <span className="text-xl font-semibold tracking-wide">ADCheck</span>
+        <div className="flex items-center gap-3">
+          {business.avatar_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={business.avatar_url}
+              alt=""
+              className="w-10 h-10 rounded-md object-cover bg-onInverse/10"
+            />
+          )}
+          <div className="flex flex-col">
+            <span className="text-xl font-semibold tracking-wide">
+              {business.avatar_url ? business.name : "ADCheck"}
+            </span>
+            {business.avatar_url && (
+              <span className="text-[11px] text-onInverse/60">ตรวจสอบโดย ADCheck</span>
+            )}
+          </div>
+        </div>
         <span className="text-sm text-onInverse/70">รายงานผลการตรวจสอบภาพโฆษณา</span>
       </header>
 
