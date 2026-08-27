@@ -64,8 +64,9 @@ export async function POST(req: Request) {
   `;
 
   // Fire-and-forget: kick off the (potentially slow — several seconds per
-  // image, sequential by design) review loop WITHOUT awaiting it, so the
-  // client gets `submission.id` back immediately and can start polling
+  // image, run with a small concurrency cap — see REVIEW_CONCURRENCY below)
+  // review loop WITHOUT awaiting it, so the client gets `submission.id` back
+  // immediately and can start polling
   // GET /api/submissions/[id]/status for real-time progress instead of
   // staring at a frozen "AI กำลังตรวจสอบ..." button for the whole batch.
   //
@@ -97,15 +98,28 @@ export async function POST(req: Request) {
   return NextResponse.json({ id: submission.id });
 }
 
+// How many images get reviewed at once within one submission. Each image's
+// AI call is fully independent (own reviewImage() call, own flags, own
+// status — nothing about how one image is judged depends on any other), so
+// running several at once changes wall-clock time only, never what the AI
+// sees or how it's judged. Capped at a small number rather than firing every
+// image at once purely to stay well under Anthropic's per-account concurrent
+// request rate limit on a large batch (this app caps submissions at 5 images
+// anyway — see app/upload/UploadForm.tsx's row limit — so 3 already covers
+// most submissions in a single wave). Raise this if rate-limit errors are
+// never seen in practice; lower it if they are.
+const REVIEW_CONCURRENCY = 3;
+
 /**
- * Reviews every image in the submission, one at a time, writing results to
- * the DB as each one finishes. Runs in the background — see the comment in
- * POST above for why this is safe to not await on this deployment.
+ * Reviews every image in the submission — up to REVIEW_CONCURRENCY at once —
+ * writing each one's results to the DB as soon as it finishes. Runs in the
+ * background — see the comment in POST above for why this is safe to not
+ * await on this deployment.
  *
- * This is the exact same logic that used to run inline inside POST before
- * responding; only the surrounding control flow changed (extracted into its
- * own function, called without `await`), not the review/derivation/storage
- * logic itself.
+ * Per-image review/derivation/storage logic is unchanged from when this ran
+ * strictly one image at a time; only the control flow around it changed (see
+ * the worker-pool loop at the bottom of this function) to let up to
+ * REVIEW_CONCURRENCY images be in flight together instead of one.
  */
 async function processSubmissionImages(
   submissionId: string,
@@ -114,12 +128,11 @@ async function processSubmissionImages(
 ) {
   let overall: "passed" | "caution" | "violation" = "passed";
 
-  // Review images one at a time, in order. Slower than running them
-  // concurrently, but keeps each image's AI call, DB writes, and error
-  // handling fully isolated and easy to reason about — prioritizing accuracy
-  // and stability over raw throughput per explicit direction.
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i];
+  // One image's full review → derive-status → store cycle. Called by the
+  // worker pool below, potentially several of these in flight at once — see
+  // that loop's comment for why sharing `overall` and `submissionId` across
+  // concurrent calls is safe.
+  async function processOneImage(img: IncomingImage, i: number) {
     let result;
     try {
       // strip a data: URL prefix if present, keep just the base64 payload
@@ -249,6 +262,32 @@ async function processSubmissionImages(
       `;
     }
   }
+
+  // Worker-pool driver: up to REVIEW_CONCURRENCY calls to processOneImage()
+  // in flight at once, each pulling the next not-yet-started index as soon
+  // as it's free. Safe to share `overall`/`submissionId` across these
+  // concurrently-running calls because:
+  //   - Node's event loop is single-threaded — two `await`-ed calls are
+  //     interleaved at their await points, never truly running at the same
+  //     instant, so the read-modify-write on `overall` below can't race.
+  //   - The roll-up itself is monotonic (violation > caution > passed), so
+  //     it converges to the same final value regardless of which image
+  //     happens to finish first.
+  //   - Each image's row uses its own original index `i` for `sort_order`
+  //     (not insertion/completion order), so the UI's image order is
+  //     unaffected by which image finishes first.
+  //   - submission_images/review_flags INSERTs are independent rows per
+  //     image — nothing here does a read-modify-write on a shared row that
+  //     concurrent calls could clobber.
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < images.length) {
+      const i = nextIndex++;
+      await processOneImage(images[i], i);
+    }
+  }
+  const workerCount = Math.min(REVIEW_CONCURRENCY, images.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   const finalStatus = overall === "passed" ? "passed" : "needs_review";
 

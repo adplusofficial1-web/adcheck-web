@@ -14,6 +14,63 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+// Matches Anthropic's vision API's own internal resize ceiling (see
+// https://docs.claude.com/en/docs/build-with-claude/vision) — an image
+// longer than this on its longest edge gets downsized by Claude before it's
+// ever analyzed, so sending anything bigger doesn't make the review more
+// accurate. It just means more bytes to read off disk, base64-encode,
+// upload, store in the DB, and hand to the AI. Phone-camera photos are
+// routinely 3000-4000px, so resizing client-side to this ceiling (only when
+// the original is actually bigger) cuts upload + review time for the
+// common case with zero effect on what the AI sees.
+const MAX_IMAGE_DIMENSION = 1568;
+
+// Resizes only the pixel dimensions, never the encoding quality: PNG is
+// re-encoded as PNG (lossless — keeps small ad text and any transparency
+// perfectly sharp, since the AI has to read exact quoted text off the
+// image) and anything else as JPEG at quality 0.92 (high enough that the
+// resize itself — not compression — is what accounts for the smaller file).
+// Falls back to the untouched original on any decode/canvas failure (e.g. a
+// format the browser can't rasterize) rather than risk breaking an upload.
+async function fileToResizedBase64(file: File): Promise<{ base64: string; mediaType: string }> {
+  const original = await fileToBase64(file);
+  const mediaType = file.type || "image/jpeg";
+
+  try {
+    const img = await loadImage(original);
+    const longestEdge = Math.max(img.width, img.height);
+    if (longestEdge <= MAX_IMAGE_DIMENSION) {
+      // Already small enough — resizing would only re-encode it for no
+      // benefit (and could even cost a little quality on JPEG for nothing).
+      return { base64: original, mediaType };
+    }
+
+    const scale = MAX_IMAGE_DIMENSION / longestEdge;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { base64: original, mediaType };
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const outputType = mediaType === "image/png" ? "image/png" : "image/jpeg";
+    const resizedBase64 =
+      outputType === "image/jpeg" ? canvas.toDataURL(outputType, 0.92) : canvas.toDataURL(outputType);
+    return { base64: resizedBase64, mediaType: outputType };
+  } catch {
+    return { base64: original, mediaType };
+  }
+}
+
 export function UploadForm({
   creditsRemaining,
   businessId,
@@ -37,16 +94,19 @@ export function UploadForm({
     const remainingSlots = Math.max(0, 5 - rows.length);
     const picked = Array.from(files).slice(0, remainingSlots);
     const added = await Promise.all(
-      picked.map(async (f) => ({
-        filename: f.name,
-        // caption is no longer entered by the user on this screen, but the
-        // field stays on the row/API contract (used downstream by the AI
-        // review prompt, DB storage, and the results/PDF views) — it's
-        // just always empty from here on.
-        caption: "",
-        base64: await fileToBase64(f),
-        mediaType: f.type || "image/jpeg",
-      }))
+      picked.map(async (f) => {
+        const { base64, mediaType } = await fileToResizedBase64(f);
+        return {
+          filename: f.name,
+          // caption is no longer entered by the user on this screen, but the
+          // field stays on the row/API contract (used downstream by the AI
+          // review prompt, DB storage, and the results/PDF views) — it's
+          // just always empty from here on.
+          caption: "",
+          base64,
+          mediaType,
+        };
+      })
     );
     setRows((current) => [...current, ...added]);
     setLoadingFiles(false);
