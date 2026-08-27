@@ -16,11 +16,6 @@ const WHY_CARDS = [
     title: "รวดเร็ว ไม่ต้องรอนาน",
     body: "อัปโหลดภาพหรือข้อความแล้วรอผลตรวจได้ในเวลาไม่นาน ไม่ต้องรอผู้เชี่ยวชาญตรวจด้วยตนเองทีละภาพ",
   },
-  {
-    n: "3",
-    title: "อธิบายได้ ไม่ใช่กล่องดำ",
-    body: "บอกชัดว่าจุดไหนเสี่ยง เพราะอะไร อ้างอิงกฎหมายข้อใด และควรแก้อย่างไรก่อนเผยแพร่จริง",
-  },
 ];
 
 const DEMO_FLAGS = [
@@ -145,7 +140,7 @@ export function AboutContent({ uploadHref = "/upload" }: { uploadHref?: string }
           <h2 className="text-2xl md:text-[28px] font-medium text-primary text-center mb-10">
             ทำไมต้อง AdCheck
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
             {WHY_CARDS.map((c) => (
               <div key={c.n} className="rounded-xl border border-border p-7 flex flex-col gap-4">
                 <div className="flex h-11 w-11 items-center justify-center rounded-pill bg-accentSoft text-accent font-medium">
