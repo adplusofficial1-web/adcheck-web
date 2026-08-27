@@ -78,8 +78,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
             <div className="flex gap-3">
               <span className="shrink-0 rounded-pill bg-warningSoft text-warning px-3 py-1 text-xs font-medium">ควรระวัง</span>
               <p>
-                พบจุดที่มีความเสี่ยงในระดับที่ควรพิจารณาแก้ไข แต่ไม่ถึงขั้นห้ามใช้โดยเด็ดขาด สามารถแก้ไขตามคำแนะนำ
-                หรือพิจารณารับความเสี่ยงเองได้หากมั่นใจว่าเนื้อหาไม่ขัดกฎหมายจริง
+                พบจุดที่มีความเสี่ยงควรพิจารณาแก้ไข ยังไม่ถึงขั้นห้ามใช้เด็ดขาด แก้ไขตามคำแนะนำหรือรับความเสี่ยงเองได้
               </p>
             </div>
             <div className="flex gap-3">
