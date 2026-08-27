@@ -4,6 +4,7 @@ import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getBusinessByIdForOwner, hasActiveAgencyPlan } from "@/lib/agency";
 import { reviewImage } from "@/lib/reviewImage";
 import { deductCredits } from "@/lib/credits";
+import { MAX_UPLOAD_IMAGES } from "@/lib/uploadLimits";
 
 type IncomingImage = {
   filename: string;
@@ -18,6 +19,16 @@ export async function POST(req: Request) {
 
   if (images.length === 0) {
     return NextResponse.json({ error: "no images" }, { status: 400 });
+  }
+  // The upload form only ever lets someone pick up to MAX_UPLOAD_IMAGES (see
+  // app/upload/UploadForm.tsx), but that's a client-side limit only — this
+  // guards the same limit here so a direct POST past the UI can't submit an
+  // unbounded batch (uncapped AI review cost, uncapped credit deduction).
+  if (images.length > MAX_UPLOAD_IMAGES) {
+    return NextResponse.json(
+      { error: `อัปโหลดได้สูงสุด ${MAX_UPLOAD_IMAGES} ภาพต่อครั้ง` },
+      { status: 400 }
+    );
   }
 
   const business = await getCurrentBusiness();
@@ -104,10 +115,11 @@ export async function POST(req: Request) {
 // running several at once changes wall-clock time only, never what the AI
 // sees or how it's judged. Capped at a small number rather than firing every
 // image at once purely to stay well under Anthropic's per-account concurrent
-// request rate limit on a large batch (this app caps submissions at 5 images
-// anyway — see app/upload/UploadForm.tsx's row limit — so 3 already covers
-// most submissions in a single wave). Raise this if rate-limit errors are
-// never seen in practice; lower it if they are.
+// request rate limit on a large batch (this app caps submissions at
+// MAX_UPLOAD_IMAGES images — see lib/uploadLimits.ts — so with the current
+// value, a submission needs at most a few waves at this concurrency).
+// Raise this if rate-limit errors are never seen in practice; lower it if
+// they are.
 const REVIEW_CONCURRENCY = 3;
 
 /**
