@@ -55,11 +55,14 @@ export default async function LoginPage({
       </Link>
       <div className="w-full max-w-sm border border-border rounded-lg p-8 text-center">
         <h1 className="text-xl font-medium mb-2">เข้าสู่ระบบ</h1>
-        <p className="text-sm text-secondary mb-8">
+        <p className="text-sm text-secondary mb-2">
           เข้าสู่ระบบด้วยบัญชี Google เพื่อจัดการการตรวจสอบโฆษณาของคุณ
         </p>
+        <p className="text-xs text-tertiary mb-8">
+          ใช้บัญชี Google ที่คุณมีอยู่แล้ว ไม่ต้องตั้งรหัสผ่านใหม่ ไม่มีการเก็บรหัสผ่านของคุณไว้ในระบบ
+        </p>
         {errorMessage && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-6">
+          <p className="text-sm text-danger bg-dangerSoft border border-dangerSoft rounded-md px-3 py-2 mb-6">
             {errorMessage}
           </p>
         )}
@@ -71,6 +74,12 @@ export default async function LoginPage({
         >
           <GoogleSignInButton />
         </form>
+        <p className="text-xs text-tertiary mt-6">
+          ยังไม่เคยใช้งาน?{" "}
+          <Link href="/case-studies" className="underline">
+            ดูตัวอย่างการตรวจสอบก่อนเริ่มใช้งาน
+          </Link>
+        </p>
       </div>
     </main>
   );
