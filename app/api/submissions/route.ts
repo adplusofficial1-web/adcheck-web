@@ -3,8 +3,9 @@ import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getBusinessByIdForOwner, hasActiveAgencyPlan } from "@/lib/agency";
 import { reviewImage } from "@/lib/reviewImage";
-import { deductCredits } from "@/lib/credits";
-import { MAX_UPLOAD_IMAGES } from "@/lib/uploadLimits";
+import { reserveCredits, refundCredits } from "@/lib/credits";
+import { MAX_UPLOAD_IMAGES, MAX_FILE_SIZE_BYTES, ALLOWED_MEDIA_TYPES } from "@/lib/uploadLimits";
+import { isValidUuid } from "@/lib/validation";
 
 type IncomingImage = {
   filename: string;
@@ -31,6 +32,35 @@ export async function POST(req: Request) {
     );
   }
 
+  // FIX (bug audit #12): the upload page's own copy promises "JPG, PNG,
+  // PDF ไม่เกิน 10MB ต่อไฟล์" but nothing server-side ever checked that —
+  // only the browser-side resize step did, which a direct POST can skip
+  // entirely. `base64`/`mediaType` are only required when an image is
+  // actually attached (a caption-only, text-only review is valid with
+  // neither set — see IncomingImage above), so only attached images are
+  // checked here.
+  for (const img of images) {
+    if (!img.base64) continue;
+    if (!img.mediaType || !ALLOWED_MEDIA_TYPES.includes(img.mediaType)) {
+      return NextResponse.json(
+        { error: `ไฟล์ "${img.filename}" ไม่ใช่ชนิดที่รองรับ (JPG, PNG, PDF เท่านั้น)` },
+        { status: 400 }
+      );
+    }
+    const rawBase64 = img.base64.includes(",") ? img.base64.split(",")[1] : img.base64;
+    // Decoded byte size from a base64 string's length, without actually
+    // allocating the buffer — base64 encodes 3 bytes as 4 characters, minus
+    // 1-2 bytes for trailing '=' padding.
+    const padding = rawBase64.endsWith("==") ? 2 : rawBase64.endsWith("=") ? 1 : 0;
+    const approxBytes = (rawBase64.length * 3) / 4 - padding;
+    if (approxBytes > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: `ไฟล์ "${img.filename}" มีขนาดเกิน 10MB` },
+        { status: 400 }
+      );
+    }
+  }
+
   const business = await getCurrentBusiness();
   if (!business) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -42,6 +72,12 @@ export async function POST(req: Request) {
   // billing is separate (see below). getBusinessByIdForOwner only resolves
   // ids that are the signed-in business itself or one of its child clinics.
   const targetId = typeof body.businessId === "string" ? body.businessId : undefined;
+  // FIX (bug audit — Low: malformed-UUID 500s): a non-UUID businessId used
+  // to reach getBusinessByIdForOwner's query and throw a raw Postgres
+  // error instead of the normal "ไม่พบคลินิกนี้" 404 below.
+  if (targetId !== undefined && !isValidUuid(targetId)) {
+    return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
+  }
   const target = targetId ? await getBusinessByIdForOwner(targetId, business.id) : business;
   if (!target) {
     return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
@@ -51,7 +87,7 @@ export async function POST(req: Request) {
   // own package to be an active code='agency' plan — see
   // lib/agency.ts:hasActiveAgencyPlan. Checked here too (not just hidden
   // in the UI) so a direct POST can't bypass it.
-  if (targetId && target.id !== business.id && !hasActiveAgencyPlan(business)) {
+  if (targetId && target.id !== business.id && !(await hasActiveAgencyPlan(business))) {
     return NextResponse.json(
       { error: "บัญชีของคุณยังไม่ได้สมัคร หรือแพ็กเกจ Agency หมดอายุแล้ว กรุณาสมัคร/ต่ออายุก่อนอัพโหลดให้คลินิกในเครือข่าย" },
       { status: 402 }
@@ -64,15 +100,36 @@ export async function POST(req: Request) {
   // purchase). When target === business (a solo clinic reviewing its own
   // ad, or an agency reviewing for itself) this is the same row anyway, so
   // nothing changes for that case.
-  if (business.credits_remaining < images.length) {
+  //
+  // FIX (bug audit #1 + #2): reserve the credits atomically UP FRONT —
+  // before the submission row even exists, before any AI work starts —
+  // instead of the old pattern of a soft, non-atomic read-only check here
+  // followed by a separate deduction only after every image finished
+  // processing (many seconds to minutes later, with no shared transaction
+  // between the two). Two concurrent submissions for the same business can
+  // no longer both pass a stale check and jointly overdraw the balance —
+  // see lib/credits.ts:reserveCredits for how the atomicity is achieved.
+  const reserved = await reserveCredits(business.id, images.length);
+  if (!reserved) {
     return NextResponse.json({ error: "insufficient credits" }, { status: 402 });
   }
 
-  const [submission] = await sql`
-    INSERT INTO submissions (business_id, status, credits_used, rules_version_ref)
-    VALUES (${target.id}, 'processing', ${images.length}, 'คู่มือและประกาศ สบส./อย. ที่เกี่ยวข้อง')
-    RETURNING id, share_token
-  `;
+  let submission;
+  try {
+    [submission] = await sql`
+      INSERT INTO submissions (business_id, status, credits_used, rules_version_ref)
+      VALUES (${target.id}, 'processing', ${images.length}, 'คู่มือและประกาศ สบส./อย. ที่เกี่ยวข้อง')
+      RETURNING id, share_token
+    `;
+  } catch (e) {
+    // Credits were already reserved above — give them back if the
+    // submission row itself couldn't even be created, so a DB hiccup here
+    // never silently costs the business credits for a submission that
+    // never existed.
+    console.error("Failed to create submission row after reserving credits:", e);
+    await refundCredits(business.id, images.length);
+    return NextResponse.json({ error: "server error" }, { status: 500 });
+  }
 
   // Fire-and-forget: kick off the (potentially slow — several seconds per
   // image, run with a small concurrency cap — see REVIEW_CONCURRENCY below)
@@ -96,13 +153,23 @@ export async function POST(req: Request) {
   // would otherwise become an unhandled promise rejection that can crash
   // the Node process.
   // Pass `business` (not `target`) — see the billing comment above:
-  // credits are always deducted from the signed-in account's own row.
+  // credits are always reserved/refunded against the signed-in account's
+  // own row.
   processSubmissionImages(submission.id, business, images).catch(async (e) => {
     console.error(`processSubmissionImages crashed for submission ${submission.id}:`, e);
     try {
       await sql`UPDATE submissions SET status = 'failed' WHERE id = ${submission.id}`;
     } catch (updateErr) {
       console.error(`Failed to mark submission ${submission.id} as failed:`, updateErr);
+    }
+    // Credits were reserved upfront (reserveCredits, above) — if the whole
+    // batch crashed outside processOneImage's own per-image error handling,
+    // none of it was genuinely reviewed, so give every reserved credit
+    // back rather than charging for a submission that never completed.
+    try {
+      await refundCredits(business.id, images.length);
+    } catch (refundErr) {
+      console.error(`Failed to refund credits for crashed submission ${submission.id}:`, refundErr);
     }
   });
 
@@ -139,6 +206,12 @@ async function processSubmissionImages(
   images: IncomingImage[]
 ) {
   let overall: "passed" | "caution" | "violation" = "passed";
+  // Count of images that never got a genuine AI review (the reviewImage()
+  // call itself threw and fell back to the synthetic "please resubmit"
+  // flag below) — refunded at the end (bug audit #14) so a business isn't
+  // charged for a review that didn't actually happen, without needing to
+  // track which specific package/credit paid for which image.
+  let unreviewedCount = 0;
 
   // One image's full review → derive-status → store cycle. Called by the
   // worker pool below, potentially several of these in flight at once — see
@@ -146,6 +219,7 @@ async function processSubmissionImages(
   // concurrent calls is safe.
   async function processOneImage(img: IncomingImage, i: number) {
     let result;
+    let reviewFailed = false;
     try {
       // strip a data: URL prefix if present, keep just the base64 payload
       const rawBase64 = img.base64?.includes(",") ? img.base64.split(",")[1] : img.base64;
@@ -157,6 +231,7 @@ async function processSubmissionImages(
       });
     } catch (e: any) {
       console.error(`reviewImage failed for ${img.filename}:`, e);
+      reviewFailed = true;
       // CRITICAL: never let a failed AI call fall through as an empty
       // flags array. Downstream, status is derived purely from flag
       // severities (see below) — an empty array there silently becomes
@@ -198,9 +273,19 @@ async function processSubmissionImages(
     // `flags`, so the two can never contradict each other.
     const hasViolation = result.flags.some((f: any) => f.severity === "ห้ามเด็ดขาด");
     const hasCaution = result.flags.some((f: any) => f.severity === "ควรระวัง");
+    // FIX (bug audit #16): a non-empty flags array whose severity value(s)
+    // don't exactly match either recognized string used to fall through to
+    // "passed" here — a real blind spot if the model ever returns a
+    // severity that's off-enum (typo'd wording, a value from an older
+    // prompt version, etc.). The model DID flag something in that case;
+    // silently clearing it to "passed" is worse than being cautious about
+    // it, so any non-empty, unrecognized-severity flags array now derives
+    // to "caution" instead of "passed".
     let derivedStatus: "passed" | "caution" | "violation" = hasViolation
       ? "violation"
       : hasCaution
+      ? "caution"
+      : result.flags.length > 0
       ? "caution"
       : "passed";
 
@@ -242,6 +327,8 @@ async function processSubmissionImages(
     if (result.status === "violation") overall = "violation";
     else if (result.status === "caution" && overall !== "violation") overall = "caution";
 
+    if (reviewFailed) unreviewedCount++;
+
     // TEMPORARY: store the image inline as a data URL until Cloudflare R2 is
     // enabled and wired up as real object storage. Fine for a demo/low-volume
     // use, but this bloats the database — swap for an R2 URL once available.
@@ -249,29 +336,41 @@ async function processSubmissionImages(
       ? (img.base64.startsWith("data:") ? img.base64 : `data:${img.mediaType};base64,${img.base64}`)
       : "https://storage.adcheck.app/demo/" + encodeURIComponent(img.filename);
 
-    const [savedImage] = await sql`
-      INSERT INTO submission_images (submission_id, image_url, filename, caption, status, sort_order)
-      VALUES (${submissionId}, ${storedImageUrl}, ${img.filename}, ${img.caption || null}, ${result.status}, ${i})
-      RETURNING id
-    `;
-
-    for (const f of result.flags) {
-      if (!f || !f.quoted_text) continue;
-      // The DB has one `detailed_explanation` column (no separate column for
-      // a fix suggestion yet — avoids a schema migration for this change).
-      // Store both paragraphs in it, clearly labeled and blank-line separated
-      // so the results page can split them back into distinct <p> blocks.
-      const reasonPart = f.detailed_explanation ? f.detailed_explanation.trim() : "";
-      const fixPart = f.suggested_correction ? f.suggested_correction.trim() : "";
-      const combinedExplanation =
-        reasonPart && fixPart
-          ? `${reasonPart}\n\nวิธีแก้ไข: ${fixPart}`
-          : reasonPart || (fixPart ? `วิธีแก้ไข: ${fixPart}` : null);
-
-      await sql`
-        INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation, detailed_explanation)
-        VALUES (${submissionId}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${combinedExplanation})
+    // FIX (bug audit #4): these writes used to be unguarded — an exception
+    // here (a transient DB error, a constraint violation) rejected the
+    // shared Promise.all in the worker pool below, which the outer .catch
+    // in POST then turned into marking the WHOLE submission 'failed', even
+    // if every other image in the batch had already been reviewed and
+    // saved successfully. Now a write failure for one image is logged and
+    // that image's result is simply missing from the results page, instead
+    // of nuking the entire batch's outcome.
+    try {
+      const [savedImage] = await sql`
+        INSERT INTO submission_images (submission_id, image_url, filename, caption, status, sort_order)
+        VALUES (${submissionId}, ${storedImageUrl}, ${img.filename}, ${img.caption || null}, ${result.status}, ${i})
+        RETURNING id
       `;
+
+      for (const f of result.flags) {
+        if (!f || !f.quoted_text) continue;
+        // The DB has one `detailed_explanation` column (no separate column for
+        // a fix suggestion yet — avoids a schema migration for this change).
+        // Store both paragraphs in it, clearly labeled and blank-line separated
+        // so the results page can split them back into distinct <p> blocks.
+        const reasonPart = f.detailed_explanation ? f.detailed_explanation.trim() : "";
+        const fixPart = f.suggested_correction ? f.suggested_correction.trim() : "";
+        const combinedExplanation =
+          reasonPart && fixPart
+            ? `${reasonPart}\n\nวิธีแก้ไข: ${fixPart}`
+            : reasonPart || (fixPart ? `วิธีแก้ไข: ${fixPart}` : null);
+
+        await sql`
+          INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation, detailed_explanation)
+          VALUES (${submissionId}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${combinedExplanation})
+        `;
+      }
+    } catch (e) {
+      console.error(`Failed to save review results for ${img.filename} (submission ${submissionId}):`, e);
     }
   }
 
@@ -307,11 +406,15 @@ async function processSubmissionImages(
     UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
     WHERE id = ${submissionId}
   `;
-  // CHANGE (multi-package credits): a business's spendable credits can now
-  // be spread across several still-active package purchases (see
-  // migrations for business_packages) plus a non-expiring legacy balance
-  // on the business row itself. deductCredits() spends the
-  // soonest-expiring package first and only falls back to the legacy
-  // balance once every active package is exhausted — see lib/credits.ts.
-  await deductCredits(business.id, images.length);
+
+  // Credits for this submission were already reserved atomically up front
+  // (reserveCredits, called from POST above, before this function ever
+  // ran) — see lib/credits.ts for why that replaced the old
+  // check-then-deduct-later pattern. All that's left to settle here is
+  // giving back credits for any image that never got a genuine AI review
+  // (bug audit #14) — a resubmit after an AI outage shouldn't be a second
+  // full charge on top of the first.
+  if (unreviewedCount > 0) {
+    await refundCredits(business.id, unreviewedCount);
+  }
 }
