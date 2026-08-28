@@ -36,6 +36,15 @@ export function ClinicSettingsCard({
   const [removing, setRemoving] = useState(false);
 
   async function save() {
+    // FIX (bug audit — Low): "add clinic" already blocks an empty name
+    // client-side, but this "edit" form didn't — the server still
+    // rejects it (see app/api/agency/clinics/[id]/route.ts's `name.length
+    // === 0` check), so the only effect was an avoidable round-trip and
+    // an error message after the fact instead of before submitting.
+    if (!draft.name.trim()) {
+      setError("ชื่อคลินิกห้ามเว้นว่าง");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
