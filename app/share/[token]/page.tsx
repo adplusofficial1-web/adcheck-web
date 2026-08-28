@@ -1,11 +1,9 @@
 export const dynamic = "force-dynamic";
-import { Nav } from "@/components/Nav";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { sql } from "@/lib/db";
 import { FlagDetail } from "@/components/FlagDetail";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
-import { sql } from "@/lib/db";
-import { getCurrentBusiness } from "@/lib/currentBusiness";
-import { getAccessibleBusinessIds } from "@/lib/agency";
-import { notFound, redirect } from "next/navigation";
 
 const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
   passed: { label: "ผ่าน", badge: "bg-accentSoft text-accent" },
@@ -13,29 +11,37 @@ const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
   violation: { label: "เข้าข่ายผิด", badge: "bg-dangerSoft text-danger" },
 };
 
-export default async function ResultsPage({ params }: { params: { id: string } }) {
-  const business = await getCurrentBusiness();
-  if (!business) {
-    redirect("/login");
-  }
-
-  // Scoped to every business id this session may act on — itself, plus any
-  // clinic it manages in Agency mode (see lib/agency.ts) — from the query
-  // itself, so a signed-in user can never even learn whether a submission
-  // id belonging to someone else's business exists (same pattern in
-  // processing/[id]/page.tsx and results/[id]/pdf/page.tsx).
-  const accessibleIds = await getAccessibleBusinessIds(business.id);
-  const [submission] = await sql`
-    SELECT * FROM submissions WHERE id = ${params.id} AND business_id = ANY(${accessibleIds}::uuid[])
-  `;
+/**
+ * Public twin of app/results/[id]/page.tsx — reached only via the
+ * "แชร์ลิงก์" button (components/ShareLinkButton.tsx), never linked from
+ * anywhere inside the authenticated app. Deliberately looked up by
+ * share_token (a random 16-hex-char value with its own unique index —
+ * submissions_share_token_key) instead of the submission's id, so knowing
+ * a submission's id — visible in the authenticated /results/[id] URL, or
+ * guessable since ids are sequential-ish UUIDs from the same table — never
+ * grants access here. Only having the actual token, which only comes from
+ * someone clicking "แชร์ลิงก์" (or being sent that link), does.
+ *
+ * There is intentionally NO getCurrentBusiness()/redirect(/login) check —
+ * that's the entire point of a share link. Nothing here lets a viewer
+ * modify anything (no upload, no settings), so read-only exposure of one
+ * submission's own findings is the full extent of what this route grants.
+ */
+export default async function SharedResultsPage({ params }: { params: { token: string } }) {
+  const [submission] = (await sql`
+    SELECT s.*, b.name AS business_name, b.avatar_url AS business_avatar_url
+    FROM submissions s
+    JOIN businesses b ON b.id = s.business_id
+    WHERE s.share_token = ${params.token}
+  `) as any[];
   if (!submission) notFound();
 
   const images = (await sql`
-    SELECT * FROM submission_images WHERE submission_id = ${params.id} ORDER BY sort_order ASC
+    SELECT * FROM submission_images WHERE submission_id = ${submission.id} ORDER BY sort_order ASC
   `) as any[];
 
   const flags = (await sql`
-    SELECT * FROM review_flags WHERE submission_id = ${params.id}
+    SELECT * FROM review_flags WHERE submission_id = ${submission.id}
   `) as any[];
 
   const flagsByImage: Record<string, any[]> = {};
@@ -50,12 +56,40 @@ export default async function ResultsPage({ params }: { params: { id: string } }
 
   return (
     <main>
-      <Nav credits={business?.credits_remaining} />
+      {/* Minimal public header — no Dashboard/ประวัติ/ตั้งค่า chrome from
+          components/Nav.tsx, since none of that applies to someone without
+          an account. Leads with the clinic's own logo/name (same treatment
+          as the PDF report's header) so the report reads as the clinic's,
+          with a plain link back to adcheck.pro rather than the full site nav. */}
+      <header className="bg-inverse text-onInverse px-6 md:px-14 py-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {submission.business_avatar_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={submission.business_avatar_url}
+              alt=""
+              className="w-9 h-9 rounded-md object-cover bg-onInverse/10"
+            />
+          )}
+          <div className="flex flex-col">
+            <span className="text-lg font-semibold tracking-wide">
+              {submission.business_avatar_url ? submission.business_name : "ADCheck"}
+            </span>
+            {submission.business_avatar_url && (
+              <span className="text-[11px] text-onInverse/60">ตรวจสอบโดย ADCheck</span>
+            )}
+          </div>
+        </div>
+        <Link href="/" className="text-sm text-onInverse/70 hover:text-onInverse">
+          ADCheck
+        </Link>
+      </header>
+
       <div className="max-w-5xl mx-auto px-6 py-14">
         <h1 className="text-2xl font-medium mb-1">ผลการตรวจสอบ ({images.length} ภาพ)</h1>
         <p className="text-sm text-secondary mb-6">
           พบประเด็นเสี่ยงใน {cautionCount + violationCount} จาก {images.length} ภาพ · ตรวจสอบเมื่อ{" "}
-                    {new Date(submission.created_at).toLocaleDateString("th-TH")}
+          {new Date(submission.created_at).toLocaleDateString("th-TH")}
         </p>
 
         <div className="flex gap-3 mb-8 text-sm">
@@ -156,12 +190,12 @@ export default async function ResultsPage({ params }: { params: { id: string } }
         </div>
 
         <div className="flex items-center gap-4 mt-8">
-          <a href={`/results/${params.id}/pdf`} target="_blank" rel="noopener noreferrer" className="rounded-md border border-border px-4 py-2 text-sm">
-            ดาวน์โหลด PDF
-          </a>
           <ShareLinkButton shareToken={submission.share_token} />
-          <a href="/upload" className="rounded-md bg-inverse text-onInverse px-4 py-2 text-sm ml-auto">
-            + อัพโหลดชุดใหม่
+          <a
+            href="/"
+            className="rounded-md bg-inverse text-onInverse px-4 py-2 text-sm ml-auto"
+          >
+            ตรวจสอบโฆษณาของคุณเองที่ ADCheck →
           </a>
         </div>
       </div>
