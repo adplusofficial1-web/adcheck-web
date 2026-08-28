@@ -53,7 +53,7 @@ legal_ref เป็น "ไม่พบในคลังความรู้�
 (ห้ามอธิบายยืดยาว) เพราะคำตอบทั้งหมดมีขีดจำกัดความยาวรวมที่จำกัดมาก:
 1. topic — หัวข้อหลักสั้นๆ (ไม่เกิน 6-8 คำ) สรุปว่าปัญหาคืออะไร เช่น "คำโฆษณาเกินจริงเรื่องผลลัพธ์การรักษา"
 2. detailed_explanation — คำอธิบายว่า "เข้าข่ายผิดจุดไหน ด้วยเหตุผลอะไร" ความยาวไม่เกิน 2 บรรทัด (ห้ามยาวเกินนี้)
-   ต้องอ้างอิงชื่อหัวข้อ/หมวดหมู่ของเอกสารในคลังความรู้ที่ใช้ประกอบเหตุผลแบบเจาะจงอย่างน้อย 1 แหล่ง (เช่น ชื่อหัวข้อที่
+   ต้องอ้างอิงชื่อหัวข้อ/หมวดหมู่ของเอกสารในคลังความรู้ที่ใช้ประกอบเหตุผลแบบเจาะจงอย่างน้อย 1 แห่ง (เช่น ชื่อหัวข้อที่
    ปรากฏใน "=== เอกสารกฎหมาย/ระเบียบจากคลังความรู้ ===" ด้านล่าง) เอาเฉพาะประเด็นหลัก ไม่ใช่แค่บอกว่า "ผิดกฎ" เฉยๆ —
    ห้ามระบุ "ฉบับปรับปรุง", เลขฉบับ, หรือวันที่ปรับปรุงของคู่มือ/ประกาศใดๆ โดยเด็ดขาด เพราะเป็นข้อมูลที่ระบบไม่สามารถ
    ตรวจสอบความถูกต้องได้ ให้เอ่ยถึงคู่มือ/ประกาศด้วยชื่อทั่วไปเท่านั้น
@@ -107,7 +107,7 @@ const REVIEW_TOOL: Anthropic.Tool = {
             suggested_correction: {
               type: "string",
               description:
-                "คำแนะนำวิธีแก้ไขที่ใช้ได้จริง ไม่เกิน 1-2 บรรทัด ระบุเจาะจง (ข้อความที่ควรใช้แทน หรือหลักฐานที่ต้องแนบ)",
+                "คำแนะนำวิธีแก้ไขที่ใช้ได้จริง ไม่เกิน 1-2 บรรทัด ระบุเจาะจงแต่สั้น (ข้อความที่ควรใช้แทน หรือหลักฐานที่ต้องแนบ)",
             },
           },
           required: [
@@ -225,8 +225,16 @@ ${buildLegalContextBlock(matchedRules)}`;
   });
 
   if (message.stop_reason === "max_tokens") {
-    console.error(
-      `reviewImage: response for ${params.filename} was truncated at max_tokens — output may be incomplete`
+    // FIX (bug audit #15): this used to just log and then still return
+    // toolUse.input below — a response cut off mid-JSON that still happens
+    // to parse (fewer/shorter flags than the model actually intended) was
+    // stored as if it were a complete, genuine review, with nothing on the
+    // results page to say otherwise. Throw instead: the caller
+    // (processOneImage in app/api/submissions/route.ts) already has a
+    // catch block for exactly this shape of failure, which attaches a
+    // visible "please resubmit" flag instead of silently under-reporting.
+    throw new Error(
+      `reviewImage: response for ${params.filename} was truncated at max_tokens — refusing to use a possibly-incomplete result`
     );
   }
 
