@@ -108,8 +108,13 @@ export function Nav({ credits }: { credits?: number }) {
         {/* ADCheck stays pinned on the far left; everything else (menu +
             upload/credits/avatar) is one group pushed to the right. Points
             at /dashboard (not the logged-out marketing page at "/") since
-            this Nav only ever renders for someone already signed in. */}
-        <Link href="/dashboard" className="text-2xl font-medium shrink-0">
+            this Nav only ever renders for someone already signed in.
+            FIX (bug audit #7): used to always point at /dashboard, which
+            flipped Agency-mode chrome back to Clinic-mode the instant
+            someone clicked the logo from anywhere in Agency mode — same
+            URL-prefix-driven mode bug as everywhere else in Nav, just for
+            the one link that isn't in menuItems/ModeToggle above. */}
+        <Link href={isAgency ? "/agency/dashboard" : "/dashboard"} className="text-2xl font-medium shrink-0">
           ADCheck
         </Link>
 
