@@ -1,4 +1,5 @@
 import { ArticlesListContent } from "@/components/articles/ArticlesListContent";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
 
 // Agency-mode twin of app/articles/page.tsx — lives under /agency/... so
 // components/Nav.tsx's path-prefix check keeps Agency-mode chrome instead
@@ -13,6 +14,9 @@ export const metadata = {
     "สรุปข่าวและประกาศจากหน่วยงานภาครัฐเกี่ยวกับการโฆษณาสถานพยาบาล คัดสรรและเรียบเรียงให้เข้าใจง่าย พร้อมลิงก์ไปต้นฉบับทุกบทความ",
 };
 
-export default function AgencyArticlesPage() {
-  return <ArticlesListContent basePath="/agency/articles" />;
+// Same fix as app/articles/page.tsx — this route never passed credits to
+// Nav either, so "เครดิตรวม" never showed on /agency/articles.
+export default async function AgencyArticlesPage() {
+  const business = await getCurrentBusiness();
+  return <ArticlesListContent basePath="/agency/articles" credits={business?.credits_remaining} />;
 }
