@@ -33,9 +33,20 @@ export function FlagDetail({
           {severity}
         </span>
       </div>
-      <div className="text-secondary text-xs mb-2">
-                {category} · {legalRef}
-      </div>
+      {/* FIX (bug audit — Low): this used to always render "{category} ·
+          {legalRef}" — when a flag has neither (both null/undefined), that
+          collapsed to a bare "·" with no explanatory text. Only join with
+          "·" when both are present, and fall back to a plain-language note
+          when neither is. */}
+      {category || legalRef ? (
+        <div className="text-secondary text-xs mb-2">
+          {category}
+          {category && legalRef ? " · " : ""}
+          {legalRef}
+        </div>
+      ) : (
+        <div className="text-secondary text-xs mb-2">ไม่มีข้อมูลหมวดหมู่หรืออ้างอิงกฎหมายสำหรับข้อความนี้</div>
+      )}
       {topic && <div className="text-sm font-medium mb-1">{topic}</div>}
       {detailedExplanation && (
         <>
