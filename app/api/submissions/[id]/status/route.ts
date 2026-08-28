@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getAccessibleBusinessIds } from "@/lib/agency";
+import { isValidUuid } from "@/lib/validation";
 
 // Three separate belt-and-suspenders opt-outs, because any one alone left
 // this route serving a stale, frozen snapshot for a submission id polled
@@ -49,20 +50,60 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  if (!isValidUuid(params.id)) {
+    return NextResponse.json({ error: "submission not found" }, { status: 404 });
+  }
+
   // Scoped to every business id this session may act on — itself, plus any
   // clinic it manages in Agency mode (see lib/agency.ts) — from the query
   // itself. This endpoint previously had no ownership check, so any
   // signed-in user who guessed a submission id could poll another
   // business's in-progress review.
   const accessibleIds = await getAccessibleBusinessIds(business.id);
-  const [submission] = await sql`
-    SELECT id, status, credits_used
+  let [submission] = (await sql`
+    SELECT id, status, credits_used, created_at
     FROM submissions
     WHERE id = ${params.id} AND business_id = ANY(${accessibleIds}::uuid[])
-  `;
+  `) as any[];
 
   if (!submission) {
     return NextResponse.json({ error: "submission not found" }, { status: 404 });
+  }
+
+  // FIX (bug audit #3): the background review loop
+  // (processSubmissionImages in ../../route.ts) runs fire-and-forget after
+  // the POST response is sent — if the Node process restarts/crashes mid-
+  // review (a deploy, an OOM, a host restart), nothing ever flips this row
+  // out of 'processing', and the Processing screen
+  // (components/ProcessingScreen.tsx) polls forever with no way to
+  // recover. Self-heal here instead of adding new infrastructure (a job
+  // queue, a cron sweep): any poll that finds a 'processing' row older
+  // than a generous timeout — well past how long even a full
+  // MAX_UPLOAD_IMAGES-image batch should ever take — flips it to 'failed'
+  // right in this read path, so the client's existing "ล้มเหลว" handling
+  // takes over on its very next poll instead of spinning indefinitely.
+  const STALE_PROCESSING_MINUTES = 5;
+  if (submission.status === "processing") {
+    const ageMs = Date.now() - new Date(submission.created_at).getTime();
+    if (ageMs > STALE_PROCESSING_MINUTES * 60 * 1000) {
+      const [updated] = (await sql`
+        UPDATE submissions SET status = 'failed'
+        WHERE id = ${submission.id} AND status = 'processing'
+        RETURNING id, status, credits_used, created_at
+      `) as any[];
+      if (updated) {
+        submission = updated;
+      } else {
+        // The UPDATE matched 0 rows — status changed between the SELECT
+        // above and this UPDATE (e.g. it finished a beat before this ran).
+        // Re-read rather than assume 'failed' or keep the stale in-memory
+        // 'processing' value, so a real terminal status is never clobbered
+        // or misreported.
+        [submission] = (await sql`
+          SELECT id, status, credits_used, created_at FROM submissions WHERE id = ${submission.id}
+        `) as any[];
+      }
+    }
   }
 
   const doneImages = (await sql`
