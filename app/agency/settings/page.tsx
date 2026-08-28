@@ -41,7 +41,7 @@ export default async function AgencySettingsPage({
         <div className="flex items-start justify-between gap-4 flex-wrap mb-2">
           <h1 className="text-2xl font-medium">ตั้งค่าคลินิก — แยกรายที่</h1>
           <Link
-            href="/checkout?plan=agency"
+            href="/agency/checkout?plan=agency"
             className="shrink-0 rounded-md bg-inverse text-onInverse px-4 py-2.5 text-sm font-medium"
           >
             จัดการแพ็กเกจ Agency →
@@ -61,7 +61,7 @@ export default async function AgencySettingsPage({
           <PackageCreditsCard
             creditsRemaining={business.credits_remaining}
             packages={packages}
-            buyHref="/checkout?plan=agency"
+            buyHref="/agency/checkout?plan=agency"
           />
         </div>
 
