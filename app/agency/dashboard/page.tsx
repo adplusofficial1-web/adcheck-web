@@ -147,9 +147,18 @@ export default async function AgencyDashboardPage() {
                 <div key={c.id} className="border border-border rounded-lg p-5">
                   <div className="flex items-start justify-between gap-3 mb-4">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium shrink-0 bg-accentSoft text-accent">
-                        {initials(c.name)}
-                      </div>
+                      {c.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={c.avatar_url}
+                          alt=""
+                          className="w-10 h-10 rounded-full object-cover shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium shrink-0 bg-accentSoft text-accent">
+                          {initials(c.name)}
+                        </div>
+                      )}
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">{c.name}</div>
                         <div className="text-xs truncate text-secondary">{c.contact_email || "ยังไม่มีอีเมลติดต่อ"}</div>
