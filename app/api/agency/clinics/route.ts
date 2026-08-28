@@ -20,6 +20,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const clinic = await addChildClinic(business.id, name, email || null);
-  return NextResponse.json({ clinic });
+  // FIX (bug audit #13): contact_email is UNIQUE across the whole
+  // businesses table (see lib/db.ts's comment on that constraint), but
+  // this used to have no try/catch around the INSERT — entering an email
+  // already used by another clinic/account surfaced as a raw, unstyled
+  // Postgres error instead of a normal in-UI message.
+  try {
+    const clinic = await addChildClinic(business.id, name, email || null);
+    return NextResponse.json({ clinic });
+  } catch (e: any) {
+    if (e?.code === "23505") {
+      return NextResponse.json({ error: "อีเมลนี้ถูกใช้งานแล้ว กรุณาใช้อีเมลอื่น" }, { status: 409 });
+    }
+    console.error("Failed to add child clinic:", e);
+    return NextResponse.json({ error: "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง" }, { status: 500 });
+  }
 }
