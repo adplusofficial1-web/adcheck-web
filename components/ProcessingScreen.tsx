@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Nav } from "./Nav";
 import { useSubmissionStatus, type DoneImage } from "@/lib/useSubmissionStatus";
 
@@ -37,10 +37,26 @@ export function ProcessingScreen({
   creditsRemaining,
 }: ProcessingScreenProps) {
   const router = useRouter();
+  // FIX (bug audit #5): this screen is rendered from both /processing/[id]
+  // (Clinic mode) and /agency/processing/[id] (Agency mode — see
+  // app/agency/processing/[id]/page.tsx). Every navigation it triggers used
+  // to hardcode the non-/agency path, which meant reaching this exact
+  // screen via an Agency-mode upload still ended with Nav dropping back to
+  // Clinic-mode chrome as soon as any of these fired — the last mile of the
+  // same bug already fixed on the way IN to this screen (UploadForm.tsx).
+  const pathname = usePathname();
+  const isAgency = pathname?.startsWith("/agency") ?? false;
+  const resultsBase = isAgency ? "/agency/results" : "/results";
+  const dashboardHref = isAgency ? "/agency/dashboard" : "/dashboard";
+  // /agency/upload requires a ?business=<id> the failure screen doesn't
+  // have on hand (only submissionId), and 404s without it (see
+  // app/agency/upload/page.tsx) — send Agency mode back to the dashboard
+  // instead, where every clinic's own "+ อัพโหลด" button is right there.
+  const uploadHref = isAgency ? "/agency/dashboard" : "/upload";
   const startedAtRef = useRef<number>(Date.now());
 
   const { data, connectionError } = useSubmissionStatus(submissionId, {
-    onComplete: () => router.push(`/results/${submissionId}`),
+    onComplete: () => router.push(`${resultsBase}/${submissionId}`),
     onFailed: () => {}, // handled inline below — stay on this page and show the error
   });
 
@@ -63,7 +79,20 @@ export function ProcessingScreen({
 
   const cards: { filename: string; state: ImageCardState; status?: string }[] = useMemo(() => {
     const doneImages: DoneImage[] = data?.doneImages ?? [];
-    return imageFilenames.map((filename, i) => {
+    // FIX (bug audit — Low: card count vs. progress ring mismatch):
+    // imageFilenames comes from the URL (?files=...), which is only
+    // present when UploadForm itself redirected here — a direct visit to
+    // this URL with no/malformed ?files (an old bookmark, a shared link)
+    // falls back to a single placeholder row (see app/processing/[id]/
+    // page.tsx), while the progress ring's `imagesTotal` above always
+    // reflects the real number from the DB. That mismatch showed as "1
+    // card" next to a ring reading "5/5 ภาพ 100%". Render however many
+    // cards the real total says once it's known, padding past whatever
+    // imageFilenames had with generic placeholders for slots this page
+    // never learned a real filename for.
+    const total = Math.max(imageFilenames.length, imagesTotal);
+    return Array.from({ length: total }, (_, i) => {
+      const filename = imageFilenames[i] ?? `ภาพที่ ${i + 1}`;
       if (i < doneImages.length) {
         return { filename: doneImages[i].filename || filename, state: "done", status: doneImages[i].status };
       }
@@ -72,7 +101,7 @@ export function ProcessingScreen({
       }
       return { filename, state: "queued" };
     });
-  }, [data, imageFilenames, failed]);
+  }, [data, imageFilenames, failed, imagesTotal]);
 
   // Keep this tab's title honest about progress too, in case the user
   // switches away and comes back to check.
@@ -118,7 +147,7 @@ export function ProcessingScreen({
               เกิดข้อผิดพลาดระหว่างประมวลผล เครดิตของคุณยังไม่ถูกหักในรอบนี้ ลองอัพโหลดใหม่อีกครั้ง
             </p>
             <a
-              href="/upload"
+              href={uploadHref}
               className="inline-block rounded-md bg-inverse text-onInverse px-6 py-3 text-sm font-medium"
             >
               กลับไปหน้าอัพโหลด
@@ -239,7 +268,7 @@ export function ProcessingScreen({
               </p>
               <button
                 type="button"
-                onClick={() => router.push("/dashboard")}
+                onClick={() => router.push(dashboardHref)}
                 className="rounded-md border border-border bg-page px-6 py-3.5 text-sm font-medium text-primary"
               >
                 ทำงานเบื้องหลัง
