@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Script from "next/script";
 import { DbdTrustBadge } from "@/components/DbdTrustBadge";
 
@@ -42,6 +42,16 @@ export function CheckoutForm({
   omisePublicKey?: string;
 }) {
   const router = useRouter();
+  // FIX (bug audit #9): the post-payment redirect used to key off
+  // `planCode === "agency"` — the PACKAGE someone bought, not the MODE they
+  // were checking out from. An agency buying a non-agency package (or a
+  // solo clinic somehow reaching the agency package) landed on the wrong
+  // dashboard. usePathname() reflects where this checkout actually started
+  // (/agency/checkout vs /checkout — see app/agency/checkout/page.tsx and
+  // app/checkout/page.tsx), which is what should decide where "done" sends
+  // them back to. Same pattern as components/ProcessingScreen.tsx.
+  const pathname = usePathname();
+  const isAgencyCheckout = pathname?.startsWith("/agency") ?? false;
   const [channel, setChannel] = useState(CHANNELS[0]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -105,7 +115,7 @@ export function CheckoutForm({
       const data = await res.json();
       if (res.ok && data.ok) {
         setDone(data.invoiceNumber);
-        setTimeout(() => router.push(planCode === "agency" ? "/agency/dashboard" : "/dashboard"), 1500);
+        setTimeout(() => router.push(isAgencyCheckout ? "/agency/dashboard" : "/dashboard"), 1500);
       } else if (data.requires3ds && data.authorizeUri) {
         // Bank requires 3-D Secure step-up — hand off to the bank's own
         // page. It redirects back once done; the webhook
@@ -135,7 +145,7 @@ export function CheckoutForm({
     setLoading(false);
     if (res.ok) {
       setDone(data.invoiceNumber);
-      setTimeout(() => router.push(planCode === "agency" ? "/agency/dashboard" : "/dashboard"), 1500);
+      setTimeout(() => router.push(isAgencyCheckout ? "/agency/dashboard" : "/dashboard"), 1500);
     } else {
       setError(data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
     }
