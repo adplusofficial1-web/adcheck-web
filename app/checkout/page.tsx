@@ -50,10 +50,10 @@ export default async function CheckoutPage({
             failure after they hit "ชำระเงิน" (C2). Once OMISE_SECRET_KEY +
             NEXT_PUBLIC_OMISE_PUBLIC_KEY are set on Render, paymentEnabled
             flips to true on its own and this banner disappears — no code
-            change needed at that point. *}
+            change needed at that point. */}
         {!paymentEnabled && (
           <div className="bg-warningSoft text-warning rounded-lg p-4 mb-6 text-sm">
-            ระบบชำระเงินออนไลน์ยังไม่เปิดให้บริการในขณะนี้ กรุณาติดตจอทีมานย์เป็นง่อน
+            ระบบชำระเงินออนไลน์ยังไม่เปิดให้บริการในขณะนี้ กรุณาติดต่อทีมงานเพื่อเติมเครดิตด้วยตนเองก่อน
           </div>
         )}
         <CheckoutForm
