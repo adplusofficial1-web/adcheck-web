@@ -48,8 +48,18 @@ export function useSubmissionStatus(
         const res = await fetch(`/api/submissions/${submissionId}/status`, {
           cache: "no-store",
         });
+        // FIX (bug audit — Low): the component can unmount while this
+        // request is still in flight — most visibly when the user taps
+        // "ทำงานเบื้องหลัง" on the Processing screen and navigates to
+        // /dashboard. Without rechecking stoppedRef here (it's only
+        // checked before the fetch starts), this in-flight request's
+        // continuation still ran to completion and called onComplete,
+        // which force-navigated the user to /results/[id] moments after
+        // they'd deliberately left. Bail out immediately once stopped.
+        if (stoppedRef.current) return;
         if (!res.ok) throw new Error(`ตรวจสอบสถานะล้มเหลว (HTTP ${res.status})`);
         const json: SubmissionStatus = await res.json();
+        if (stoppedRef.current) return;
         setData(json);
         setConnectionError(null);
 
