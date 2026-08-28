@@ -225,8 +225,19 @@ ${buildLegalContextBlock(matchedRules)}`;
   });
 
   if (message.stop_reason === "max_tokens") {
-    console.error(
-      `reviewImage: response for ${params.filename} was truncated at max_tokens — output may be incomplete`
+    // FIX (bug audit #15): this used to just console.error and then still
+    // fall through to return toolUse.input below — a response cut off
+    // mid-JSON that still happens to parse (fewer/shorter flags than the
+    // model actually intended) was stored as if it were a complete,
+    // genuine review, with nothing on the results page to say otherwise.
+    // Throw instead: the caller (processOneImage in
+    // app/api/submissions/route.ts) already has a catch block for exactly
+    // this shape of failure, which attaches a visible "please resubmit"
+    // flag instead of silently under-reporting. The 3000-token budget
+    // above is sized so this should be rare in practice — see that
+    // comment — but if it does happen, surfacing it beats guessing.
+    throw new Error(
+      `reviewImage: response for ${params.filename} was truncated at max_tokens — refusing to use a possibly-incomplete result`
     );
   }
 
