@@ -9,6 +9,18 @@ function initials(name: string) {
   return parts.length > 1 ? (parts[0][0] + parts[1][0]).toUpperCase() : name.slice(0, 2).toUpperCase();
 }
 
+// Same pattern as components/settings/SettingsClient.tsx's own profile-photo
+// upload — read the file client-side into a data: URL and send it up as
+// JSON, no separate upload endpoint/object storage involved.
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 // One clinic's editable info + this-month usage on /agency/settings.
 // Saves via PATCH /api/agency/clinics/[id] (ownership-checked server-side).
 // There's no per-clinic billing any more — every clinic in the network
@@ -34,6 +46,19 @@ export function ClinicSettingsCard({
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(clinic.avatar_url);
+  const [loadingFile, setLoadingFile] = useState(false);
+
+  async function onFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setLoadingFile(true);
+    try {
+      setAvatarPreview(await fileToBase64(file));
+    } finally {
+      setLoadingFile(false);
+    }
+  }
 
   async function save() {
     // FIX (bug audit — Low): "add clinic" already blocks an empty name
@@ -51,7 +76,10 @@ export function ClinicSettingsCard({
       const res = await fetch(`/api/agency/clinics/${clinic.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
+        body: JSON.stringify({
+          ...draft,
+          avatarBase64: avatarPreview !== clinic.avatar_url ? avatarPreview : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
@@ -91,9 +119,24 @@ export function ClinicSettingsCard({
   return (
     <section className="border border-border rounded-lg p-6">
       <div className="flex items-center gap-5 mb-5">
-        <div className="w-16 h-16 rounded-full flex items-center justify-center text-lg font-medium shrink-0 bg-accentSoft text-accent">
-          {initials(clinic.name)}
-        </div>
+        {avatarPreview ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarPreview}
+            alt=""
+            className="w-16 h-16 rounded-full object-cover shrink-0"
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-full flex items-center justify-center text-lg font-medium shrink-0 bg-accentSoft text-accent">
+            {initials(clinic.name)}
+          </div>
+        )}
+        {editing && (
+          <label className="shrink-0 text-xs font-medium border border-border rounded-md px-3 py-2 cursor-pointer hover:bg-page -ml-2">
+            {loadingFile ? "กำลังโหลด..." : "เปลี่ยนรูป"}
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => onFile(e.target.files)} />
+          </label>
+        )}
         <div className="flex-1 min-w-0">
           <div className="text-lg font-medium truncate">{clinic.name}</div>
           <div className="text-sm truncate text-secondary">
