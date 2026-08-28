@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { isValidUuid } from "@/lib/validation";
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const body = await req.json();
   const business = await getCurrentBusiness();
   if (!business) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  if (!isValidUuid(params.id)) {
+    return NextResponse.json({ error: "ไม่พบบัตรนี้" }, { status: 404 });
   }
 
   const [card] = await sql`
@@ -47,6 +52,10 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   const business = await getCurrentBusiness();
   if (!business) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  if (!isValidUuid(params.id)) {
+    return NextResponse.json({ error: "ไม่พบบัตรนี้" }, { status: 404 });
   }
 
   const [card] = await sql`
