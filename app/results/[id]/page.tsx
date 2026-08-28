@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { Nav } from "@/components/Nav";
 import { FlagDetail } from "@/components/FlagDetail";
+import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getAccessibleBusinessIds } from "@/lib/agency";
@@ -158,7 +159,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
           <a href={`/results/${params.id}/pdf`} target="_blank" rel="noopener noreferrer" className="rounded-md border border-border px-4 py-2 text-sm">
             ดาวน์โหลด PDF
           </a>
-          <button className="rounded-md border border-border px-4 py-2 text-sm">แชร์ลิงก์</button>
+          <ShareLinkButton shareToken={submission.share_token} />
           <a href="/upload" className="rounded-md bg-inverse text-onInverse px-4 py-2 text-sm ml-auto">
             + อัพโหลดชุดใหม่
           </a>
