@@ -45,7 +45,7 @@ export default async function AgencyDashboardPage() {
   // lib/agency.ts:hasActiveAgencyPlan. Only the upload action is gated;
   // everything else here (viewing stats, adding clinics, drilling into
   // history/settings) stays available regardless.
-  const agencyPlanActive = hasActiveAgencyPlan(business);
+  const agencyPlanActive = await hasActiveAgencyPlan(business);
   const [stats, recent] = await Promise.all([
     getClinicMonthlyStats(ids),
     getRecentImagesByBusiness(ids, 1),
