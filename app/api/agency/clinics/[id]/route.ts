@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getBusinessByIdForOwner } from "@/lib/agency";
+import { isValidUuid } from "@/lib/validation";
 
 const VALID_TYPES = ["clinic", "agency"];
 
@@ -33,26 +34,42 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  if (!isValidUuid(params.id)) {
+    return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
+  }
+
   const target = await getBusinessByIdForOwner(params.id, business.id);
   if (!target) {
     return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
   }
 
-  const [updated] = await sql`
-    UPDATE businesses
-    SET
-      name = COALESCE(${name ?? null}, name),
-      type = COALESCE(${type ?? null}, type),
-      contact_email = COALESCE(${contactEmail ?? null}, contact_email),
-      phone = COALESCE(${phone ?? null}, phone),
-      license_number = COALESCE(${licenseNumber ?? null}, license_number),
-      address = COALESCE(${address ?? null}, address),
-      updated_at = now()
-    WHERE id = ${target.id}
-    RETURNING id, name, type, contact_email, phone, license_number, address
-  `;
+  // FIX (bug audit #13): same missing try/catch as the "add clinic" POST
+  // in ../route.ts — contact_email is UNIQUE, so editing one clinic's email
+  // to match another existing business's email used to surface a raw
+  // Postgres error instead of a normal in-UI message.
+  try {
+    const [updated] = await sql`
+      UPDATE businesses
+      SET
+        name = COALESCE(${name ?? null}, name),
+        type = COALESCE(${type ?? null}, type),
+        contact_email = COALESCE(${contactEmail ?? null}, contact_email),
+        phone = COALESCE(${phone ?? null}, phone),
+        license_number = COALESCE(${licenseNumber ?? null}, license_number),
+        address = COALESCE(${address ?? null}, address),
+        updated_at = now()
+      WHERE id = ${target.id}
+      RETURNING id, name, type, contact_email, phone, license_number, address
+    `;
 
-  return NextResponse.json({ business: updated });
+    return NextResponse.json({ business: updated });
+  } catch (e: any) {
+    if (e?.code === "23505") {
+      return NextResponse.json({ error: "อีเมลนี้ถูกใช้งานแล้ว กรุณาใช้อีเมลอื่น" }, { status: 409 });
+    }
+    console.error(`Failed to update clinic ${target.id}:`, e);
+    return NextResponse.json({ error: "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง" }, { status: 500 });
+  }
 }
 
 // Permanently removes a child clinic from this agency's network — the
@@ -73,6 +90,10 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   const business = await getCurrentBusiness();
   if (!business) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  if (!isValidUuid(params.id)) {
+    return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
   }
 
   const target = await getBusinessByIdForOwner(params.id, business.id);
