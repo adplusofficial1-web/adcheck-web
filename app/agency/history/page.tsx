@@ -12,7 +12,7 @@ const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
   violation: { label: "เข้าข่ายผิด", badge: "bg-dangerSoft text-danger" },
 };
 const FILTERS: { key?: string; label: string }[] = [
-  { key: undefined, label: "ทั้งหมด" },
+  { key: undefined, label: "ทัฉหมด" },
   { key: "violation", label: "เข้าข่ายผิด" },
   { key: "caution", label: "ควรระวัง" },
   { key: "passed", label: "ผ่าน" },
