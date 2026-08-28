@@ -91,7 +91,7 @@ export default async function AgencyDashboardPage() {
               </p>
             </div>
             <Link
-              href="/checkout?plan=agency"
+              href="/agency/checkout?plan=agency"
               className="shrink-0 rounded-md bg-inverse text-onInverse px-4 py-2.5 text-sm font-medium"
             >
               สมัคร/ต่ออายุ →
@@ -156,7 +156,7 @@ export default async function AgencyDashboardPage() {
                       </div>
                     </div>
                     <Link
-                      href={agencyPlanActive ? `/agency/upload?business=${c.id}` : "/checkout?plan=agency"}
+                      href={agencyPlanActive ? `/agency/upload?business=${c.id}` : "/agency/checkout?plan=agency"}
                       // No active Agency plan on this account — this points
                       // at checkout instead of upload, same as the banner
                       // above, but keeps the exact same look as the normal
