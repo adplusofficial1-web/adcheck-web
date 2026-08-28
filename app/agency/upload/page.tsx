@@ -42,7 +42,7 @@ export default async function AgencyUploadPage({
   // bypass via direct POST); this one keeps someone from even seeing a
   // working-looking upload form here if they got to this URL directly
   // (e.g. a bookmarked link) instead of via a disabled dashboard button.
-  const agencyPlanBlocked = !hasActiveAgencyPlan(business);
+  const agencyPlanBlocked = !(await hasActiveAgencyPlan(business));
 
   return (
     <main>
@@ -65,7 +65,7 @@ export default async function AgencyUploadPage({
               อัปโหลดให้ทุกคลินิกในเครือข่ายนี้อีกครั้ง
             </p>
             <Link
-              href="/checkout?plan=agency"
+              href="/agency/checkout?plan=agency"
               className="inline-block rounded-md bg-inverse text-onInverse px-4 py-2 text-sm font-medium"
             >
               สมัคร/ต่ออายุแพ็กเกจ Agency →
