@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
 import { getPlans } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { isOmiseConfigured } from "@/lib/omise";
 import { Nav } from "@/components/Nav";
 import { CheckoutForm } from "./CheckoutForm";
 
@@ -23,6 +24,13 @@ export default async function CheckoutPage({
     redirect("/login");
   }
 
+  // isOmiseConfigured() only checks env vars are present — it never touches
+  // the secret key value itself, so it's safe to read in a server component
+  // and pass the boolean (not the key) down. The public key IS safe to pass
+  // to the client — that's its entire purpose, see CheckoutForm.tsx.
+  const paymentEnabled = isOmiseConfigured();
+  const omisePublicKey = process.env.NEXT_PUBLIC_OMISE_PUBLIC_KEY;
+
   return (
     <main>
       <Nav credits={business?.credits_remaining} />
@@ -37,14 +45,23 @@ export default async function CheckoutPage({
           </div>
           <div className="text-xl font-medium">{Number(plan.price_thb).toLocaleString()} บาท</div>
         </div>
-        {/* Payment gateway isn't connected yet — every charge attempt fails
-            server-side by design (see app/api/checkout/route.ts). Warn
-            before the user picks a channel and fills anything in, instead
-            of only surfacing the failure after they hit "ชำระเงิน" (C2). */}
-        <div className="bg-warningSoft text-warning rounded-lg p-4 mb-6 text-sm">
-          ระบบชำระเงินออนไลน์ยังไม่เปิดให้บริการในขณะนี้ กรุณาติดต่อทีมงานเพื่อเติมเครดิตด้วยตนเองก่อน
-        </div>
-        <CheckoutForm planCode={plan.code} amount={Number(plan.price_thb)} />
+        {/* Payment gateway isn't connected yet — warn before the user picks
+            a channel and fills anything in, instead of only surfacing the
+            failure after they hit "ชำระเงิน" (C2). Once OMISE_SECRET_KEY +
+            NEXT_PUBLIC_OMISE_PUBLIC_KEY are set on Render, paymentEnabled
+            flips to true on its own and this banner disappears — no code
+            change needed at that point. *}
+        {!paymentEnabled && (
+          <div className="bg-warningSoft text-warning rounded-lg p-4 mb-6 text-sm">
+            ระบบชำระเงินออนไลน์ยังไม่เปิดให้บริการในขณะนี้ กรุณาติดตจอทีมานย์เป็นง่อน
+          </div>
+        )}
+        <CheckoutForm
+          planCode={plan.code}
+          amount={Number(plan.price_thb)}
+          paymentEnabled={paymentEnabled}
+          omisePublicKey={omisePublicKey}
+        />
       </div>
     </main>
   );
