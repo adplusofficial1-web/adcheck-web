@@ -113,7 +113,14 @@ export function AboutContent({ uploadHref = "/upload" }: { uploadHref?: string }
               สบส. ตามขั้นตอนปกติ
             </p>
           </div>
-          <div className="rounded-xl bg-accentSoft min-h-[280px] md:min-h-full" />
+          <div className="rounded-xl overflow-hidden bg-black min-h-[280px] md:min-h-full flex items-center justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/about/adcheck-about-logo.png"
+              alt="AdCheck"
+              className="w-full h-full object-contain"
+            />
+          </div>
         </div>
       </section>
 
