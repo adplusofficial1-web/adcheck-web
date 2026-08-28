@@ -41,7 +41,13 @@ export default async function CheckoutPage({
             <div className="font-medium">
               แพ็ก{plan.name} — {plan.monthly_image_credits} ครั้ง
             </div>
-            <div className="text-xs text-secondary">เครดิตใหม่จะถูกตั้งเป็นยอดนี้ทันที นับรอบ 30 วันใหม่จากวันนี้</div>
+            {/* FIX (bug audit — Low: checkout copy vs. actual behavior):
+                this used to say credits are "set to" this amount — but
+                app/api/checkout/route.ts INSERTs a new, independent
+                30-day business_packages row alongside any already-active
+                package(s), it never overwrites/resets the existing
+                balance (see lib/credits.ts). Worded to match. */}
+            <div className="text-xs text-secondary">เครดิตจำนวนนี้จะถูกเพิ่มเข้าไป (ไม่ได้แทนที่ยอดเดิม) พร้อมรอบใช้งาน 30 วันนับจากวันนี้</div>
           </div>
           <div className="text-xl font-medium">{Number(plan.price_thb).toLocaleString()} บาท</div>
         </div>
