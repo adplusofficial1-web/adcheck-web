@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "ระบบชำระเงินยังไม่เปิดให้บริการในขณะนี้ กรุณาติดต่อทีม้ฐอตีแลเทีน`��ห้เทีมวกินงณานเพื่อดำเนินการชำระเงินและเติมเครดิต",
+          "ระบบชำระเงินยังไม่เปิดให้บริการในขณะนี้ กรุณาติดต่อทีมงานเพื่อดำเนินการชำระเงินและเติมเครดิต",
       },
       { status: 503 }
     );
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   // around recurring billing (see the earlier conversation on this).
   if (consent !== true) {
     return NextResponse.json(
-      { error: "กรุณายืนยันความยินยอมให้ตัดเงินอัตานมัติก่อนผูกบัตร" },
+      { error: "กรุณายืนยันความยินยอมให้ตัดเงินอัตโนมัติก่อนผูกบัตร" },
       { status: 400 }
     );
   }
