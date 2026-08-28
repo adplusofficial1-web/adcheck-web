@@ -21,6 +21,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const licenseNumber: string | undefined =
     typeof body.license_number === "string" ? body.license_number.trim() : undefined;
   const address: string | undefined = typeof body.address === "string" ? body.address.trim() : undefined;
+  // Same data: URL pattern as app/api/settings/profile/route.ts's own
+  // avatarBase64 handling — validated the same way (must actually be a
+  // data: URL, not an arbitrary string) before it ever reaches the query.
+  const avatarBase64: string | undefined =
+    typeof body.avatarBase64 === "string" && body.avatarBase64.startsWith("data:")
+      ? body.avatarBase64
+      : undefined;
 
   if (name !== undefined && name.length === 0) {
     return NextResponse.json({ error: "ชื่อคลินิกห้ามเว้นว่าง" }, { status: 400 });
@@ -57,9 +64,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         phone = COALESCE(${phone ?? null}, phone),
         license_number = COALESCE(${licenseNumber ?? null}, license_number),
         address = COALESCE(${address ?? null}, address),
+        avatar_url = COALESCE(${avatarBase64 ?? null}, avatar_url),
         updated_at = now()
       WHERE id = ${target.id}
-      RETURNING id, name, type, contact_email, phone, license_number, address
+      RETURNING id, name, type, contact_email, phone, license_number, address, avatar_url
     `;
 
     return NextResponse.json({ business: updated });
