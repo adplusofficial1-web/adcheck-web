@@ -179,10 +179,23 @@ export function getPlanCycleStatus(business: {
 // buttons on /agency/dashboard and the ?business= path in
 // app/upload/page.tsx + app/api/submissions/route.ts. Requires the
 // *signed-in* account itself (never a child clinic — see the callers,
-// which always pass the signed-in `business`, not `target`) to be on the
-// code='agency' plan (the "หลายสาขา / Agency" row in `plans`, bought like
-// any other package via /checkout?plan=agency) with a 30-day cycle that
-// hasn't lapsed yet.
+// which always pass the signed-in `business`, not `target`) to hold at
+// least one still-unexpired code='agency' package (the "หลายสาขา / Agency"
+// row in `plans`, bought like any other package via
+// /agency/checkout?plan=agency).
+//
+// FIX (bug audit #8): this used to check `businesses.plan_id`/
+// `credits_reset_at` instead — a single snapshot that `app/api/checkout/
+// route.ts` OVERWRITES on every successful purchase, regardless of which
+// plan was bought. Since actual credits accumulate across several
+// non-overwriting rows in `business_packages`, an agency that bought the
+// 'agency' plan and then later bought any OTHER plan (while the agency
+// package was still unexpired) would have `plan_id` silently pointed at
+// the newer, non-agency plan — this check would then wrongly say "no
+// active agency plan" and lock every clinic's "+ อัพโหลด" button even
+// though the agency package (and its credits) were still perfectly valid.
+// Querying business_packages directly (the same table credits actually
+// live in) makes this agree with reality regardless of purchase order.
 //
 // There is no separate per-clinic package any more: a child clinic's
 // credits_remaining/plan_id columns are unused for billing purposes (left
@@ -193,10 +206,13 @@ export function getPlanCycleStatus(business: {
 // credit pool the *review* is actually paid from (see
 // app/api/submissions/route.ts, which checks/decrements `business`, i.e.
 // the signed-in agency, never `target`).
-export function hasActiveAgencyPlan(business: {
-  plan_code?: string | null;
-  credits_reset_at?: string | Date | null;
-}): boolean {
-  const status = getPlanCycleStatus(business);
-  return status.isAgencyPlan && status.withinCycle;
+export async function hasActiveAgencyPlan(business: { id: string }): Promise<boolean> {
+  const [row] = (await sql`
+    SELECT 1
+    FROM business_packages bp
+    JOIN plans p ON p.id = bp.plan_id
+    WHERE bp.business_id = ${business.id} AND p.code = 'agency' AND bp.expires_at > now()
+    LIMIT 1
+  `) as any[];
+  return !!row;
 }
