@@ -2,18 +2,24 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 
-// No real payment gateway (Omise/Stripe/2C2P) is wired up yet —
-// payment_methods only stores display-only mock card info (brand/last4),
-// not a real charge token. This endpoint used to simulate a successful
-// charge and grant credits regardless, which meant anyone could "buy" a
-// package and get free credits without ever actually paying. Until a real
-// gateway is connected, checkout must always fail here, before any
-// business_packages/transactions row is written — no channel, plan, or
-// business is special-cased around this.
+// The card channel ("บัตรเครดิต/เดบิต") now has a real gateway behind it —
+// see app/api/billing/card/route.ts, which tokenizes via Omise.js client-side
+// and charges through lib/omise.ts. CheckoutForm.tsx routes that channel
+// there instead of here, so it never reaches this handler at all.
 //
-// To re-enable once a gateway is connected: replace this early return with
-// a real charge call, and only reach the transaction/business_packages
-// INSERTs below on a confirmed successful charge.
+// This endpoint still covers the other three channels (QR PromptPay,
+// Mobile Banking, Direct Debit) which have no gateway wired up yet —
+// payment_methods only stores display-only mock card info for anything
+// that isn't a bound Omise card. It used to simulate a successful charge
+// and grant credits regardless, which meant anyone could "buy" a package
+// and get free credits without ever actually paying. Until each of those
+// gets its own real integration, checkout for them must always fail here,
+// before any business_packages/transactions row is written.
+//
+// To re-enable a given channel once its gateway is connected: branch on
+// `channel` and replace this early return with a real charge call for that
+// channel, reaching the transaction/business_packages INSERTs below only
+// on a confirmed successful charge.
 const PAYMENT_GATEWAY_ENABLED = false;
 
 export async function POST(req: Request) {
