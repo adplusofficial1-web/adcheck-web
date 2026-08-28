@@ -12,7 +12,7 @@ const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
   violation: { label: "เข้าข่ายผิด", badge: "bg-dangerSoft text-danger" },
 };
 const FILTERS: { key?: string; label: string }[] = [
-  { key: undefined, label: "ทัฉหมด" },
+  { key: undefined, label: "ทั้งหมด" },
   { key: "violation", label: "เข้าข่ายผิด" },
   { key: "caution", label: "ควรระวัง" },
   { key: "passed", label: "ผ่าน" },
@@ -139,7 +139,7 @@ async function SoloClinicHistory({ businessId, filter }: { businessId: string; f
         return (
           <Link
             key={img.id}
-            href={`/results/${img.submission_id}`}
+            href={`/agency/results/${img.submission_id}`}
             className="flex items-center justify-between border border-border rounded-lg p-4"
           >
             <div className="flex items-center gap-3">
@@ -190,7 +190,7 @@ async function GroupedHistory({
                   return (
                     <Link
                       key={img.id}
-                      href={`/results/${img.submission_id}`}
+                      href={`/agency/results/${img.submission_id}`}
                       className="flex items-center justify-between border border-border rounded-lg p-4"
                     >
                       <div className="flex items-center gap-3">
