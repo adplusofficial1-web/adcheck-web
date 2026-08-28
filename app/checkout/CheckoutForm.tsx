@@ -2,31 +2,128 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Script from "next/script";
 import { DbdTrustBadge } from "@/components/DbdTrustBadge";
 
 const CHANNELS = ["บัตรเครดิต/เดบิต", "QR PromptPay", "Mobile Banking", "Direct Debit"];
 
-// Mirrors PAYMENT_GATEWAY_ENABLED in app/api/checkout/route.ts — that route
-// already rejects every charge, but leaving the button looking clickable
-// meant someone had to pick a channel and hit "ชำระเงิน" just to find out
-// (C2). Flip both together once a real gateway is wired up; until then the
-// button stays disabled and says so up front instead of failing silently.
-const PAYMENT_ENABLED = false;
+declare global {
+  interface Window {
+    Omise?: {
+      setPublicKey: (key: string) => void;
+      createToken: (
+        type: "card",
+        card: {
+          name: string;
+          number: string;
+          expiration_month: string;
+          expiration_year: string;
+          security_code: string;
+        },
+        cb: (statusCode: number, response: any) => void
+      ) => void;
+    };
+  }
+}
 
 export function CheckoutForm({
   planCode,
   amount,
+  paymentEnabled,
+  omisePublicKey,
 }: {
   planCode: string;
   amount: number;
+  // True only once OMISE_SECRET_KEY + NEXT_PUBLIC_OMISE_PUBLIC_KEY are both
+  // set (see lib/omise.ts:isOmiseConfigured, checked server-side in
+  // app/checkout/page.tsx) — everything below degrades to the old "ยังไม่
+  // เปิดให้บริการ" disabled-button behavior until then.
+  paymentEnabled: boolean;
+  omisePublicKey?: string;
 }) {
   const router = useRouter();
-  const [channel, setChannel] = useState(CHANNELS[1]);
+  const [channel, setChannel] = useState(CHANNELS[0]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [omiseReady, setOmiseReady] = useState(false);
 
-  async function pay() {
+  const [cardName, setCardName] = useState("");
+  const [cardNumber, setCardNumber] = useState("");
+  const [expMonth, setExpMonth] = useState("");
+  const [expYear, setExpYear] = useState("");
+  const [cvv, setCvv] = useState("");
+  const [consent, setConsent] = useState(false);
+
+  const isCardChannel = channel === CHANNELS[0];
+  // Only the card channel is wired to a real gateway in this pass — QR
+  // PromptPay / Mobile Banking / Direct Debit are separate integrations,
+  // still intentionally disabled (see app/api/checkout/route.ts).
+  const cardChannelEnabled = paymentEnabled && Boolean(omisePublicKey);
+
+  function createOmiseToken(): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!window.Omise || !omisePublicKey) {
+        reject(new Error("ไม่สามารถโหลดระบบชำระเงินได้ กรุณาลองรีเฟรชหน้านี้แล้วลองใหม่"));
+        return;
+      }
+      window.Omise.setPublicKey(omisePublicKey);
+      window.Omise.createToken(
+        "card",
+        {
+          name: cardName,
+          number: cardNumber.replace(/\s+/g, ""),
+          expiration_month: expMonth,
+          expiration_year: expYear,
+          security_code: cvv,
+        },
+        (_statusCode, response) => {
+          if (response?.object === "error") {
+            reject(new Error(response.message || "ข้อมูลบัตรไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง"));
+          } else {
+            resolve(response.id);
+          }
+        }
+      );
+    });
+  }
+
+  async function payWithCard() {
+    if (!consent) {
+      setError("กรุณายืนยันความยินยอมให้ตัดเงินอัตโนมัติก่อนดำเนินการ");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await createOmiseToken();
+      const res = await fetch("/api/billing/card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, consent: true, planCode }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setDone(data.invoiceNumber);
+        setTimeout(() => router.push(planCode === "agency" ? "/agency/dashboard" : "/dashboard"), 1500);
+      } else if (data.requires3ds && data.authorizeUri) {
+        // Bank requires 3-D Secure step-up — hand off to the bank's own
+        // page. It redirects back once done; the webhook
+        // (app/api/webhooks/omise/route.ts) finalizes credits from there,
+        // so this tab doesn't need to do anything more.
+        window.location.href = data.authorizeUri;
+        return;
+      } else {
+        setError(data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
+        setLoading(false);
+      }
+    } catch (err: any) {
+      setError(err?.message || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
+      setLoading(false);
+    }
+  }
+
+  async function payOther() {
     setLoading(true);
     setError(null);
     const res = await fetch("/api/checkout", {
@@ -38,15 +135,8 @@ export function CheckoutForm({
     setLoading(false);
     if (res.ok) {
       setDone(data.invoiceNumber);
-      // Buying the agency package lands back on the Agency dashboard
-      // (where the shared credit pool and per-clinic upload buttons live);
-      // any other plan is a solo clinic's own package, so back to /dashboard.
       setTimeout(() => router.push(planCode === "agency" ? "/agency/dashboard" : "/dashboard"), 1500);
     } else {
-      // Payment gateway isn't connected yet (see app/api/checkout/route.ts)
-      // — every attempt fails here on purpose, and no credit is granted.
-      // Surface the real reason instead of leaving the button just reset
-      // with no feedback, which read as a silent do-nothing before this.
       setError(data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
     }
   }
@@ -62,8 +152,16 @@ export function CheckoutForm({
 
   return (
     <div>
+      {cardChannelEnabled && (
+        <Script
+          src="https://cdn.omise.co/omise.js"
+          strategy="afterInteractive"
+          onLoad={() => setOmiseReady(true)}
+        />
+      )}
+
       <div className="text-sm font-medium mb-3">เลือกวิธีการชำระเงิน</div>
-      <div className="grid grid-cols-2 gap-2 mb-8">
+      <div className="grid grid-cols-2 gap-2 mb-6">
         {CHANNELS.map((c) => (
           <button
             key={c}
@@ -77,16 +175,74 @@ export function CheckoutForm({
         ))}
       </div>
 
-      {error && <div className="text-sm text-danger mb-4">{error}</div>}
+      {isCardChannel && cardChannelEnabled && (
+        <div className="space-y-3 mb-2">
+          <input
+            className="w-full rounded-md border border-border px-3 py-2.5 text-sm"
+            placeholder="ชื่อบนบัตร"
+            value={cardName}
+            onChange={(e) => setCardName(e.target.value)}
+          />
+          <input
+            className="w-full rounded-md border border-border px-3 py-2.5 text-sm"
+            placeholder="หมายเลขบัตร"
+            inputMode="numeric"
+            value={cardNumber}
+            onChange={(e) => setCardNumber(e.target.value)}
+          />
+          <div className="grid grid-cols-3 gap-2">
+            <input
+              className="rounded-md border border-border px-3 py-2.5 text-sm"
+              placeholder="เดือนหมดอายุ (MM)"
+              inputMode="numeric"
+              value={expMonth}
+              onChange={(e) => setExpMonth(e.target.value)}
+            />
+            <input
+              className="rounded-md border border-border px-3 py-2.5 text-sm"
+              placeholder="ปีหมดอายุ (YYYY)"
+              inputMode="numeric"
+              value={expYear}
+              onChange={(e) => setExpYear(e.target.value)}
+            />
+            <input
+              className="rounded-md border border-border px-3 py-2.5 text-sm"
+              placeholder="CVV"
+              inputMode="numeric"
+              value={cvv}
+              onChange={(e) => setCvv(e.target.value)}
+            />
+          </div>
+          <label className="flex items-start gap-2 text-xs text-secondary pt-2">
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              ยินยอมให้ตัดเงินบัตรนี้อัตโนมัติทุกรอบ 30 วัน ({amount.toLocaleString()} บาท/รอบ)
+              ไม่ว่าจะใช้เครดิตครั้ง จนกว่าจะยกเลิกในหน้าตั้งค่า
+            </span>
+          </label>
+        </div>
+      )}
+
+      {error && <div className="text-sm text-danger mb-4 mt-3">{error}</div>}
 
       <button
-        onClick={pay}
-        disabled={loading || !PAYMENT_ENABLED}
-        className="w-full rounded-md bg-inverse text-onInverse py-3 text-sm font-medium disabled:opacity-50"
+        onClick={isCardChannel ? payWithCard : payOther}
+        disabled={
+          loading ||
+          (isCardChannel ? !cardChannelEnabled || !omiseReady : !paymentEnabled)
+        }
+        className="w-full rounded-md bg-inverse text-onInverse py-3 text-sm font-medium disabled:opacity-50 mt-4"
       >
         {loading
           ? "กำลังดำเนินการ..."
-          : !PAYMENT_ENABLED
+          : isCardChannel && !cardChannelEnabled
+          ? "ระบบชำระเงินยังไม่เปิดให้บริการ"
+          : !isCardChannel && !paymentEnabled
           ? "ระบบชำระเงินยังไม่เปิดให้บริการ"
           : `ชำระเงิน ${amount.toLocaleString()} บาท`}
       </button>
