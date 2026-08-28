@@ -34,12 +34,12 @@ function SourceBadge({ article, className = "" }: { article: Article; className?
 // path used to build links to each article's detail page. Keeping this as
 // one shared component (rather than two copies) is what keeps the two
 // modes' content in sync automatically — there's nothing to drift.
-export function ArticlesListContent({ basePath = "/articles" }: { basePath?: string }) {
+export function ArticlesListContent({ basePath = "/articles", credits }: { basePath?: string; credits?: number }) {
   const [featured, ...rest] = ARTICLES;
 
   return (
     <main>
-      <Nav />
+      <Nav credits={credits} />
 
       <div className="max-w-5xl mx-auto px-6 py-14">
         <p className="text-xs text-tertiary mb-3">หน้าแรก &nbsp;/&nbsp; บทความ</p>
