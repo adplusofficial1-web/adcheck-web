@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, type DragEvent } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { MAX_UPLOAD_IMAGES } from "@/lib/uploadLimits";
 
 type Row = { filename: string; caption: string; base64: string; mediaType: string };
@@ -84,16 +84,37 @@ export function UploadForm({
   businessId?: string;
 }) {
   const router = useRouter();
+  // FIX (bug audit #5): this component is shared by both app/upload
+  // (Clinic mode) and app/agency/upload (Agency mode) — see
+  // app/agency/upload/page.tsx, which renders the exact same UploadForm.
+  // It used to always push to /processing/... regardless of which one it
+  // was rendered from, so an Agency-mode upload landed on a
+  // non-/agency-prefixed page the instant it redirected, and
+  // components/Nav.tsx's URL-prefix-only mode check flipped straight back
+  // to Clinic-mode chrome — right in the middle of the single most common
+  // Agency-mode action. Same fix pattern as checkout/pricing before this.
+  const pathname = usePathname();
+  const isAgency = pathname?.startsWith("/agency") ?? false;
   const [rows, setRows] = useState<Row[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function onFiles(files: FileList | null) {
-    if (!files) return;
+    if (!files || files.length === 0) return;
     setLoadingFiles(true);
-    const remainingSlots = Math.max(0, MAX_UPLOAD_IMAGES - rows.length);
-    const picked = Array.from(files).slice(0, remainingSlots);
+    // FIX (bug audit — Low: file-count race during resize): the old
+    // `remainingSlots` was computed once, up front, from `rows.length` at
+    // the moment this call started — but resizing (fileToResizedBase64)
+    // takes a beat per file. Picking a second batch before the first
+    // batch's resize finished meant BOTH calls computed remainingSlots
+    // from the same stale rows.length, so together they could add more
+    // than MAX_UPLOAD_IMAGES rows; the submit button only re-checks credits,
+    // not count, so this wasn't caught until the server rejected it after
+    // the wait. Re-clamp inside the setRows updater instead, against the
+    // actual current length at merge time (which React guarantees is
+    // up to date), not a value captured before the async work.
+    const picked = Array.from(files).slice(0, MAX_UPLOAD_IMAGES);
     const added = await Promise.all(
       picked.map(async (f) => {
         const { base64, mediaType } = await fileToResizedBase64(f);
@@ -109,7 +130,10 @@ export function UploadForm({
         };
       })
     );
-    setRows((current) => [...current, ...added]);
+    setRows((current) => {
+      const remainingSlots = Math.max(0, MAX_UPLOAD_IMAGES - current.length);
+      return [...current, ...added.slice(0, remainingSlots)];
+    });
     setLoadingFiles(false);
   }
 
@@ -135,7 +159,8 @@ export function UploadForm({
       // via the URL since this is the only place that has them before any
       // review has completed.
       const filenames = rows.map((r) => r.filename);
-      router.push(`/processing/${data.id}?files=${encodeURIComponent(JSON.stringify(filenames))}`);
+      const processingBase = isAgency ? "/agency/processing" : "/processing";
+      router.push(`${processingBase}/${data.id}?files=${encodeURIComponent(JSON.stringify(filenames))}`);
     } catch (e: any) {
       setError(e.message);
       setSubmitting(false);
@@ -144,11 +169,39 @@ export function UploadForm({
 
   const atLimit = rows.length >= MAX_UPLOAD_IMAGES;
 
+  // FIX (bug audit — Low: "ลากภาพมาวาง" copy with no actual drop handling):
+  // the label's text always claimed drag-and-drop worked, but nothing
+  // listened for a real drop event — dropping a file from the desktop just
+  // made the browser navigate to/open that file, leaving the app entirely.
+  // These three handlers are what the copy always implied existed.
+  const [dragActive, setDragActive] = useState(false);
+  function onDragOver(e: DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    if (!atLimit) setDragActive(true);
+  }
+  function onDragLeave(e: DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    setDragActive(false);
+  }
+  function onDrop(e: DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    setDragActive(false);
+    if (atLimit) return;
+    onFiles(e.dataTransfer.files);
+  }
+
   return (
     <div>
       <label
-        className={`block border-2 border-dashed border-border rounded-lg p-10 text-center mb-6 ${
-          atLimit ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        className={`block border-2 border-dashed rounded-lg p-10 text-center mb-6 ${
+          atLimit
+            ? "border-border opacity-40 cursor-not-allowed"
+            : dragActive
+            ? "border-accent bg-accentSoft cursor-pointer"
+            : "border-border cursor-pointer"
         }`}
       >
         <input
