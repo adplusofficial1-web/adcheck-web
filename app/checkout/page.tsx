@@ -36,8 +36,8 @@ export default async function CheckoutPage({
       <Nav credits={business?.credits_remaining} />
       <div className="max-w-lg mx-auto px-6 py-14">
         <h1 className="text-2xl font-medium mb-2">ยืนยันการชำระเงิน</h1>
-        <div className="bg-accentSoft rounded-lg p-4 flex items-center justify-between mb-8 mt-4">
-          <div>
+        <div className="bg-accentSoft rounded-lg p-4 flex items-center justify-between gap-4 mb-8 mt-4">
+          <div className="min-w-0">
             <div className="font-medium">
               แพ็ก{plan.name} — {plan.monthly_image_credits} ครั้ง
             </div>
@@ -49,7 +49,18 @@ export default async function CheckoutPage({
                 balance (see lib/credits.ts). Worded to match. */}
             <div className="text-xs text-secondary">เครดิตจำนวนนี้จะถูกเพิ่มเข้าไป (ไม่ได้แทนที่ยอดเดิม) พร้อมรอบใช้งาน 30 วันนับจากวันนี้</div>
           </div>
-          <div className="text-xl font-medium">{Number(plan.price_thb).toLocaleString()} บาท</div>
+          {/* Number and unit sized/weighted separately (rather than one
+              plain string) so the price reads as a price — a bold amount
+              with a small currency label — and `flex-shrink-0 whitespace-
+              nowrap` keeps "บาท" from wrapping onto its own line on
+              narrow screens, which used to happen when this was a single
+              text-xl string competing for space with the text block above. */}
+          <div className="flex items-baseline gap-1 flex-shrink-0 whitespace-nowrap">
+            <span className="text-2xl font-semibold tabular-nums">
+              {Number(plan.price_thb).toLocaleString()}
+            </span>
+            <span className="text-sm text-secondary">บาท</span>
+          </div>
         </div>
         {/* Payment gateway isn't connected yet — warn before the user picks
             a channel and fills anything in, instead of only surfacing the
