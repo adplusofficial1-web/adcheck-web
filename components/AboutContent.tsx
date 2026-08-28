@@ -113,7 +113,7 @@ export function AboutContent({ uploadHref = "/upload" }: { uploadHref?: string }
               สบส. ตามขั้นตอนปกติ
             </p>
           </div>
-          <div className="rounded-xl overflow-hidden bg-accentSoft min-h-[280px] md:min-h-full"><video autoPlay muted loop playsInline className="block w-full h-full object-cover"><source src="/about/adcheck-about-story.webm" type="video/webm" /><source src="/about/adcheck-about-story.mp4" type="video/mp4" /></video></div>
+          <div className="rounded-xl bg-accentSoft min-h-[280px] md:min-h-full" />
         </div>
       </section>
 
