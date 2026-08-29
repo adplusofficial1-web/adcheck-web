@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
+import { AdminNav } from "@/components/admin/AdminNav";
 
 // Platform Admin area — separate from the clinic-facing Nav/layout
 // entirely (no clinic/agency mode toggle, no credits badge, none of that
@@ -32,13 +33,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className="min-h-screen bg-page">
       <header className="bg-inverse text-onInverse px-6 md:px-14 py-5">
-        <div className="flex items-center justify-between gap-6">
+        <div className="flex items-center justify-between gap-6 flex-wrap">
           <div className="flex items-center gap-3">
             <span className="text-2xl font-medium">ADCheck</span>
             <span className="rounded-pill bg-white/10 border border-onInverse/30 px-3 py-1 text-xs">
               Admin
             </span>
           </div>
+          <AdminNav />
           <span className="text-sm text-onInverse/70">{adminEmail}</span>
         </div>
       </header>
