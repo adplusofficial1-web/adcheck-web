@@ -1,0 +1,347 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import type { MarketingAssociation, MarketingAssociationStatus } from "@/lib/marketingAssociations";
+
+type Props = { initialAssociations: MarketingAssociation[] };
+
+const PHASES = [
+  { id: 1, label: "เฟส 1 — ส่งข้อมูลฟรี" },
+  { id: 2, label: "เฟส 2 — ลิงก์ทดลองใช้" },
+  { id: 3, label: "เฟส 3 — พูดในงานสมาคม" },
+  { id: 4, label: "เฟส 4 — MOU ส่วนลด" },
+] as const;
+
+const STATUS_META: Record<MarketingAssociationStatus, { label: string; className: string }> = {
+  not_started: { label: "ยังไม่ได้ติดต่อ", className: "bg-page text-tertiary" },
+  sent: { label: "ส่งแล้ว รอตอบกลับ", className: "bg-warningSoft text-warning" },
+  responded: { label: "ตอบรับแล้ว", className: "bg-accentSoft text-accent" },
+  meeting: { label: "นัดคุย/พูดแล้ว", className: "bg-accentSoft text-accent" },
+  success: { label: "สำเร็จ", className: "bg-accentSoft text-accent" },
+};
+
+const inputClass =
+  "w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30";
+
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isOverdue(a: MarketingAssociation): boolean {
+  if (!a.next_followup) return false;
+  return a.next_followup <= todayStr() && a.status !== "success";
+}
+
+type FormState = {
+  id: string | null;
+  name: string;
+  contact: string;
+  phase: number;
+  status: MarketingAssociationStatus;
+  nextFollowup: string;
+  notes: string;
+};
+
+const emptyForm: FormState = { id: null, name: "", contact: "", phase: 1, status: "not_started", nextFollowup: "", notes: "" };
+
+// Admin > Marketing: a 4-column pipeline board (one per outreach phase —
+// see docs/adcheck-organic-marketing-strategy.md for why associations are
+// worked through free-content -> trial link -> speaking slot -> MOU in
+// that order rather than pitching a partnership cold) plus a slide-over
+// edit panel, same "one file, small single-purpose feature" call as
+// CreditGrantManager.
+export function MarketingTracker({ initialAssociations }: Props) {
+  const [associations, setAssociations] = useState<MarketingAssociation[]>(initialAssociations);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [form, setForm] = useState<FormState>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const byPhase = useMemo(() => {
+    const grouped: Record<number, MarketingAssociation[]> = { 1: [], 2: [], 3: [], 4: [] };
+    for (const a of associations) grouped[a.phase]?.push(a);
+    return grouped;
+  }, [associations]);
+
+  const stats = useMemo(() => {
+    const total = associations.length;
+    const overdue = associations.filter(isOverdue).length;
+    const responded = associations.filter((a) => a.status !== "not_started").length;
+    const success = associations.filter((a) => a.status === "success").length;
+    return {
+      total,
+      overdue,
+      responseRate: total ? Math.round((responded / total) * 100) : 0,
+      success,
+    };
+  }, [associations]);
+
+  function openCreate() {
+    setForm(emptyForm);
+    setError(null);
+    setPanelOpen(true);
+  }
+
+  function openEdit(a: MarketingAssociation) {
+    setForm({
+      id: a.id,
+      name: a.name,
+      contact: a.contact ?? "",
+      phase: a.phase,
+      status: a.status,
+      nextFollowup: a.next_followup ?? "",
+      notes: a.notes ?? "",
+    });
+    setError(null);
+    setPanelOpen(true);
+  }
+
+  function closePanel() {
+    setPanelOpen(false);
+    setError(null);
+  }
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) {
+      setError("กรอกชื่อสมาคมก่อนครับ");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        contact: form.contact.trim() || null,
+        phase: form.phase,
+        status: form.status,
+        nextFollowup: form.nextFollowup || null,
+        notes: form.notes.trim() || null,
+      };
+      const res = await fetch(form.id ? `/api/admin/marketing/${form.id}` : "/api/admin/marketing", {
+        method: form.id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "บันทึกไม่สำเร็จ");
+
+      if (form.id) {
+        setAssociations((prev) => prev.map((a) => (a.id === form.id ? data.association : a)));
+      } else {
+        setAssociations((prev) => [data.association, ...prev]);
+      }
+      closePanel();
+    } catch (e: any) {
+      setError(e.message || "เกิดข้อผิดพลาด");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!form.id) return;
+    if (!confirm("ลบสมาคมนี้ออกจาก pipeline?")) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/marketing/${form.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "ลบไม่สำเร็จ");
+      setAssociations((prev) => prev.filter((a) => a.id !== form.id));
+      closePanel();
+    } catch (e: any) {
+      setError(e.message || "เกิดข้อผิดพลาด");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <p className="text-xs text-secondary">สมาคมทั้งหมดใน pipeline</p>
+          <p className="mt-1 text-2xl font-medium text-primary">{stats.total}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <p className="text-xs text-secondary">ต้องติดตามวันนี้ / เกินกำหนด</p>
+          <p className="mt-1 text-2xl font-medium text-danger">{stats.overdue}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <p className="text-xs text-secondary">อัตราตอบกลับ</p>
+          <p className="mt-1 text-2xl font-medium text-primary">{stats.responseRate}%</p>
+        </div>
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <p className="text-xs text-secondary">ปิด MOU สำเร็จ</p>
+          <p className="mt-1 text-2xl font-medium text-accent">{stats.success}</p>
+        </div>
+      </div>
+
+      <div className="mt-8 flex items-center justify-between">
+        <h2 className="text-sm font-medium text-primary">Pipeline สมาคม</h2>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="rounded-md bg-inverse px-5 py-2.5 text-sm font-medium text-onInverse"
+        >
+          + เพิ่มสมาคม
+        </button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {PHASES.map((phase) => {
+          const items = byPhase[phase.id] ?? [];
+          return (
+            <div key={phase.id}>
+              <div className="flex items-center justify-between border-b-2 border-border pb-2 mb-3">
+                <h3 className="text-sm font-medium text-primary">{phase.label}</h3>
+                <span className="rounded-pill bg-page px-2.5 py-0.5 text-xs text-secondary">{items.length}</span>
+              </div>
+              <div className="space-y-2.5">
+                {items.length === 0 && (
+                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-xs text-tertiary">
+                    ยังไม่มีสมาคมในเฟสนี้
+                  </div>
+                )}
+                {items.map((a) => {
+                  const overdue = isOverdue(a);
+                  const meta = STATUS_META[a.status];
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => openEdit(a)}
+                      className={`w-full text-left rounded-lg border bg-surface p-3.5 transition-colors hover:border-borderStrong ${
+                        overdue ? "border-danger" : "border-border"
+                      }`}
+                    >
+                      <p className="text-sm font-medium text-primary">{a.name}</p>
+                      <p className="mt-0.5 text-xs text-tertiary">{a.contact || "ยังไม่ระบุผู้ติดต่อ"}</p>
+                      <span className={`mt-2 inline-block rounded-pill px-2.5 py-0.5 text-xs font-medium ${meta.className}`}>
+                        {meta.label}
+                      </span>
+                      {a.next_followup && (
+                        <p className={`mt-2 text-xs ${overdue ? "font-medium text-danger" : "text-tertiary"}`}>
+                          นัดติดตาม: {a.next_followup}
+                          {overdue ? " (เกินกำหนด)" : ""}
+                        </p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {panelOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse/40 px-4">
+          <div className="w-full max-w-md max-h-[88vh] overflow-y-auto rounded-lg bg-surface p-6">
+            <h3 className="text-lg font-medium text-primary">{form.id ? "แก้ไขข้อมูลสมาคม" : "เพิ่มสมาคมใหม่"}</h3>
+            <form onSubmit={save} className="mt-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-primary mb-2">ชื่อสมาคม</label>
+                <input
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="เช่น ATAP"
+                  className={inputClass}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-primary mb-2">ผู้ติดต่อ (ชื่อ + ตำแหน่ง)</label>
+                <input
+                  value={form.contact}
+                  onChange={(e) => setForm((f) => ({ ...f, contact: e.target.value }))}
+                  placeholder="เช่น คุณสมชาย ฝ่ายวิชาการ"
+                  className={inputClass}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-primary mb-2">เฟสปัจจุบัน</label>
+                  <select
+                    value={form.phase}
+                    onChange={(e) => setForm((f) => ({ ...f, phase: Number(e.target.value) }))}
+                    className={inputClass}
+                  >
+                    {PHASES.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-primary mb-2">สถานะ</label>
+                  <select
+                    value={form.status}
+                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as MarketingAssociationStatus }))}
+                    className={inputClass}
+                  >
+                    {Object.entries(STATUS_META).map(([value, meta]) => (
+                      <option key={value} value={value}>
+                        {meta.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-primary mb-2">วันนัดติดตามถัดไป</label>
+                <input
+                  type="date"
+                  value={form.nextFollowup}
+                  onChange={(e) => setForm((f) => ({ ...f, nextFollowup: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-primary mb-2">บันทึก</label>
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                  placeholder="รายละเอียด/เนื้อหาที่คุยไป"
+                  className={`${inputClass} min-h-[80px]`}
+                />
+              </div>
+
+              {error && <p className="text-sm text-danger">{error}</p>}
+
+              <div className="flex items-center justify-between pt-2">
+                {form.id ? (
+                  <button
+                    type="button"
+                    onClick={remove}
+                    disabled={deleting}
+                    className="rounded-md border border-danger px-4 py-2.5 text-sm text-danger disabled:opacity-50"
+                  >
+                    {deleting ? "กำลังลบ..." : "ลบ"}
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex gap-3">
+                  <button type="button" onClick={closePanel} className="rounded-md border border-border px-4 py-2.5 text-sm text-primary">
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-md bg-inverse px-5 py-2.5 text-sm font-medium text-onInverse disabled:opacity-50"
+                  >
+                    {saving ? "กำลังบันทึก..." : "บันทึก"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
