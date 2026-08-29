@@ -14,6 +14,7 @@ type Business = {
   phone: string | null;
   license_number: string | null;
   address: string | null;
+  specialty: string | null; // "beauty" | "dental" | "ortho" | "pharmacy" | "vet" | "other" | null
   avatar_url: string | null;
   billing_name: string | null;
   tax_id: string | null;
@@ -48,6 +49,20 @@ type Invoice = {
 const TYPE_LABEL: Record<string, string> = {
   clinic: "คลินิกเดี่ยว",
   agency: "เครือข่าย / เอเจนซี่",
+};
+
+// Only meaningful for type "clinic" — an "agency" account manages multiple
+// clinics of possibly-mixed specialties, so it has none of its own. Matches
+// the DB CHECK constraint in migrations/004_business_specialty.sql, and the
+// 5 verticals AdCheck already has case studies for (see
+// claude/adcheck-organic-marketing-strategy.md) plus "other" as a catch-all.
+const SPECIALTY_LABEL: Record<string, string> = {
+  beauty: "คลินิกความงาม",
+  dental: "ทันตกรรม",
+  ortho: "กระดูกและข้อ",
+  pharmacy: "ร้านขายยา",
+  vet: "สัตวแพทย์",
+  other: "อื่น ๆ",
 };
 
 // Status values are the Thai strings the DB itself uses (see
@@ -234,6 +249,12 @@ export function SettingsClient({
           <InfoField label="อีเมลติดต่อ" value={business.contact_email || ""} />
           <InfoField label="เบอร์โทรศัพท์" value={business.phone || ""} />
           <InfoField label="เลขที่ใบอนุญาตสถานพยาบาล" value={business.license_number || ""} />
+          {business.type === "clinic" && (
+            <InfoField
+              label="สาขาความเชี่ยวชาญ"
+              value={business.specialty ? SPECIALTY_LABEL[business.specialty] || business.specialty : ""}
+            />
+          )}
         </div>
         <InfoField label="ที่อยู่คลินิก" value={business.address || ""} />
       </section>
@@ -512,6 +533,7 @@ function ClinicModal({
   const [phone, setPhone] = useState(business.phone || "");
   const [license, setLicense] = useState(business.license_number || "");
   const [address, setAddress] = useState(business.address || "");
+  const [specialty, setSpecialty] = useState(business.specialty || "");
 
   return (
     <Modal title="แก้ไขข้อมูลคลินิก" onClose={onClose}>
@@ -524,6 +546,19 @@ function ClinicModal({
           <option value="agency">เครือข่าย / เอเจนซี่</option>
         </select>
       </Field>
+      {type === "clinic" && (
+        <Field label="สาขาความเชี่ยวชาญ">
+          <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className={inputClass}>
+            <option value="">ยังไม่ระบุ</option>
+            <option value="beauty">คลินิกความงาม</option>
+            <option value="dental">ทันตกรรม</option>
+            <option value="ortho">กระดูกและข้อ</option>
+            <option value="pharmacy">ร้านขายยา</option>
+            <option value="vet">สัตวแพทย์</option>
+            <option value="other">อื่น ๆ</option>
+          </select>
+        </Field>
+      )}
       <Field label="อีเมลติดต่อ">
         <input
           type="email"
@@ -558,6 +593,11 @@ function ClinicModal({
               phone,
               license_number: license,
               address,
+              // Switching to "agency" hides the dropdown above but doesn't
+              // touch `specialty` state — force-clear it here so an agency
+              // account can't end up saved with a leftover specialty value
+              // from when it used to be (or briefly was, mid-edit) a clinic.
+              specialty: type === "clinic" ? specialty : "",
             })
           }
           className="rounded-md bg-inverse text-onInverse px-4 py-2 text-sm disabled:opacity-50"
