@@ -198,7 +198,7 @@ function AddRuleForm({ onCreated }: { onCreated: () => void }) {
               mode === m ? "bg-inverse text-onInverse" : "text-secondary"
             }`}
           >
-            {m === "text" ? "พิมพ์/วางข้อความ" : "อัพขลดไฟล์ (PDF/DOCX/TXT)"}
+            {m === "text" ? "พิมพ์/วางข้อความ" : "อัพโหลดไฟล์ (PDF/DOCX/TXT)"}
           </button>
         ))}
       </div>
@@ -247,7 +247,7 @@ function AddRuleForm({ onCreated }: { onCreated: () => void }) {
             className="w-full text-sm text-secondary file:mr-3 file:rounded-md file:border-0 file:bg-accentSoft file:text-accent file:px-3 file:py-2 file:text-xs file:font-medium"
           />
           <p className="mt-1 text-xs text-tertiary">
-            ระบบจะแตกข้อความจากไฟล์อัตโนมัติแล้วเก็บเป็นข้อความล้วน หางไฟล์เป็น PDF สแกน/รูปภาพที่ไม่มีข้อความ
+            ระบบจะแตกข้อความจากไฟล์อัตโนมัติแล้วเก็บเป็นข้อความล้วน หากไฟล์เป็น PDF สแกน/รูปภาพที่ไม่มีข้อความ
             จะแตกไม่สำเร็จ กรุณาพิมพ์ข้อความแทน
           </p>
         </div>
@@ -261,7 +261,7 @@ function AddRuleForm({ onCreated }: { onCreated: () => void }) {
             onChange={(e) => setAlwaysInclude(e.target.checked)}
             className="rounded border-border"
           />
-          ใช้ตรวจทุกภาพเสมอ (ไม่ี้องรอผลค้นหาตามบริบท)
+          ใช้ตรวจทุกภาพเสมอ (ไม่ต้องรอผลค้นหาตามบริบท)
         </label>
         <button
           type="submit"
