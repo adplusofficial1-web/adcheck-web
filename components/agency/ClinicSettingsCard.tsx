@@ -205,32 +205,38 @@ export function ClinicSettingsCard({
       <div className="text-sm font-medium mb-4">ข้อมูลคลินิก</div>
       {editing ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-          <div>
-            <label className="block text-xs mb-1.5 text-secondary">ชื่อคลินิก</label>
+          <div className="flex flex-col">
+            {/* FIX (layout): every label sits in a fixed 2-line-tall box now
+                (min-h-[2rem] = 2 lines at text-xs) so a long label like
+                "เลขที่ใบอนุญาตสถานพยาบาล" wrapping to 2 lines doesn't push
+                just its own input down out of alignment with the other 3
+                fields in the same row — all four inputs now start at the
+                same y position regardless of label length. */}
+            <label className="flex items-end min-h-[2rem] text-xs mb-1.5 text-secondary">ชื่อคลินิก</label>
             <input
               className="w-full text-sm rounded-md px-3 py-2 outline-none border border-border bg-page"
               value={draft.name}
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
             />
           </div>
-          <div>
-            <label className="block text-xs mb-1.5 text-secondary">อีเมลติดต่อ</label>
+          <div className="flex flex-col">
+            <label className="flex items-end min-h-[2rem] text-xs mb-1.5 text-secondary">อีเมลติดต่อ</label>
             <input
               className="w-full text-sm rounded-md px-3 py-2 outline-none border border-border bg-page"
               value={draft.contact_email}
               onChange={(e) => setDraft((d) => ({ ...d, contact_email: e.target.value }))}
             />
           </div>
-          <div>
-            <label className="block text-xs mb-1.5 text-secondary">เลขที่ใบอนุญาตสถานพยาบาล</label>
+          <div className="flex flex-col">
+            <label className="flex items-end min-h-[2rem] text-xs mb-1.5 text-secondary">เลขที่ใบอนุญาตสถานพยาบาล</label>
             <input
               className="w-full text-sm rounded-md px-3 py-2 outline-none border border-border bg-page"
               value={draft.license_number}
               onChange={(e) => setDraft((d) => ({ ...d, license_number: e.target.value }))}
             />
           </div>
-          <div>
-            <label className="block text-xs mb-1.5 text-secondary">สาขาความเชี่ยวชาญ</label>
+          <div className="flex flex-col">
+            <label className="flex items-end min-h-[2rem] text-xs mb-1.5 text-secondary">สาขาความเชี่ยวชาญ</label>
             <select
               className="w-full text-sm rounded-md px-3 py-2 outline-none border border-border bg-page"
               value={draft.specialty}
@@ -247,20 +253,23 @@ export function ClinicSettingsCard({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-          <div>
-            <div className="text-xs mb-1 text-tertiary">ชื่อคลินิก</div>
+          <div className="flex flex-col">
+            {/* Same fixed-height label box as the editing grid above, so the
+                read-only grid's value line stays aligned across all 4
+                columns too. */}
+            <div className="flex items-end min-h-[2rem] text-xs mb-1 text-tertiary">ชื่อคลินิก</div>
             <div className="text-sm">{clinic.name}</div>
           </div>
-          <div>
-            <div className="text-xs mb-1 text-tertiary">อีเมลติดต่อ</div>
+          <div className="flex flex-col">
+            <div className="flex items-end min-h-[2rem] text-xs mb-1 text-tertiary">อีเมลติดต่อ</div>
             <div className="text-sm">{clinic.contact_email || "—"}</div>
           </div>
-          <div>
-            <div className="text-xs mb-1 text-tertiary">เลขที่ใบอนุญาตสถานพยาบาล</div>
+          <div className="flex flex-col">
+            <div className="flex items-end min-h-[2rem] text-xs mb-1 text-tertiary">เลขที่ใบอนุญาตสถานพยาบาล</div>
             <div className="text-sm">{clinic.license_number || "—"}</div>
           </div>
-          <div>
-            <div className="text-xs mb-1 text-tertiary">สาขาความเชี่ยวชาญ</div>
+          <div className="flex flex-col">
+            <div className="flex items-end min-h-[2rem] text-xs mb-1 text-tertiary">สาขาความเชี่ยวชาญ</div>
             <div className="text-sm">
               {clinic.specialty ? SPECIALTY_LABEL[clinic.specialty] || clinic.specialty : "—"}
             </div>
