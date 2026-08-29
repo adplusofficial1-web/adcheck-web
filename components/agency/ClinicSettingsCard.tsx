@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ChildClinic } from "@/lib/agency";
+import { SPECIALTY_OPTIONS, SPECIALTY_LABEL } from "@/lib/specialties";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -40,6 +41,7 @@ export function ClinicSettingsCard({
     name: clinic.name,
     contact_email: clinic.contact_email || "",
     license_number: clinic.license_number || "",
+    specialty: clinic.specialty || "",
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -202,7 +204,7 @@ export function ClinicSettingsCard({
 
       <div className="text-sm font-medium mb-4">ข้อมูลคลินิก</div>
       {editing ? (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
           <div>
             <label className="block text-xs mb-1.5 text-secondary">ชื่อคลินิก</label>
             <input
@@ -227,9 +229,24 @@ export function ClinicSettingsCard({
               onChange={(e) => setDraft((d) => ({ ...d, license_number: e.target.value }))}
             />
           </div>
+          <div>
+            <label className="block text-xs mb-1.5 text-secondary">สาขาความเชี่ยวชาญ</label>
+            <select
+              className="w-full text-sm rounded-md px-3 py-2 outline-none border border-border bg-page"
+              value={draft.specialty}
+              onChange={(e) => setDraft((d) => ({ ...d, specialty: e.target.value }))}
+            >
+              <option value="">ยังไม่ระบุ</option>
+              {SPECIALTY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
           <div>
             <div className="text-xs mb-1 text-tertiary">ชื่อคลินิก</div>
             <div className="text-sm">{clinic.name}</div>
@@ -241,6 +258,12 @@ export function ClinicSettingsCard({
           <div>
             <div className="text-xs mb-1 text-tertiary">เลขที่ใบอนุญาตสถานพยาบาล</div>
             <div className="text-sm">{clinic.license_number || "—"}</div>
+          </div>
+          <div>
+            <div className="text-xs mb-1 text-tertiary">สาขาความเชี่ยวชาญ</div>
+            <div className="text-sm">
+              {clinic.specialty ? SPECIALTY_LABEL[clinic.specialty] || clinic.specialty : "—"}
+            </div>
           </div>
         </div>
       )}
