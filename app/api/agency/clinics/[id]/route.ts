@@ -3,6 +3,7 @@ import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getBusinessByIdForOwner } from "@/lib/agency";
 import { isValidUuid } from "@/lib/validation";
+import { VALID_SPECIALTIES } from "@/lib/specialties";
 
 const VALID_TYPES = ["clinic", "agency"];
 
@@ -21,6 +22,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const licenseNumber: string | undefined =
     typeof body.license_number === "string" ? body.license_number.trim() : undefined;
   const address: string | undefined = typeof body.address === "string" ? body.address.trim() : undefined;
+  // Same VALID_SPECIALTIES (lib/specialties.ts) and empty-string-clears
+  // semantics as app/api/settings/clinic-info/route.ts's own specialty
+  // handling — the agency is filling in this field on the clinic's behalf
+  // from components/agency/ClinicSettingsCard.tsx's dropdown, not free text.
+  const specialty: string | undefined = typeof body.specialty === "string" ? body.specialty : undefined;
   // Same data: URL pattern as app/api/settings/profile/route.ts's own
   // avatarBase64 handling — validated the same way (must actually be a
   // data: URL, not an arbitrary string) before it ever reaches the query.
@@ -34,6 +40,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   if (type !== undefined && !VALID_TYPES.includes(type)) {
     return NextResponse.json({ error: "ประเภทธุรกิจไม่ถูกต้อง" }, { status: 400 });
+  }
+  if (specialty !== undefined && specialty !== "" && !VALID_SPECIALTIES.includes(specialty)) {
+    return NextResponse.json({ error: "สาขาความเชี่ยวชาญไม่ถูกต้อง" }, { status: 400 });
   }
 
   const business = await getCurrentBusiness();
@@ -50,6 +59,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
   }
 
+  // specialty needs its own CASE rather than the COALESCE(x ?? null, col)
+  // pattern the other fields use above — same reasoning as
+  // app/api/settings/clinic-info/route.ts: COALESCE can't tell "field
+  // wasn't sent, leave column alone" apart from "field was sent as the
+  // empty string, clear the column to NULL" — both collapse to SQL NULL.
+  const specialtySent = specialty !== undefined;
+  const specialtyValue = specialty === "" ? null : specialty ?? null;
+
   // FIX (bug audit #13): same missing try/catch as the "add clinic" POST
   // in ../route.ts — contact_email is UNIQUE, so editing one clinic's email
   // to match another existing business's email used to surface a raw
@@ -64,10 +81,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         phone = COALESCE(${phone ?? null}, phone),
         license_number = COALESCE(${licenseNumber ?? null}, license_number),
         address = COALESCE(${address ?? null}, address),
+        specialty = CASE WHEN ${specialtySent}::boolean THEN ${specialtyValue} ELSE specialty END,
         avatar_url = COALESCE(${avatarBase64 ?? null}, avatar_url),
         updated_at = now()
       WHERE id = ${target.id}
-      RETURNING id, name, type, contact_email, phone, license_number, address, avatar_url
+      RETURNING id, name, type, contact_email, phone, license_number, address, specialty, avatar_url
     `;
 
     return NextResponse.json({ business: updated });

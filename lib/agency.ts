@@ -15,6 +15,11 @@ export type ChildClinic = {
   phone: string | null;
   license_number: string | null;
   address: string | null;
+  // Same values/meaning as the signed-in clinic's own specialty (see
+  // lib/specialties.ts) — an agency can set this on a child clinic's
+  // behalf from /agency/settings since the clinic has no login of its own
+  // to set it through /settings itself.
+  specialty: string | null;
   // Same column/pattern as the signed-in account's own profile photo (see
   // app/api/settings/profile/route.ts and components/settings/SettingsClient.tsx)
   // — a data: URL stored inline, editable by the agency on the child
@@ -32,7 +37,7 @@ export type ChildClinic = {
 export async function getChildClinics(agencyId: string): Promise<ChildClinic[]> {
   const rows = await sql`
     SELECT b.id, b.name, b.type, b.contact_email, b.phone, b.license_number, b.address,
-      b.avatar_url, b.credits_remaining, b.credits_reset_at, b.plan_id,
+      b.specialty, b.avatar_url, b.credits_remaining, b.credits_reset_at, b.plan_id,
       p.name AS plan_name, p.code AS plan_code, p.price_thb, p.monthly_image_credits
     FROM businesses b
     LEFT JOIN plans p ON p.id = b.plan_id

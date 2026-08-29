@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { ActivePackage } from "@/lib/credits";
+import { SPECIALTY_OPTIONS, SPECIALTY_LABEL } from "@/lib/specialties";
 import { PackageCreditsCard } from "./PackageCreditsCard";
 
 type Business = {
@@ -51,34 +52,11 @@ const TYPE_LABEL: Record<string, string> = {
   agency: "เครือข่าย / เอเจนซี่",
 };
 
-// Only meaningful for type "clinic" — an "agency" account manages multiple
-// clinics of possibly-mixed specialties, so it has none of its own. Matches
-// the DB CHECK constraint in migrations/004_business_specialty.sql, widened
-// in 006_expand_business_specialty.sql to cover the fuller range of
-// facility types มาตรา 38 พ.ร.บ.สถานพยาบาล applies to (not just the
-// original 5 case-study verticals — see
-// claude/adcheck-organic-marketing-strategy.md) plus "other" as a catch-all.
-const SPECIALTY_LABEL: Record<string, string> = {
-  beauty: "คลินิกความงาม",
-  dental: "ทันตกรรม",
-  ortho: "กระดูกและข้อ",
-  pharmacy: "ร้านขายยา",
-  vet: "สัตวแพทย์",
-  hospital: "โรงพยาบาล",
-  general: "เวชกรรมทั่วไป / อายุรกรรม",
-  diet: "คลินิกลดน้ำหนัก / ควบคุมน้ำหนัก",
-  dermatology: "ผิวหนัง",
-  eye: "จักษุ (ตา)",
-  ent: "หู คอ จมูก",
-  obgyn: "สูตินรีเวช",
-  pediatrics: "กุมารเวช",
-  fertility: "ผู้มีบุตรยาก",
-  physical_therapy: "กายภาพบำบัด",
-  traditional_medicine: "แพทย์แผนไทย / แผนจีน",
-  rehab: "เวชศาสตร์ฟื้นฟู",
-  mental_health: "จิตเวช",
-  other: "อื่น ๆ",
-};
+// SPECIALTY_LABEL/SPECIALTY_OPTIONS now live in lib/specialties.ts — shared
+// with components/agency/ClinicSettingsCard.tsx, which shows/edits the same
+// field for an agency's child clinics, so the two dropdowns never drift out
+// of sync. Only meaningful for type "clinic" — an "agency" account manages
+// multiple clinics of possibly-mixed specialties, so it has none of its own.
 
 // Status values are the Thai strings the DB itself uses (see
 // app/api/checkout/route.ts and the transactions_status_check
@@ -565,25 +543,11 @@ function ClinicModal({
         <Field label="สาขาความเชี่ยวชาญ">
           <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className={inputClass}>
             <option value="">ยังไม่ระบุ</option>
-            <option value="beauty">คลินิกความงาม</option>
-            <option value="dental">ทันตกรรม</option>
-            <option value="ortho">กระดูกและข้อ</option>
-            <option value="pharmacy">ร้านขายยา</option>
-            <option value="vet">สัตวแพทย์</option>
-            <option value="hospital">โรงพยาบาล</option>
-            <option value="general">เวชกรรมทั่วไป / อายุรกรรม</option>
-            <option value="diet">คลินิกลดน้ำหนัก / ควบคุมน้ำหนัก</option>
-            <option value="dermatology">ผิวหนัง</option>
-            <option value="eye">จักษุ (ตา)</option>
-            <option value="ent">หู คอ จมูก</option>
-            <option value="obgyn">สูตินรีเวช</option>
-            <option value="pediatrics">กุมารเวช</option>
-            <option value="fertility">ผู้มีบุตรยาก</option>
-            <option value="physical_therapy">กายภาพบำบัด</option>
-            <option value="traditional_medicine">แพทย์แผนไทย / แผนจีน</option>
-            <option value="rehab">เวชศาสตร์ฟื้นฟู</option>
-            <option value="mental_health">จิตเวช</option>
-            <option value="other">อื่น ๆ</option>
+            {SPECIALTY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </select>
         </Field>
       )}

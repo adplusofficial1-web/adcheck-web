@@ -1,22 +1,18 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { VALID_SPECIALTIES } from "@/lib/specialties";
 
 const VALID_TYPES = ["clinic", "agency"];
 
-// Mirrors the DB CHECK constraint (businesses_specialty_check, migrations/
-// 004_business_specialty.sql, widened in 006_expand_business_specialty.sql
-// to cover the fuller range of facility types มาตรา 38 พ.ร.บ.สถานพยาบาล
-// applies to — not just the original 5 case-study verticals). Empty string
+// VALID_SPECIALTIES (lib/specialties.ts) mirrors the DB CHECK constraint
+// (businesses_specialty_check, migrations/004_business_specialty.sql,
+// widened in 006_expand_business_specialty.sql) — shared with
+// app/api/agency/clinics/[id]/route.ts, which edits the same column on an
+// agency's child clinics, so the two never drift out of sync. Empty string
 // from the settings form means "clear it" (goes to null below) — kept
 // distinct from `undefined`, which means "field wasn't sent, leave
 // whatever is there alone".
-const VALID_SPECIALTIES = [
-  "beauty", "dental", "ortho", "pharmacy", "vet", "other",
-  "hospital", "general", "diet", "dermatology", "eye", "ent",
-  "obgyn", "pediatrics", "fertility", "physical_therapy",
-  "traditional_medicine", "rehab", "mental_health",
-];
 
 // Updates the clinic's operating details. `name` is included so the field
 // can also be edited from this section, sharing the same column the
