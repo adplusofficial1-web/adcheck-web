@@ -1,7 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { MarketingAssociation, MarketingAssociationStatus } from "@/lib/marketingAssociations";
+import type {
+  MarketingAssociation,
+  MarketingAssociationContact,
+  MarketingAssociationStatus,
+} from "@/lib/marketingAssociations";
 
 type Props = { initialAssociations: MarketingAssociation[] };
 
@@ -22,6 +26,8 @@ const STATUS_META: Record<MarketingAssociationStatus, { label: string; className
 
 const inputClass =
   "w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30";
+const smallInputClass =
+  "w-full rounded-md border border-border bg-surface px-3 py-2 text-xs text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30";
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -44,12 +50,22 @@ type FormState = {
 
 const emptyForm: FormState = { id: null, name: "", contact: "", phase: 1, status: "not_started", nextFollowup: "", notes: "" };
 
+type ContactFormState = { firstName: string; lastName: string; email: string; role: string; phone: string };
+const emptyContactForm: ContactFormState = { firstName: "", lastName: "", email: "", role: "", phone: "" };
+
 // Admin > Marketing: a 4-column pipeline board (one per outreach phase —
 // see docs/adcheck-organic-marketing-strategy.md for why associations are
 // worked through free-content -> trial link -> speaking slot -> MOU in
 // that order rather than pitching a partnership cold) plus a slide-over
 // edit panel, same "one file, small single-purpose feature" call as
 // CreditGrantManager.
+//
+// Each association can hold several contacts (นายกสมาคม, เลขาธิการ,
+// ประชาสัมพันธ์, ...) — see migrations/008_marketing_association_contacts.sql.
+// The contacts list lives inside the edit panel and is its own fetch/save
+// cycle (contacts belong to an already-created association, so the list
+// only loads once form.id is set — a brand-new association must be saved
+// once before anyone can be added to it).
 export function MarketingTracker({ initialAssociations }: Props) {
   const [associations, setAssociations] = useState<MarketingAssociation[]>(initialAssociations);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -57,6 +73,12 @@ export function MarketingTracker({ initialAssociations }: Props) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [contacts, setContacts] = useState<MarketingAssociationContact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactForm, setContactForm] = useState<ContactFormState>(emptyContactForm);
+  const [addingContact, setAddingContact] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
 
   const byPhase = useMemo(() => {
     const grouped: Record<number, MarketingAssociation[]> = { 1: [], 2: [], 3: [], 4: [] };
@@ -80,10 +102,13 @@ export function MarketingTracker({ initialAssociations }: Props) {
   function openCreate() {
     setForm(emptyForm);
     setError(null);
+    setContacts([]);
+    setContactForm(emptyContactForm);
+    setContactError(null);
     setPanelOpen(true);
   }
 
-  function openEdit(a: MarketingAssociation) {
+  async function openEdit(a: MarketingAssociation) {
     setForm({
       id: a.id,
       name: a.name,
@@ -94,7 +119,18 @@ export function MarketingTracker({ initialAssociations }: Props) {
       notes: a.notes ?? "",
     });
     setError(null);
+    setContactForm(emptyContactForm);
+    setContactError(null);
     setPanelOpen(true);
+
+    setContactsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/marketing/${a.id}/contacts`);
+      const data = await res.json();
+      if (res.ok) setContacts(data.contacts);
+    } finally {
+      setContactsLoading(false);
+    }
   }
 
   function closePanel() {
@@ -128,9 +164,15 @@ export function MarketingTracker({ initialAssociations }: Props) {
       if (!res.ok) throw new Error(data.error || "บันทึกไม่สำเร็จ");
 
       if (form.id) {
-        setAssociations((prev) => prev.map((a) => (a.id === form.id ? data.association : a)));
+        setAssociations((prev) => prev.map((a) => (a.id === form.id ? { ...a, ...data.association } : a)));
       } else {
-        setAssociations((prev) => [data.association, ...prev]);
+        setAssociations((prev) => [{ ...data.association, contact_count: 0 }, ...prev]);
+        // Keep the panel open and switch straight into edit mode for the
+        // association just created, since adding contacts requires an id
+        // — closing here would force the admin to re-open it themselves.
+        setForm((f) => ({ ...f, id: data.association.id }));
+        setSaving(false);
+        return;
       }
       closePanel();
     } catch (e: any) {
@@ -142,7 +184,7 @@ export function MarketingTracker({ initialAssociations }: Props) {
 
   async function remove() {
     if (!form.id) return;
-    if (!confirm("ลบสมาคมนี้ออกจาก pipeline?")) return;
+    if (!confirm("ลบสมาคมนี้ออกจาก pipeline? (ผู้ติดต่อทั้งหมดของสมาคมนี้จะถูกลบไปด้วย)")) return;
     setDeleting(true);
     setError(null);
     try {
@@ -155,6 +197,57 @@ export function MarketingTracker({ initialAssociations }: Props) {
       setError(e.message || "เกิดข้อผิดพลาด");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function addContact(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.id) return;
+    if (!contactForm.firstName.trim()) {
+      setContactError("กรอกชื่อผู้ติดต่อก่อนครับ");
+      return;
+    }
+    setAddingContact(true);
+    setContactError(null);
+    try {
+      const res = await fetch(`/api/admin/marketing/${form.id}/contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: contactForm.firstName.trim(),
+          lastName: contactForm.lastName.trim() || null,
+          email: contactForm.email.trim() || null,
+          role: contactForm.role.trim() || null,
+          phone: contactForm.phone.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "เพิ่มผู้ติดต่อไม่สำเร็จ");
+      setContacts((prev) => [...prev, data.contact]);
+      setContactForm(emptyContactForm);
+      setAssociations((prev) =>
+        prev.map((a) => (a.id === form.id ? { ...a, contact_count: a.contact_count + 1 } : a))
+      );
+    } catch (e: any) {
+      setContactError(e.message || "เกิดข้อผิดพลาด");
+    } finally {
+      setAddingContact(false);
+    }
+  }
+
+  async function removeContact(contactId: string) {
+    if (!form.id) return;
+    if (!confirm("ลบผู้ติดต่อคนนี้?")) return;
+    try {
+      const res = await fetch(`/api/admin/marketing/${form.id}/contacts/${contactId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "ลบไม่สำเร็จ");
+      setContacts((prev) => prev.filter((c) => c.id !== contactId));
+      setAssociations((prev) =>
+        prev.map((a) => (a.id === form.id ? { ...a, contact_count: Math.max(0, a.contact_count - 1) } : a))
+      );
+    } catch (e: any) {
+      setContactError(e.message || "เกิดข้อผิดพลาด");
     }
   }
 
@@ -179,15 +272,23 @@ export function MarketingTracker({ initialAssociations }: Props) {
         </div>
       </div>
 
-      <div className="mt-8 flex items-center justify-between">
+      <div className="mt-8 flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-sm font-medium text-primary">Pipeline สมาคม</h2>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="rounded-md bg-inverse px-5 py-2.5 text-sm font-medium text-onInverse"
-        >
-          + เพิ่มสมาคม
-        </button>
+        <div className="flex gap-3">
+          <a
+            href="/api/admin/marketing/contacts?format=csv"
+            className="rounded-md border border-border px-5 py-2.5 text-sm font-medium text-primary"
+          >
+            ดาวน์โหลดรายชื่ออีเมลทั้งหมด (CSV)
+          </a>
+          <button
+            type="button"
+            onClick={openCreate}
+            className="rounded-md bg-inverse px-5 py-2.5 text-sm font-medium text-onInverse"
+          >
+            + เพิ่มสมาคม
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -218,7 +319,9 @@ export function MarketingTracker({ initialAssociations }: Props) {
                       }`}
                     >
                       <p className="text-sm font-medium text-primary">{a.name}</p>
-                      <p className="mt-0.5 text-xs text-tertiary">{a.contact || "ยังไม่ระบุผู้ติดต่อ"}</p>
+                      <p className="mt-0.5 text-xs text-tertiary">
+                        {a.contact_count > 0 ? `${a.contact_count} ผู้ติดต่อ` : "ยังไม่มีผู้ติดต่อ"}
+                      </p>
                       <span className={`mt-2 inline-block rounded-pill px-2.5 py-0.5 text-xs font-medium ${meta.className}`}>
                         {meta.label}
                       </span>
@@ -238,8 +341,8 @@ export function MarketingTracker({ initialAssociations }: Props) {
       </div>
 
       {panelOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse/40 px-4">
-          <div className="w-full max-w-md max-h-[88vh] overflow-y-auto rounded-lg bg-surface p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse/40 px-4 py-8">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6">
             <h3 className="text-lg font-medium text-primary">{form.id ? "แก้ไขข้อมูลสมาคม" : "เพิ่มสมาคมใหม่"}</h3>
             <form onSubmit={save} className="mt-5 space-y-4">
               <div>
@@ -253,11 +356,11 @@ export function MarketingTracker({ initialAssociations }: Props) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-primary mb-2">ผู้ติดต่อ (ชื่อ + ตำแหน่ง)</label>
+                <label className="block text-sm font-medium text-primary mb-2">สรุปผู้ติดต่อ (แสดงสั้นๆ)</label>
                 <input
                   value={form.contact}
                   onChange={(e) => setForm((f) => ({ ...f, contact: e.target.value }))}
-                  placeholder="เช่น คุณสมชาย ฝ่ายวิชาการ"
+                  placeholder="เช่น ฝ่ายประชาสัมพันธ์ — ดูรายชื่อเต็มด้านล่าง"
                   className={inputClass}
                 />
               </div>
@@ -320,14 +423,14 @@ export function MarketingTracker({ initialAssociations }: Props) {
                     disabled={deleting}
                     className="rounded-md border border-danger px-4 py-2.5 text-sm text-danger disabled:opacity-50"
                   >
-                    {deleting ? "กำลังลบ..." : "ลบ"}
+                    {deleting ? "กำลังลบ..." : "ลบสมาคม"}
                   </button>
                 ) : (
                   <span />
                 )}
                 <div className="flex gap-3">
                   <button type="button" onClick={closePanel} className="rounded-md border border-border px-4 py-2.5 text-sm text-primary">
-                    ยกเลิก
+                    ปิด
                   </button>
                   <button
                     type="submit"
@@ -339,6 +442,97 @@ export function MarketingTracker({ initialAssociations }: Props) {
                 </div>
               </div>
             </form>
+
+            {/* Contacts list — only once the association has an id, since
+                a contact must belong to a saved association row. */}
+            {form.id && (
+              <div className="mt-6 border-t border-border pt-6">
+                <h4 className="text-sm font-medium text-primary mb-3">
+                  รายชื่อผู้ติดต่อ {contacts.length > 0 && `(${contacts.length})`}
+                </h4>
+
+                {contactsLoading ? (
+                  <p className="text-xs text-tertiary">กำลังโหลด...</p>
+                ) : (
+                  <ul className="space-y-2 mb-4">
+                    {contacts.length === 0 && (
+                      <li className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-tertiary">
+                        ยังไม่มีผู้ติดต่อ เพิ่มด้านล่างได้เลย
+                      </li>
+                    )}
+                    {contacts.map((c) => (
+                      <li key={c.id} className="rounded-md border border-border bg-page px-3 py-2.5 text-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-primary">
+                              {c.first_name} {c.last_name || ""}
+                              {c.role && <span className="ml-2 text-xs font-normal text-tertiary">({c.role})</span>}
+                            </p>
+                            <p className="text-xs text-secondary">
+                              {c.email || "ไม่มีอีเมล"}
+                              {c.phone ? ` · ${c.phone}` : ""}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeContact(c.id)}
+                            className="text-xs text-danger shrink-0"
+                          >
+                            ลบ
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <form onSubmit={addContact} className="rounded-md border border-border bg-page p-3 space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <input
+                      value={contactForm.firstName}
+                      onChange={(e) => setContactForm((f) => ({ ...f, firstName: e.target.value }))}
+                      placeholder="ชื่อ *"
+                      className={smallInputClass}
+                    />
+                    <input
+                      value={contactForm.lastName}
+                      onChange={(e) => setContactForm((f) => ({ ...f, lastName: e.target.value }))}
+                      placeholder="นามสกุล"
+                      className={smallInputClass}
+                    />
+                  </div>
+                  <input
+                    type="email"
+                    value={contactForm.email}
+                    onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="อีเมล"
+                    className={smallInputClass}
+                  />
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <input
+                      value={contactForm.role}
+                      onChange={(e) => setContactForm((f) => ({ ...f, role: e.target.value }))}
+                      placeholder="ตำแหน่ง เช่น เลขาธิการ"
+                      className={smallInputClass}
+                    />
+                    <input
+                      value={contactForm.phone}
+                      onChange={(e) => setContactForm((f) => ({ ...f, phone: e.target.value }))}
+                      placeholder="เบอร์โทร"
+                      className={smallInputClass}
+                    />
+                  </div>
+                  {contactError && <p className="text-xs text-danger">{contactError}</p>}
+                  <button
+                    type="submit"
+                    disabled={addingContact}
+                    className="rounded-md bg-inverse px-4 py-2 text-xs font-medium text-onInverse disabled:opacity-50"
+                  >
+                    {addingContact ? "กำลังเพิ่ม..." : "+ เพิ่มผู้ติดต่อ"}
+                  </button>
+                </form>
+              </div>
+            )}
           </div>
         </div>
       )}
