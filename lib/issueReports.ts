@@ -6,24 +6,15 @@ import { sql } from "@/lib/db";
 // at /admin/reports (components/admin/IssueReportsManager.tsx). See
 // migrations/005_issue_reports.sql for the schema this assumes.
 //
-// The category list lives here (not duplicated in the form component and
-// the admin page) so both always agree on the same ids/labels — the form
-// renders CATEGORIES to build its checklist, and the admin inbox falls
-// back to CATEGORY_LABEL[id] only for older rows that predate a label
-// rename (a submitted row's own `label` snapshot is preferred otherwise,
-// see IssueReportItem below).
-export const CATEGORIES: { id: string; label: string }[] = [
-  { id: "wrong_review_result", label: "ผลตรวจภาพไม่ถูกต้อง (ระบบ flag ผิด/พลาด)" },
-  { id: "upload_issue", label: "ปัญหาการอัพโหลดภาพ" },
-  { id: "billing_credits", label: "ปัญหาการชำระเงิน/แพ็กเกจ/เครดิต" },
-  { id: "login_account", label: "ปัญหาการเข้าสู่ระบบ/บัญชี" },
-  { id: "bug_broken_page", label: "หน้าเว็บใช้งานไม่ได้/บั๊ก" },
-  { id: "other", label: "ข้อเสนอแนะอื่นๆ" },
-];
-
-export const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
-  CATEGORIES.map((c) => [c.id, c.label])
-);
+// CATEGORIES/CATEGORY_LABEL live in lib/issueCategories.ts, NOT here —
+// this module imports `sql` from lib/db.ts (which calls neon() at import
+// time), so anything client-side that value-imports from this file drags
+// that DB init into the browser bundle. Re-exported below purely so
+// existing server-side imports (app/api/report-issue/route.ts) don't need
+// to change; a "use client" component must import the categories
+// directly from lib/issueCategories.ts instead. See that file's comment
+// for the crash this split fixes.
+export { CATEGORIES, CATEGORY_LABEL } from "@/lib/issueCategories";
 
 export type IssueReportItem = { category: string; label: string; detail: string };
 
