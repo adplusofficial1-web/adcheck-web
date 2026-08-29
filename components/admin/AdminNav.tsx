@@ -8,6 +8,11 @@ const TABS = [
   { href: "/admin/inside", label: "Inside" },
   { href: "/admin/marketing", label: "Marketing" },
   { href: "/admin/credits", label: "เครดิต" },
+  // Kept as its own tab rather than folded into "Marketing" above — that
+  // page is an unrelated professional-association outreach tracker (see
+  // lib/marketingAssociations.ts), and mixing customer-reported bugs into
+  // it would only confuse both lists. See migrations/005_issue_reports.sql.
+  { href: "/admin/reports", label: "รายงานปัญหา" },
 ];
 
 // Segmented-control style tab menu for the two Platform Admin sections.
