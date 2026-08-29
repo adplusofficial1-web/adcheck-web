@@ -4,6 +4,59 @@ import { useEffect, useRef, useState } from "react";
 import type { ComplianceRuleMatch } from "@/lib/complianceRules";
 import { formatThaiDateTime, wasEdited } from "@/lib/formatDateTime";
 
+// Small "ดาวน์โหลดเอกสาร" menu — one button per row that opens a two-item
+// choice (PDF / DOCX) rather than two separate buttons, since a row can
+// always produce both regardless of how it was added (typed text or an
+// uploaded PDF/DOCX/TXT/MD — see lib/complianceRuleDocx.ts's header
+// comment for why generation is on-demand from `content` rather than
+// reusing the "ดาวน์โหลดไฟล์ต้นฉบับ" link next to it, which only exists for
+// upload-sourced rows and serves the original bytes as-is).
+function DownloadMenu({ ruleId }: { ruleId: string }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onOutside(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="rounded-pill bg-accentSoft text-accent px-2.5 py-0.5 text-xs hover:underline"
+      >
+        ดาวน์โหลดเอกสาร ▾
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-10 w-36 overflow-hidden rounded-md border border-border bg-surface shadow-lg">
+          <a
+            href={`/admin/knowledge-base/${ruleId}/pdf`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block px-3 py-2 text-xs text-primary hover:bg-page"
+            onClick={() => setOpen(false)}
+          >
+            ไฟล์ PDF
+          </a>
+          <a
+            href={`/api/admin/knowledge-base/${ruleId}/docx`}
+            className="block px-3 py-2 text-xs text-primary hover:bg-page border-t border-border"
+            onClick={() => setOpen(false)}
+          >
+            ไฟล์ DOCX
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 type Props = { initialRules: ComplianceRuleMatch[] };
 
 // Client-side manager for the compliance knowledge base: search box (same
@@ -314,6 +367,7 @@ function RuleRow({
                 ดาวน์โหลดไฟล์ต้นฉบับ
               </a>
             )}
+            <DownloadMenu ruleId={rule.id} />
             {!rule.is_active && (
               <span className="rounded-pill bg-dangerSoft text-danger px-2.5 py-0.5 text-xs">ปิดใช้งาน</span>
             )}

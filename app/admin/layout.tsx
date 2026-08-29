@@ -31,8 +31,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div className="min-h-screen bg-page">
-      <header className="bg-inverse text-onInverse px-6 md:px-14 py-5">
+    <div className="min-h-screen bg-page print:bg-white">
+      {/* print:hidden — this admin chrome has no business appearing when a
+          nested page opens the browser's print dialog (see
+          app/admin/knowledge-base/[id]/pdf/page.tsx, the only page under
+          /admin that currently does), so it's dropped from the printed
+          output the same way results/[id]/pdf's standalone layout already
+          keeps Nav out of its own printouts. */}
+      <header className="bg-inverse text-onInverse px-6 md:px-14 py-5 print:hidden">
         <div className="flex items-center justify-between gap-6 flex-wrap">
           <div className="flex items-center gap-3">
             <span className="text-2xl font-medium">ADCheck</span>
@@ -44,7 +50,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <span className="text-sm text-onInverse/70">{adminEmail}</span>
         </div>
       </header>
-      <main className="px-6 md:px-14 py-10">{children}</main>
+      <main className="px-6 md:px-14 py-10 print:p-0">{children}</main>
     </div>
   );
 }
