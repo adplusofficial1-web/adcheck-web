@@ -2,10 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CATEGORIES } from "@/lib/issueReports";
+import { CATEGORIES } from "@/lib/issueCategories";
 
-// Checklist of problem categories (see lib/issueReports.ts:CATEGORIES) —
-// checking a box reveals a required detail textarea for that category
+// Checklist of problem categories (see lib/issueCategories.ts:CATEGORIES —
+// deliberately NOT lib/issueReports.ts, which also imports the server-only
+// `sql` client and would drag a DATABASE_URL-dependent neon() init into
+// this client component's browser bundle) — checking a box reveals a
+// required detail textarea for that category
 // only, so the report the admin receives always has "which problem" and
 // "what exactly happened" paired together per item, instead of one big
 // free-text box that mixes several unrelated issues together.
