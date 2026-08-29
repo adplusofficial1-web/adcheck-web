@@ -398,6 +398,22 @@ export function SettingsClient({
         </div>
       </section>
 
+      {/* ---------- Report a problem ---------- */}
+      <section className="border border-border rounded-lg p-6 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <div className="text-sm font-medium">รายงานปัญหา</div>
+          <p className="text-xs text-secondary mt-0.5 max-w-md">
+            พบปัญหาการใช้งาน ผลตรวจภาพผิดพลาด หรือข้อบกพร่องอื่นๆ? แจ้งทีมงานแบบละเอียดเป็นข้อๆ ได้ที่นี่
+          </p>
+        </div>
+        <Link
+          href="/report-problem"
+          className="shrink-0 rounded-md border border-border px-4 py-2.5 text-sm font-medium hover:bg-page"
+        >
+          รายงานปัญหา →
+        </Link>
+      </section>
+
       {/* ---------- Modals ---------- */}
       {modal === "profile" && (
         <ProfileModal
