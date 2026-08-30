@@ -230,8 +230,17 @@ export function CheckoutForm({
               onChange={(e) => setConsent(e.target.checked)}
               className="mt-0.5"
             />
+            {/* FIX (bug audit round 3, minor/preventive): amount.toLocaleString()
+                with no locale argument resolves the default locale of
+                whichever runtime calls it — this "use client" component
+                renders once on the server and again during hydration, and
+                those two runtimes can in principle resolve a different
+                default locale. Pinning "th-TH" explicitly (matching every
+                other formatted number on this page) removes the ambiguity
+                outright, same defensive reasoning as the timeZone fixes
+                elsewhere in this round. */}
             <span>
-              ยินยอมให้ตัดเงินบัตรนี้อัตโนมัติทุกรอบ 30 วัน ({amount.toLocaleString()} บาท/รอบ)
+              ยินยอมให้ตัดเงินบัตรนี้อัตโนมัติทุกรอบ 30 วัน ({amount.toLocaleString("th-TH")} บาท/รอบ)
               ไม่ว่าจะใช้เครดิตครบหรือไม่ จนกว่าจะยกเลิกในหน้าตั้งค่า
             </span>
           </label>
@@ -254,7 +263,7 @@ export function CheckoutForm({
           ? "ระบบชำระเงินยังไม่เปิดให้บริการ"
           : !isCardChannel && !paymentEnabled
           ? "ระบบชำระเงินยังไม่เปิดให้บริการ"
-          : `ชำระเงิน ${amount.toLocaleString()} บาท`}
+          : `ชำระเงิน ${amount.toLocaleString("th-TH")} บาท`}
       </button>
 
       {/* Trust signal right at the payment decision point — see
