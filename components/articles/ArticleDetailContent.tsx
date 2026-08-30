@@ -3,9 +3,14 @@ import { notFound } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { ARTICLES, getArticleBySlug } from "@/lib/articles";
 
+// FIX (bug audit round 3) — see the identical comment in
+// components/articles/ArticlesListContent.tsx: no `timeZone` means the
+// date is rendered in whatever timezone the process happens to run in,
+// which can show the wrong calendar day for anything published between
+// 00:00-06:59 Thailand time.
 function formatThaiDate(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
+  return d.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Bangkok" });
 }
 
 // Shared "บทความ" detail UI for both /articles/[slug] (clinic mode) and

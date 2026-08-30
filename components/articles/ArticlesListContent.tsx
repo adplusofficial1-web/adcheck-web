@@ -2,9 +2,16 @@ import Link from "next/link";
 import { Nav } from "@/components/Nav";
 import { ARTICLES, type Article } from "@/lib/articles";
 
+// FIX (bug audit round 3, found while chasing the same class of bug as
+// lib/formatDateTime.ts): toLocaleDateString("th-TH") with no `timeZone`
+// renders the calendar date in whatever timezone the *running process*
+// happens to be in — the Render server defaults to UTC — so an article
+// published between 00:00-06:59 Thailand time (still the previous UTC day)
+// would show the wrong date. Pinning Asia/Bangkok makes "the date" always
+// mean Thailand's date, matching every other date shown on this Thai site.
 function formatThaiDate(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
+  return d.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Bangkok" });
 }
 
 function SourceBadge({ article, className = "" }: { article: Article; className?: string }) {
