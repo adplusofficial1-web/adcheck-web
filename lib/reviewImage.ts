@@ -1,7 +1,22 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { searchComplianceRules, type ComplianceRuleMatch } from "@/lib/complianceRules";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// FIX (bug audit round 2, latent-risk finding): this used to construct the
+// Anthropic client eagerly at module top level (`new Anthropic({ apiKey:
+// process.env.ANTHROPIC_API_KEY })`), exactly the pattern that made
+// lib/db.ts's top-level `neon()` call crash the browser bundle the one time
+// a "use client" component ended up value-importing it (see
+// lib/issueCategories.ts's comment for that incident). Nothing currently
+// imports this module from a client component, but there's no reason to
+// leave the same landmine armed here too — lazy-init on first real call
+// instead, matching the pattern already used in lib/omise.ts:getClient().
+let client: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (!client) {
+    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return client;
+}
 
 export type ReviewFlag = {
   quoted_text: string;
@@ -18,6 +33,13 @@ export type ReviewResult = {
   status: "passed" | "caution" | "violation";
   confidence: number;
   flags: ReviewFlag[];
+  // FIX (bug audit round 2 #10): set when this result did NOT come from an
+  // actual AI call (e.g. the knowledge-base-search-came-up-empty fallback
+  // below) — the caller (processOneImage in app/api/submissions/route.ts)
+  // treats this exactly like a thrown reviewImage() error for credit-refund
+  // purposes, so a business is never charged for an image whose content was
+  // never genuinely inspected.
+  reviewFailed?: boolean;
 };
 
 // ---------------------------------------------------------------------
@@ -148,6 +170,15 @@ export async function reviewImage(params: {
     return {
       status: "caution",
       confidence: 0,
+      // FIX (bug audit round 2 #10): this path returns WITHOUT ever calling
+      // Claude — no content was actually reviewed. It used to return
+      // normally (no throw), so processOneImage's `reviewFailed` stayed
+      // false and the credit for this image was never refunded even though
+      // nothing was inspected. Marking it here routes it through the same
+      // refund accounting as a genuine AI-call failure, while still keeping
+      // this fallback's own more specific/actionable message (rather than
+      // falling back to the generic "AI call failed" text).
+      reviewFailed: true,
       flags: [
         {
           quoted_text: params.caption || params.filename,
@@ -176,17 +207,33 @@ ${buildLegalContextBlock(matchedRules)}`;
 
   const content: Anthropic.MessageParam["content"] = [];
   if (params.base64Image && params.mediaType) {
-    content.push({
-      type: "image",
-      source: { type: "base64", media_type: params.mediaType as any, data: params.base64Image },
-    });
+    // FIX (bug audit round 2 critical #2): this used to always push an
+    // "image" content block regardless of mediaType. Claude's API only
+    // accepts image/jpeg|png|gif|webp inside an `image` block — a PDF (which
+    // lib/uploadLimits.ts's ALLOWED_MEDIA_TYPES has allowed all along, and
+    // every upload page's own copy advertises support for) sent that way
+    // gets rejected by the API on every single call, so PDF review was
+    // silently 100% non-functional (every PDF fell through to the generic
+    // "AI ไม่สามารถตรวจสอบภาพนี้ได้" fallback in processOneImage). PDFs need
+    // their own `document` content block type instead.
+    if (params.mediaType === "application/pdf") {
+      content.push({
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: params.base64Image },
+      } as Anthropic.DocumentBlockParam);
+    } else {
+      content.push({
+        type: "image",
+        source: { type: "base64", media_type: params.mediaType as any, data: params.base64Image },
+      });
+    }
   }
   content.push({
     type: "text",
     text: `ไฟล์: ${params.filename}\nคำบรรยายที่จะใช้ในโฆษณา: "${params.caption || "(ไม่มี)"}"\n\nกรุณาตรวจสอบและเรียก submit_review`,
   });
 
-  const message = await client.messages.create({
+  const message = await getClient().messages.create({
     model: "claude-sonnet-5",
     // Capped at 3000 by design, for cost control — deliberately NOT raised
     // further. Images with several flags were still hitting the old 4096

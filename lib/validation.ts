@@ -11,3 +11,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function isValidUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
+
+// Postgres text/jsonb columns reject the NUL byte outright. Previously
+// duplicated locally in app/api/admin/knowledge-base/route.ts and
+// lib/issueReports.ts (each with its own copy of this exact function) —
+// consolidated here so every write path that accepts free-form user text
+// (submission image filenames/captions, settings fields, knowledge-base
+// content, issue reports) can share one implementation instead of drifting.
+// Built via String.fromCharCode(0) rather than a regex escape literal so no
+// source file has to contain the raw byte.
+const NUL = String.fromCharCode(0);
+export function stripNulBytes(text: string): string {
+  return text.split(NUL).join("");
+}

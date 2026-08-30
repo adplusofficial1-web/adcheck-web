@@ -213,6 +213,18 @@ export async function searchComplianceRules(
     return rows as ComplianceRuleMatch[];
   }
 
+  // FIX (bug audit round 2 #11): `ORDER BY ... LIMIT` written directly after
+  // a UNION ALL binds to the COMBINED result of both branches, not just the
+  // second one — despite this query's original intent (see the comment
+  // above searchComplianceRules) that always_include rows are pulled in
+  // "unconditionally". If the number of always_include rows plus qualifying
+  // trigram matches together exceeded `limit`, the always_include branch's
+  // own rows could get squeezed out of the final LIMIT along with the
+  // lower-scored matches — the opposite of "unconditional". The trigram
+  // branch's own ORDER BY/LIMIT is now wrapped in its own subquery so it
+  // only ever caps THAT branch; the always_include branch is concatenated
+  // afterward with no limit of its own, so it can never be cut regardless
+  // of how many trigram matches qualify.
   const rows = await sql`
     SELECT * FROM (
       SELECT
@@ -223,16 +235,18 @@ export async function searchComplianceRules(
       FROM compliance_rules
       WHERE is_active = true AND always_include = true
       UNION ALL
-      SELECT
-        id, title, category, content, source_type, source_filename, always_include,
-        is_active, created_by, created_at, updated_at,
-        (source_file_base64 IS NOT NULL) AS has_file,
-        word_similarity(${query}, search_blob) AS score
-      FROM compliance_rules
-      WHERE is_active = true AND always_include = false
-        AND word_similarity(${query}, search_blob) >= ${MIN_SCORE}
-      ORDER BY score DESC
-      LIMIT ${limit}
+      SELECT * FROM (
+        SELECT
+          id, title, category, content, source_type, source_filename, always_include,
+          is_active, created_by, created_at, updated_at,
+          (source_file_base64 IS NOT NULL) AS has_file,
+          word_similarity(${query}, search_blob) AS score
+        FROM compliance_rules
+        WHERE is_active = true AND always_include = false
+          AND word_similarity(${query}, search_blob) >= ${MIN_SCORE}
+        ORDER BY score DESC
+        LIMIT ${limit}
+      ) trigram_matched
     ) matched
     ORDER BY score DESC
   `;

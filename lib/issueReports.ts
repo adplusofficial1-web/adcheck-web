@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { stripNulBytes } from "@/lib/validation";
 
 // "รายงานปัญหา" — a signed-in business reports one or more problem
 // categories from /report-problem (components/ReportProblemForm.tsx),
@@ -31,15 +32,6 @@ export type IssueReport = {
   created_at: string;
   updated_at: string;
 };
-
-// Postgres text/jsonb columns reject the NUL byte — same defensive strip
-// as app/api/admin/knowledge-base/route.ts's stripNulBytes, applied here
-// since this form's free-text fields (detail, message) are just as
-// capable of carrying a stray NUL from a bad paste.
-const NUL = String.fromCharCode(0);
-function stripNulBytes(text: string): string {
-  return text.split(NUL).join("");
-}
 
 export async function createIssueReport(
   businessId: string,
