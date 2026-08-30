@@ -89,7 +89,11 @@ export default async function SharedResultsPage({ params }: { params: { token: s
         <h1 className="text-2xl font-medium mb-1">ผลการตรวจสอบ ({images.length} ภาพ)</h1>
         <p className="text-sm text-secondary mb-6">
           พบประเด็นเสี่ยงใน {cautionCount + violationCount} จาก {images.length} ภาพ · ตรวจสอบเมื่อ{" "}
-          {new Date(submission.created_at).toLocaleDateString("th-TH")}
+          {/* FIX (bug audit round 3): pin Asia/Bangkok — see the identical
+              comment in components/results/ResultsPageContent.tsx. This page
+              is publicly shared, so it should show Thailand's date regardless
+              of the viewer's own location/timezone. */}
+          {new Date(submission.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}
         </p>
 
         <div className="flex gap-3 mb-8 text-sm">
