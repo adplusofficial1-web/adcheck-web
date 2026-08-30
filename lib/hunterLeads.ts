@@ -88,10 +88,27 @@ export async function updateHunterLeadImages(
 
   const urlsChanged = JSON.stringify(existing.image_urls) !== JSON.stringify(imageUrls);
 
+  // CHANGE (2026-08-31, found via manual test after switching the UI to
+  // auto-save-on-type): the previous version only handled
+  // awaiting_images->ready and done/failed->ready/awaiting_images —
+  // clearing a 'ready' lead's URLs back down to 0 (e.g. Hunter deletes what
+  // they typed) left status stuck at 'ready' forever, with an empty
+  // image_urls, so "ตรวจสอบอัตโนมัติ" stayed shown as available even
+  // though there was nothing left to review (the run route's own
+  // image_urls.length===0 check would 400 if clicked, but the row
+  // shouldn't even look ready). Rewritten to derive nextStatus from
+  // existing.status + the resulting url count uniformly, covering every
+  // direction of the transition symmetrically instead of one-off cases:
+  //   - awaiting_images/ready <-> each other, purely by url count (never
+  //     touches running/done/failed — those only ever change via the
+  //     automation run itself, see markHunterLeadRunning/Done/Failed below)
+  //   - done/failed -> ready/awaiting_images (clearing result_url) only
+  //     when the urls actually changed, so re-saving the same urls after a
+  //     completed run doesn't wipe its result for no reason
   let nextStatus: HunterLeadStatus = existing.status;
   let clearResult = false;
-  if (existing.status === "awaiting_images" && imageUrls.length > 0) {
-    nextStatus = "ready";
+  if (existing.status === "awaiting_images" || existing.status === "ready") {
+    nextStatus = imageUrls.length > 0 ? "ready" : "awaiting_images";
   } else if ((existing.status === "done" || existing.status === "failed") && urlsChanged) {
     nextStatus = imageUrls.length > 0 ? "ready" : "awaiting_images";
     clearResult = true;
