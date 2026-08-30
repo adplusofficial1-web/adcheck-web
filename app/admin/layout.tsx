@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { auth } from "@/auth";
 import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
 import { AdminNav } from "@/components/admin/AdminNav";
@@ -12,7 +13,13 @@ import { AdminNav } from "@/components/admin/AdminNav";
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   if (!session?.user?.email) {
-    redirect("/login?callbackUrl=/admin/knowledge-base");
+    // FIX (bug audit round 2, low): this used to hardcode
+    // callbackUrl=/admin/knowledge-base regardless of which admin page was
+    // actually requested. middleware.ts now forwards the real requested
+    // path via the x-pathname header (see its comment) — fall back to the
+    // knowledge base only if that header is somehow missing.
+    const requestedPath = (await headers()).get("x-pathname") || "/admin/knowledge-base";
+    redirect(`/login?callbackUrl=${encodeURIComponent(requestedPath)}`);
   }
 
   const adminEmail = await getCurrentPlatformAdminEmail();
