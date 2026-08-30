@@ -29,8 +29,24 @@ const inputClass =
 const smallInputClass =
   "w-full rounded-md border border-border bg-surface px-3 py-2 text-xs text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30";
 
+// FIX (bug audit round 2 follow-up, found during post-deploy verification):
+// this used to be `new Date().toISOString().slice(0, 10)` — deterministic
+// in the sense that toISOString() is always UTC, but it's still computed
+// during render, and this component ("use client") is server-rendered once
+// for the initial HTML and then hydrated in the browser milliseconds
+// later. Right around the UTC day boundary those two renders can land on
+// different calendar days, which flips `isOverdue()`'s result and, with
+// it, a card's border color/class and its "(เกินกำหนด)" text — a real
+// server/client mismatch (same class of bug as lib/formatDateTime.ts's
+// missing timeZone, confirmed live via React hydration errors #418/#423/
+// #425 on /admin/marketing). Separately, UTC isn't even the right "today"
+// for this field — next_followup dates are entered by a Thailand-based
+// admin — so this now fixes both problems at once: shift by Thailand's
+// fixed UTC+7 (no DST) before slicing, so "today" always means Thailand's
+// today, the same on every machine regardless of its local timezone.
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  const bangkokMs = Date.now() + 7 * 60 * 60 * 1000;
+  return new Date(bangkokMs).toISOString().slice(0, 10);
 }
 
 function isOverdue(a: MarketingAssociation): boolean {
