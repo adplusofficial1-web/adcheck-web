@@ -109,7 +109,7 @@ export function ArticlesListContent({ basePath = "/articles", credits }: { baseP
       <footer className="bg-inverse text-onInverse text-center py-12 mt-8">
         <h3 className="text-lg font-medium mb-4">อยากให้ AdCheck ช่วยตรวจสอบโฆษณาก่อนเผยแพร่ไหม</h3>
         <Link href="/login" className="inline-block rounded-md bg-white text-inverse px-5 py-3 text-sm font-medium">
-          ทดลองใช้ฟรี 5 ครั้ง
+          ทดลองใช้ฟรี 15 ครั้ง
         </Link>
       </footer>
     </main>
