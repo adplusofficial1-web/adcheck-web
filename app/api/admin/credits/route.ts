@@ -28,7 +28,7 @@ export async function GET(req: Request) {
     // See app/api/admin/knowledge-base/route.ts's GET handler for why this
     // catch matters — same reasoning, same fix.
     console.error("GET /api/admin/credits failed:", e);
-    return NextResponse.json({ error: e?.message || "โหลดข้อมูลไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: "โหลดข้อมูลไม่สำเร็จ" }, { status: 500 });
   }
 }
 
@@ -66,6 +66,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ grant }, { status: 201 });
   } catch (e: any) {
     console.error("POST /api/admin/credits failed:", e);
-    return NextResponse.json({ error: e?.message || "ให้เครดิตไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: "ให้เครดิตไม่สำเร็จ" }, { status: 500 });
   }
 }
