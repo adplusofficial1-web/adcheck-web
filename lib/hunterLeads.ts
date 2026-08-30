@@ -59,29 +59,62 @@ export async function importHunterLeads(
 
 // Hunter filling in image URLs (and/or a note) for a lead they're
 // actively working — up to 3 (enforced by the DB CHECK constraint, see
-// migration). Automatically promotes 'awaiting_images' -> 'ready' the
-// moment the first image URL lands, so the admin "run automation" list
-// only ever shows leads that actually have something to review; never
-// demotes a 'done'/'failed'/'running' lead just because someone edited
-// its urls (that transition only happens via markHunterLeadRunning/
-// Done/Failed below, driven by the automation route itself).
+// migration).
+//
+// Status handling:
+//   - 'awaiting_images' -> 'ready' the moment the first image URL lands,
+//     so the admin "run automation" list only ever shows leads that
+//     actually have something to review.
+//   - 'running' is left alone — editing urls mid-run shouldn't be
+//     possible from the UI anyway (the run button disables while
+//     running), but if it somehow happens, don't fight the in-flight run.
+//   - 'done'/'failed' -> 'ready', clearing result_urls/last_error,
+//     whenever the edited image_urls array no longer matches what's
+//     already in image_urls. This matters because
+//     app/api/admin/hunter/[id]/run/route.ts resumes by index
+//     (result_urls[i] corresponds to image_urls[i]) — if Hunter swaps out
+//     a failed/completed image for a different URL, the old result_urls
+//     would silently misalign with the new list without this reset.
+//     FIX (found during manual pipeline test, 2026-08-30): originally
+//     this only handled the 'awaiting_images' case, so re-editing a
+//     'failed' lead's urls left it stuck showing "ล้มเหลว" with a stale
+//     error message forever, even after fixing the bad URL — the run
+//     button never re-enabled a fresh attempt.
 export async function updateHunterLeadImages(
   id: string,
   imageUrls: string[],
   note?: string
 ): Promise<HunterLead | null> {
-  const [existing] = (await sql`SELECT status FROM hunter_leads WHERE id = ${id}`) as { status: HunterLeadStatus }[];
+  const [existing] = (await sql`
+    SELECT status, image_urls FROM hunter_leads WHERE id = ${id}
+  `) as { status: HunterLeadStatus; image_urls: string[] }[];
   if (!existing) return null;
 
-  const nextStatus =
-    existing.status === "awaiting_images" && imageUrls.length > 0 ? "ready" : existing.status;
+  const urlsChanged = JSON.stringify(existing.image_urls) !== JSON.stringify(imageUrls);
 
-  const [row] = await sql`
-    UPDATE hunter_leads
-    SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus}, updated_at = now()
-    WHERE id = ${id}
-    RETURNING *
-  `;
+  let nextStatus: HunterLeadStatus = existing.status;
+  let clearResults = false;
+  if (existing.status === "awaiting_images" && imageUrls.length > 0) {
+    nextStatus = "ready";
+  } else if ((existing.status === "done" || existing.status === "failed") && urlsChanged) {
+    nextStatus = imageUrls.length > 0 ? "ready" : "awaiting_images";
+    clearResults = true;
+  }
+
+  const [row] = clearResults
+    ? await sql`
+        UPDATE hunter_leads
+        SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus},
+            result_urls = '{}', last_error = NULL, updated_at = now()
+        WHERE id = ${id}
+        RETURNING *
+      `
+    : await sql`
+        UPDATE hunter_leads
+        SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus}, updated_at = now()
+        WHERE id = ${id}
+        RETURNING *
+      `;
   return (row as HunterLead) ?? null;
 }
 

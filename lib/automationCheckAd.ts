@@ -44,9 +44,26 @@ export async function checkAdImageUrl(
   const caption = opts?.caption ? stripNulBytes(opts.caption) : undefined;
 
   // --- Fetch the image server-side ---------------------------------------
+  // FIX (found during manual pipeline test, 2026-08-30): a bare fetch()
+  // with no User-Agent header gets a flat 400 from at least Wikimedia's
+  // CDN (and several other image hosts do the same) — they treat a
+  // missing UA as a signal of a low-effort scraper rather than a normal
+  // HTTP client, regardless of what the request is actually for. This
+  // sends a normal browser-style UA (and Accept) so a legitimate public
+  // image URL doesn't get rejected purely on that basis. This does NOT
+  // change what this route is legally allowed to fetch — it still only
+  // works against a URL that's already publicly servable with no auth;
+  // it does nothing to get past login walls, rate limits, or any other
+  // access control a host actually enforces.
   let fetchRes: Response;
   try {
-    fetchRes = await fetch(imageUrl);
+    fetchRes = await fetch(imageUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept: "image/*,*/*;q=0.8",
+      },
+    });
   } catch {
     throw new CheckAdError("failed to fetch imageUrl", 400);
   }
