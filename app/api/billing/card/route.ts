@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { isOmiseConfigured, createCustomerWithCard, chargeCustomer } from "@/lib/omise";
+import { nextInvoiceNumber } from "@/lib/invoiceNumber";
 
 // Binds a card via Omise (create Customer + Card from a one-time Omise.js
 // token) and immediately charges it for the selected plan — this is the
@@ -133,7 +134,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const invoiceNumber = `INV-2569-${Math.floor(Math.random() * 9000 + 1000)}`;
+    // FIX (bug audit round 3, high — confirmed live): a random 4-digit
+    // suffix into a UNIQUE column, with no retry logic, right after a real
+    // charge has already succeeded — see lib/invoiceNumber.ts for the full
+    // writeup. A collision here used to mean the customer's card was
+    // already billed but this INSERT (and every step after it, including
+    // granting credits) throws instead of completing.
+    const invoiceNumber = await nextInvoiceNumber();
     const [transaction] = (await sql`
       INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number, omise_charge_id)
       VALUES (${business.id}, ${plan.id}, ${plan.price_thb}, 0, ${plan.price_thb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${chargeResult.chargeId})
