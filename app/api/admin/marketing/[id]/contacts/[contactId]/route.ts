@@ -28,7 +28,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string; co
     return NextResponse.json({ contact });
   } catch (e: any) {
     console.error("PATCH /api/admin/marketing/[id]/contacts/[contactId] failed:", e);
-    return NextResponse.json({ error: e?.message || "บันทึกไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: "บันทึกไม่สำเร็จ" }, { status: 500 });
   }
 }
 
@@ -42,6 +42,6 @@ export async function DELETE(_req: Request, { params }: { params: { id: string; 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("DELETE /api/admin/marketing/[id]/contacts/[contactId] failed:", e);
-    return NextResponse.json({ error: e?.message || "ลบไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: "ลบไม่สำเร็จ" }, { status: 500 });
   }
 }
