@@ -44,11 +44,11 @@ export default async function AgencySettingsPage({
             href="/agency/checkout?plan=agency"
             className="shrink-0 rounded-md bg-inverse text-onInverse px-4 py-2.5 text-sm font-medium"
           >
-            จัดการแพ็กเกจ Agency →
+            จัดการแพ็กเกจองค์กร →
           </Link>
         </div>
         <p className="text-sm text-secondary mb-8">
-          แก้ไขข้อมูลของแต่ละคลินิกได้อิสระ — เครดิตใช้ร่วมกันจากแพ็กเกจ Agency เดียว ไม่ได้แยกต่อคลินิก
+          แก้ไขข้อมูลของแต่ละคลินิกได้อิสระ — เครดิตใช้ร่วมกันจากแพ็กเกจองค์กรเดียว ไม่ได้แยกต่อคลินิก
         </p>
 
         {/* Same "แพ็กเกจและเครดิต" card as the solo-clinic settings page
