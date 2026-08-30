@@ -4,6 +4,7 @@ import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getAccessibleBusinessIds } from "@/lib/agency";
 import { isValidUuid } from "@/lib/validation";
+import { refundCredits } from "@/lib/credits";
 
 // Three separate belt-and-suspenders opt-outs, because any one alone left
 // this route serving a stale, frozen snapshot for a submission id polled
@@ -60,10 +61,19 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   // signed-in user who guessed a submission id could poll another
   // business's in-progress review.
   const accessibleIds = await getAccessibleBusinessIds(business.id);
+  // parent_agency_id is joined in so the watchdog below (which fires from
+  // WHOEVER happens to poll this route, not necessarily the same session
+  // that created the submission) can figure out who to refund: credits are
+  // always reserved against the SIGNED-IN business at submission time (see
+  // app/api/submissions/route.ts's comment on billing), which for a child
+  // clinic's submission is its parent agency, never the clinic itself (a
+  // child clinic has no login/package of its own — see lib/agency.ts).
   let [submission] = (await sql`
-    SELECT id, status, credits_used, created_at
-    FROM submissions
-    WHERE id = ${params.id} AND business_id = ANY(${accessibleIds}::uuid[])
+    SELECT s.id, s.status, s.credits_used, s.created_at, s.business_id,
+      b.parent_agency_id
+    FROM submissions s
+    JOIN businesses b ON b.id = s.business_id
+    WHERE s.id = ${params.id} AND s.business_id = ANY(${accessibleIds}::uuid[])
   `) as any[];
 
   if (!submission) {
@@ -92,13 +102,35 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         RETURNING id, status, credits_used, created_at
       `) as any[];
       if (updated) {
-        submission = updated;
+        submission = { ...updated, business_id: submission.business_id, parent_agency_id: submission.parent_agency_id };
+        // FIX (bug audit round 2, critical #1): this self-heal used to only
+        // ever change the status column — it never gave back the credits
+        // reserved for this submission (reserveCredits(), called upfront in
+        // app/api/submissions/route.ts before any AI work started). That
+        // directly contradicts what components/ProcessingScreen.tsx tells
+        // the user while it's still spinning ("เครดิตของคุณยังไม่ถูกหักใน
+        // รอบนี้"). This UPDATE only ever wins the race exactly when the
+        // background review loop never got to run its own crash-recovery
+        // refund (process restarted/crashed mid-review — see the .catch in
+        // app/api/submissions/route.ts's POST handler) — so refunding here
+        // is exactly the missing counterpart to that path, not a duplicate
+        // of it. Refund to whoever actually paid: the signed-in business at
+        // submission time, which for a child clinic's submission is its
+        // parent agency (see the join above / lib/agency.ts) — never the
+        // clinic itself.
+        const payerId = submission.parent_agency_id || submission.business_id;
+        try {
+          await refundCredits(payerId, submission.credits_used);
+        } catch (refundErr) {
+          console.error(`Failed to refund credits for stale submission ${submission.id}:`, refundErr);
+        }
       } else {
         // The UPDATE matched 0 rows — status changed between the SELECT
         // above and this UPDATE (e.g. it finished a beat before this ran).
         // Re-read rather than assume 'failed' or keep the stale in-memory
         // 'processing' value, so a real terminal status is never clobbered
-        // or misreported.
+        // or misreported. No refund here: whatever status it actually
+        // landed on already went through its own proper settlement path.
         [submission] = (await sql`
           SELECT id, status, credits_used, created_at FROM submissions WHERE id = ${submission.id}
         `) as any[];
