@@ -16,7 +16,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ contacts });
   } catch (e: any) {
     console.error("GET /api/admin/marketing/[id]/contacts failed:", e);
-    return NextResponse.json({ error: e?.message || "โหลดข้อมูลไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: "โหลดข้อมูลไม่สำเร็จ" }, { status: 500 });
   }
 }
 
@@ -40,6 +40,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ contact }, { status: 201 });
   } catch (e: any) {
     console.error("POST /api/admin/marketing/[id]/contacts failed:", e);
-    return NextResponse.json({ error: e?.message || "เพิ่มผู้ติดต่อไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: "เพิ่มผู้ติดต่อไม่สำเร็จ" }, { status: 500 });
   }
 }
