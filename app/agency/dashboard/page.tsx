@@ -78,15 +78,15 @@ export default async function AgencyDashboardPage() {
           <AddClinicModal />
         </div>
         <p className="text-sm text-secondary mb-8">
-          ภาพรวมลูกค้าทั้งหมด {clinics.length} คลินิก — ผลตรวจของแต่ละที่แยกจากกัน แต่ใช้เครดิตรวมจากแพ็กเกจ Agency เดียว
+          ภาพรวมลูกค้าทั้งหมด {clinics.length} คลินิก — ผลตรวจของแต่ละที่แยกจากกัน แต่ใช้เครดิตรวมจากแพ็กเกจองค์กรเดียว
         </p>
 
         {!agencyPlanActive && (
           <div className="rounded-lg border border-warning bg-warningSoft p-5 mb-8 flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <p className="text-sm font-medium mb-1">ยังไม่ได้สมัครแพ็กเกจ Agency</p>
+              <p className="text-sm font-medium mb-1">ยังไม่ได้สมัครแพ็กเกจองค์กร</p>
               <p className="text-sm text-secondary">
-                บัญชีนี้ยังไม่ได้สมัคร หรือแพ็กเกจ Agency (หลายสาขา) หมดอายุแล้ว — สมัครหรือต่ออายุเพื่อปลดล็อกปุ่ม
+                บัญชีนี้ยังไม่ได้สมัคร หรือแพ็กเกจองค์กร (หลายสาขา) หมดอายุแล้ว — สมัครหรือต่ออายุเพื่อปลดล็อกปุ่ม
                 &quot;อัพโหลด&quot; ให้ทุกคลินิกในเครือข่ายด้านล่าง
               </p>
             </div>
@@ -175,7 +175,7 @@ export default async function AgencyDashboardPage() {
                       // CHANGE: points at /agency/upload (not /upload) so
                       // clicking this stays in Agency-mode Nav chrome — see
                       // app/agency/upload/page.tsx.
-                      title={agencyPlanActive ? undefined : "ต้องสมัครแพ็กเกจ Agency ก่อนอัพโหลดให้คลินิกในเครือข่าย"}
+                      title={agencyPlanActive ? undefined : "ต้องสมัครแพ็กเกจองค์กรก่อนอัพโหลดให้คลินิกในเครือข่าย"}
                       className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium bg-inverse text-onInverse"
                     >
                       + อัพโหลด
