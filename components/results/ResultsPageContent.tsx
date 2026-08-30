@@ -78,7 +78,12 @@ export async function ResultsPageContent({
         <h1 className="text-2xl font-medium mb-1">ผลการตรวจสอบ ({images.length} ภาพ)</h1>
         <p className="text-sm text-secondary mb-6">
           พบประเด็นเสี่ยงใน {cautionCount + violationCount} จาก {images.length} ภาพ · ตรวจสอบเมื่อ{" "}
-                    {new Date(submission.created_at).toLocaleDateString("th-TH")}
+                    {/* FIX (bug audit round 3): no `timeZone` means this renders in
+                        whatever timezone the server process happens to run in
+                        (UTC on Render) — a submission made 00:00-06:59 Thailand
+                        time would show the previous day. Pin Asia/Bangkok so the
+                        date always matches what the clinic actually experienced. */}
+                    {new Date(submission.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}
         </p>
 
         {/* FIX (bug audit #11): this page used to render whatever rows
