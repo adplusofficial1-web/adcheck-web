@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { nextInvoiceNumber } from "@/lib/invoiceNumber";
 
 // The card channel ("บัตรเครดิต/เดบิต") now has a real gateway behind it —
 // see app/api/billing/card/route.ts, which tokenizes via Omise.js client-side
@@ -49,7 +50,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid plan" }, { status: 400 });
   }
 
-  const invoiceNumber = `INV-2569-${Math.floor(Math.random() * 9000 + 1000)}`;
+  // FIX (bug audit round 3): see lib/invoiceNumber.ts — a random 4-digit
+  // suffix into a UNIQUE column, with no retry logic, is a real collision
+  // risk at this business's transaction volume.
+  const invoiceNumber = await nextInvoiceNumber();
 
   const [transaction] = await sql`
     INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number)
