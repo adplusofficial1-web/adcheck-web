@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getBusinessByIdForOwner } from "@/lib/agency";
-import { isValidUuid } from "@/lib/validation";
+import { isValidUuid, stripNulBytes } from "@/lib/validation";
 import { VALID_SPECIALTIES } from "@/lib/specialties";
+import { validateAvatarDataUrl } from "@/lib/uploadLimits";
 
 const VALID_TYPES = ["clinic", "agency"];
 
@@ -14,14 +15,17 @@ const VALID_TYPES = ["clinic", "agency"];
 // which only ever edits the signed-in business's own row).
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const body = await req.json();
-  const name: string | undefined = typeof body.name === "string" ? body.name.trim() : undefined;
+  const name: string | undefined =
+    typeof body.name === "string" ? stripNulBytes(body.name).trim() : undefined;
   const type: string | undefined = typeof body.type === "string" ? body.type : undefined;
   const contactEmail: string | undefined =
-    typeof body.contact_email === "string" ? body.contact_email.trim() : undefined;
-  const phone: string | undefined = typeof body.phone === "string" ? body.phone.trim() : undefined;
+    typeof body.contact_email === "string" ? stripNulBytes(body.contact_email).trim() : undefined;
+  const phone: string | undefined =
+    typeof body.phone === "string" ? stripNulBytes(body.phone).trim() : undefined;
   const licenseNumber: string | undefined =
-    typeof body.license_number === "string" ? body.license_number.trim() : undefined;
-  const address: string | undefined = typeof body.address === "string" ? body.address.trim() : undefined;
+    typeof body.license_number === "string" ? stripNulBytes(body.license_number).trim() : undefined;
+  const address: string | undefined =
+    typeof body.address === "string" ? stripNulBytes(body.address).trim() : undefined;
   // Same VALID_SPECIALTIES (lib/specialties.ts) and empty-string-clears
   // semantics as app/api/settings/clinic-info/route.ts's own specialty
   // handling — the agency is filling in this field on the clinic's behalf
@@ -43,6 +47,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   if (specialty !== undefined && specialty !== "" && !VALID_SPECIALTIES.includes(specialty)) {
     return NextResponse.json({ error: "สาขาความเชี่ยวชาญไม่ถูกต้อง" }, { status: 400 });
+  }
+  // FIX (bug audit round 2 #8): same missing size/type check as
+  // app/api/settings/profile/route.ts's own avatarBase64 handling.
+  if (avatarBase64 !== undefined) {
+    const avatarError = validateAvatarDataUrl(avatarBase64);
+    if (avatarError) {
+      return NextResponse.json({ error: avatarError }, { status: 400 });
+    }
   }
 
   const business = await getCurrentBusiness();
@@ -127,7 +139,15 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
     return NextResponse.json({ error: "ไม่พบคลินิกนี้" }, { status: 404 });
   }
 
-  await sql`DELETE FROM businesses WHERE id = ${target.id}`;
-
-  return NextResponse.json({ ok: true });
+  // FIX (bug audit round 2, low): PATCH/POST in this file already catch DB
+  // errors (see PATCH above, and ../route.ts's POST) — this DELETE was the
+  // one exception, so any DB error here (e.g. an unexpected FK restriction)
+  // surfaced as a raw 500 instead of this file's own established pattern.
+  try {
+    await sql`DELETE FROM businesses WHERE id = ${target.id}`;
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error(`Failed to delete clinic ${target.id}:`, e);
+    return NextResponse.json({ error: "ลบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" }, { status: 500 });
+  }
 }
