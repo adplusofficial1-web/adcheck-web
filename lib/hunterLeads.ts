@@ -148,3 +148,15 @@ export async function getHunterLead(id: string): Promise<HunterLead | null> {
   const [row] = await sql`SELECT * FROM hunter_leads WHERE id = ${id}`;
   return (row as HunterLead) ?? null;
 }
+
+// Hunter/admin removing a lead from the queue entirely (the per-row "ลบ"
+// button in HunterImport.tsx) — a plain hard delete, since a hunter_leads
+// row is just a prospecting queue entry, not billing/audit data like a
+// real submission. Deleting a lead does NOT touch the `submissions` row(s)
+// its automation runs already created (those stay, same as any other
+// automation-business submission) — only removes it from this queue.
+// Returns true if a row was actually deleted.
+export async function deleteHunterLead(id: string): Promise<boolean> {
+  const rows = await sql`DELETE FROM hunter_leads WHERE id = ${id} RETURNING id`;
+  return rows.length > 0;
+}
