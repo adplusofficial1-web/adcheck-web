@@ -46,24 +46,48 @@ export type MonthlyTrendReport = {
 
 const TOP_CATEGORIES_PER_MONTH = 5;
 
-function monthKeyOf(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+function monthKeyOf(year: number, month0: number): string {
+  return `${year}-${String(month0 + 1).padStart(2, "0")}`;
 }
 
-function monthLabelOf(d: Date): string {
-  return d.toLocaleDateString("th-TH", { month: "short", year: "numeric" });
+// Day 15 at noon UTC is a safe "middle of the month" instant — nowhere near
+// a month boundary in any real-world timezone — so formatting it with
+// timeZone: "Asia/Bangkok" always reflects the intended (year, month) pair,
+// independent of which calendar day "now" actually is.
+function monthLabelOf(year: number, month0: number): string {
+  const d = new Date(Date.UTC(year, month0, 15, 12, 0, 0));
+  return d.toLocaleDateString("th-TH", { month: "short", year: "numeric", timeZone: "Asia/Bangkok" });
 }
 
 // Builds `monthsBack` consecutive calendar-month buckets ending at the
 // current month (oldest first). Done in JS rather than left to SQL's
 // GROUP BY specifically so a month with zero submissions still shows up
 // as an explicit 0/0 bucket in the chart instead of silently vanishing.
+//
+// FIX (bug audit round 3 — same class of bug as lib/formatDateTime.ts and
+// components/admin/MarketingTracker.tsx): this used to derive "now"'s
+// year/month from `new Date()`'s *local* getters, which reflect whatever
+// timezone the host process happens to be running in (UTC on Render) —
+// during the first ~7 hours of a new month by Thailand's calendar (which is
+// still the previous UTC day), this report would bucket "now" into the
+// wrong, previous month. Shifting by Thailand's fixed UTC+7 offset (no DST)
+// before reading UTC getters makes "now" always mean Thailand's now,
+// regardless of the host's own timezone — same technique used in
+// MarketingTracker.tsx's todayStr().
 function buildMonthBuckets(monthsBack: number): { key: string; label: string; start: Date }[] {
-  const now = new Date();
+  const bangkokNow = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  const nowYear = bangkokNow.getUTCFullYear();
+  const nowMonth0 = bangkokNow.getUTCMonth();
+
   const buckets: { key: string; label: string; start: Date }[] = [];
   for (let i = monthsBack - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    buckets.push({ key: monthKeyOf(d), label: monthLabelOf(d), start: d });
+    const totalMonths = nowYear * 12 + nowMonth0 - i;
+    const year = Math.floor(totalMonths / 12);
+    const month0 = ((totalMonths % 12) + 12) % 12;
+    // The real UTC instant for "this Bangkok month's 1st, 00:00 Bangkok
+    // time" — that wall-clock moment is 7 hours *behind* in UTC terms.
+    const start = new Date(Date.UTC(year, month0, 1) - 7 * 60 * 60 * 1000);
+    buckets.push({ key: monthKeyOf(year, month0), label: monthLabelOf(year, month0), start });
   }
   return buckets;
 }
@@ -76,8 +100,19 @@ export async function getMonthlyTrendReport(monthsBack = 6): Promise<MonthlyTren
   // 'violation') count toward "total" — an image still stuck at whatever
   // pre-review state exists isn't a real result yet and would understate
   // the flagged rate if it were counted as an implicit pass.
+  //
+  // FIX (bug audit round 3): `date_trunc('month', s.created_at)` truncates
+  // using the DB session's own TimeZone setting (Postgres/Neon default to
+  // UTC), which must match the Bangkok-based bucket keys buildMonthBuckets()
+  // generates above — otherwise a submission from the first ~7 hours of a
+  // new Bangkok month would get stamped with the previous month's key here
+  // and never match any bucket, silently vanishing from the report.
+  // `AT TIME ZONE 'Asia/Bangkok'` converts the timestamptz to Bangkok wall-
+  // clock time first, so date_trunc('month', ...) truncates the calendar
+  // month Thailand actually experienced, independent of the session's
+  // timezone setting.
   const overviewRows = (await sql`
-    SELECT to_char(date_trunc('month', s.created_at), 'YYYY-MM') AS month_key,
+    SELECT to_char(date_trunc('month', s.created_at AT TIME ZONE 'Asia/Bangkok'), 'YYYY-MM') AS month_key,
            COUNT(*)::int AS total,
            COUNT(*) FILTER (WHERE si.status IN ('caution', 'violation'))::int AS flagged
     FROM submission_images si
@@ -88,7 +123,7 @@ export async function getMonthlyTrendReport(monthsBack = 6): Promise<MonthlyTren
   `) as { month_key: string; total: number; flagged: number }[];
 
   const categoryRows = (await sql`
-    SELECT to_char(date_trunc('month', s.created_at), 'YYYY-MM') AS month_key,
+    SELECT to_char(date_trunc('month', s.created_at AT TIME ZONE 'Asia/Bangkok'), 'YYYY-MM') AS month_key,
            rf.category AS category,
            COUNT(DISTINCT rf.submission_image_id)::int AS cnt
     FROM review_flags rf
