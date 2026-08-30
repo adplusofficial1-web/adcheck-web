@@ -75,9 +75,13 @@ export async function POST(req: Request) {
     // prevents, or any other extraction/DB failure) made Next.js return an
     // empty response body, which the admin UI's `await res.json()` then
     // failed to parse as "Unexpected end of JSON input" — a confusing
-    // error with no hint of what actually broke. A real JSON error body
-    // here at least surfaces the actual message instead.
+    // error with no hint of what actually broke.
+    //
+    // FIX (bug audit round 2, low): this used to return e?.message straight
+    // to the client instead of a generic message — see the comment in
+    // ../route.ts for the same fix/reasoning. console.error above still
+    // preserves the real message for debugging via server logs.
     console.error("POST /api/admin/knowledge-base/upload failed:", e);
-    return NextResponse.json({ error: e?.message || "อัพโหลดไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: "อัพโหลดไม่สำเร็จ" }, { status: 500 });
   }
 }
