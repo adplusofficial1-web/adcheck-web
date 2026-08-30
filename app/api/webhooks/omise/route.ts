@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { isOmiseConfigured, retrieveCharge } from "@/lib/omise";
+import { nextInvoiceNumber } from "@/lib/invoiceNumber";
 
 // Configure this URL (https://adcheck.pro/api/webhooks/omise) in the Omise
 // dashboard once the account exists — Webhooks & Notifications settings.
@@ -64,7 +65,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const invoiceNumber = `INV-2569-${Math.floor(Math.random() * 9000 + 1000)}`;
+  // FIX (bug audit round 3): see lib/invoiceNumber.ts — a random 4-digit
+  // suffix into a UNIQUE column, with no retry logic, is a real collision
+  // risk at this business's transaction volume, right after a real charge
+  // has already succeeded.
+  const invoiceNumber = await nextInvoiceNumber();
   const [transaction] = (await sql`
     INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number, omise_charge_id)
     VALUES (${businessId}, ${planId}, ${plan.price_thb}, 0, ${plan.price_thb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${charge.id})
