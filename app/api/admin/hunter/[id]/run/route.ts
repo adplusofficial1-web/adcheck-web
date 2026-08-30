@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
-import { checkAdImageUrl, CheckAdError } from "@/lib/automationCheckAd";
+import { checkAdImageUrls, CheckAdError } from "@/lib/automationCheckAd";
 import {
   getHunterLead,
   markHunterLeadRunning,
-  appendHunterLeadResult,
   markHunterLeadDone,
   markHunterLeadFailed,
 } from "@/lib/hunterLeads";
@@ -15,11 +14,19 @@ import { isValidUuid } from "@/lib/validation";
 // lead through the exact same AI review as the external n8n endpoint (see
 // lib/automationCheckAd.ts), sequentially, in this one request.
 //
-// RESUMABILITY: only images that don't already have a result are
-// reviewed — result_urls is always appended to, never rebuilt from
-// scratch, so re-running a lead after a partial failure (e.g. image 2 of
-// 3 failed to fetch) redoes just the missing ones instead of double-
-// charging credits for images that already succeeded.
+// CHANGE (2026-08-31): all of a lead's (up to 3) images are now reviewed as
+// ONE shared submission (checkAdImageUrls) instead of one submission per
+// image — so a lead has a single "ดูผลตรวจสอบ" link
+// (adcheck.pro/share/{token} with all images on one page) rather than a
+// separate link per image. Per-image fetch/review failures inside the
+// batch are still handled individually (that credit refunded, others still
+// reviewed) — see checkAdImageUrls' own comment — but at the LEAD level
+// there is no more partial "2 of 3 done, retry only the third" state: a
+// re-run always redoes the whole batch, since it's cheap (≤3 images) and
+// keeps this route simple. Re-running a 'done' lead is only reachable by
+// first editing its image_urls (which resets it to 'ready' — see
+// lib/hunterLeads.ts:updateHunterLeadImages), so this isn't a
+// re-review-everything-for-free loophole from the UI.
 //
 // Deliberately synchronous (the admin waits for the response) rather than
 // fire-and-forget-with-polling like app/api/submissions/route.ts — a
@@ -42,36 +49,26 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: "ยังไม่มีลิงก์รูปให้ตรวจสอบ" }, { status: 400 });
   }
 
-  // Already has a result for every image_urls entry — nothing to do.
-  // (Re-running a fully 'done' lead is a no-op rather than an error, so
-  // the button can stay enabled without an admin needing to check status
-  // first.)
-  const alreadyDone = lead.result_urls.length;
-  if (alreadyDone >= lead.image_urls.length) {
+  // Already has a combined result — nothing to do. (Re-running a fully
+  // 'done' lead is a no-op rather than an error, so the button can stay
+  // enabled without an admin needing to check status first. To force a
+  // fresh review, edit the image_urls — see updateHunterLeadImages.)
+  if (lead.status === "done" && lead.result_url) {
     return NextResponse.json({ lead });
   }
 
   await markHunterLeadRunning(params.id);
 
-  // Only review the images that don't have a result yet — see the
-  // RESUMABILITY comment above. Same order as image_urls, so
-  // result_urls[i] always corresponds to image_urls[i] once complete.
-  const pending = lead.image_urls.slice(alreadyDone);
-
-  for (const imageUrl of pending) {
-    try {
-      const result = await checkAdImageUrl(imageUrl, { caption: lead.clinic_name });
-      await appendHunterLeadResult(params.id, result.resultUrl);
-    } catch (e) {
-      const message = e instanceof CheckAdError ? e.message : "internal_error";
-      console.error(`Hunter automation run failed for lead ${params.id} on image "${imageUrl}":`, e);
-      await markHunterLeadFailed(params.id, message);
-      const updated = await getHunterLead(params.id);
-      return NextResponse.json({ error: message, lead: updated }, { status: e instanceof CheckAdError ? e.status : 500 });
-    }
+  try {
+    const result = await checkAdImageUrls(lead.image_urls, { caption: lead.clinic_name });
+    await markHunterLeadDone(params.id, result.resultUrl);
+    const updated = await getHunterLead(params.id);
+    return NextResponse.json({ lead: updated });
+  } catch (e) {
+    const message = e instanceof CheckAdError ? e.message : "internal_error";
+    console.error(`Hunter automation run failed for lead ${params.id}:`, e);
+    await markHunterLeadFailed(params.id, message);
+    const updated = await getHunterLead(params.id);
+    return NextResponse.json({ error: message, lead: updated }, { status: e instanceof CheckAdError ? e.status : 500 });
   }
-
-  await markHunterLeadDone(params.id);
-  const updated = await getHunterLead(params.id);
-  return NextResponse.json({ lead: updated });
 }
