@@ -53,10 +53,24 @@ const tdClass = "px-3 py-2 border-b border-border text-left align-top";
 const smallInputClass =
   "w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30";
 
-// One lead row's inline "up to 3 image URL" editor + run button — split
-// out so its own useState for the 3 url inputs doesn't have to live in
-// the parent's per-row map.
-function LeadRow({ lead, onSaved, onRun }: { lead: HunterLead; onSaved: (l: HunterLead) => void; onRun: (id: string) => Promise<void> }) {
+// One lead row's inline "up to 3 image URL" editor + run/delete buttons —
+// split out so its own useState for the 3 url inputs doesn't have to live
+// in the parent's per-row map.
+function LeadRow({
+  lead,
+  index,
+  disableActions,
+  onSaved,
+  onRun,
+  onDelete,
+}: {
+  lead: HunterLead;
+  index: number;
+  disableActions: boolean;
+  onSaved: (l: HunterLead) => void;
+  onRun: (id: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
   const [urls, setUrls] = useState<string[]>(() => {
     const base = [...lead.image_urls];
     while (base.length < 3) base.push("");
@@ -64,6 +78,7 @@ function LeadRow({ lead, onSaved, onRun }: { lead: HunterLead; onSaved: (l: Hunt
   });
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   const dirty = urls.some((u, i) => u.trim() !== (lead.image_urls[i] || ""));
@@ -98,11 +113,22 @@ function LeadRow({ lead, onSaved, onRun }: { lead: HunterLead; onSaved: (l: Hunt
     }
   };
 
+  const del = async () => {
+    if (!window.confirm(`ลบ "${lead.clinic_name}" ออกจากคิว Hunter?`)) return;
+    setDeleting(true);
+    try {
+      await onDelete(lead.id);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const status = STATUS_META[lead.status] || STATUS_META.awaiting_images;
-  const canRun = lead.image_urls.length > 0 && !dirty && lead.status !== "running";
+  const canRun = lead.image_urls.length > 0 && !dirty && lead.status !== "running" && !disableActions;
 
   return (
     <tr>
+      <td className={tdClass}>{index + 1}</td>
       <td className={tdClass}>{new Date(lead.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}</td>
       <td className={tdClass}>
         {lead.source_link ? (
@@ -119,20 +145,22 @@ function LeadRow({ lead, onSaved, onRun }: { lead: HunterLead; onSaved: (l: Hunt
         )}
       </td>
       <td className={tdClass}>
-        <div className="flex flex-col gap-1.5 min-w-[200px]">
-          {urls.map((u, i) => (
-            <input
-              key={i}
-              value={u}
-              placeholder={`ลิงก์รูปที่ ${i + 1}`}
-              className={smallInputClass}
-              onChange={(e) => {
-                const next = [...urls];
-                next[i] = e.target.value;
-                setUrls(next);
-              }}
-            />
-          ))}
+        <div className="flex flex-col gap-1.5 min-w-[560px]">
+          <div className="flex items-center gap-1.5">
+            {urls.map((u, i) => (
+              <input
+                key={i}
+                value={u}
+                placeholder={`ลิงก์รูปที่ ${i + 1}`}
+                className={`${smallInputClass} flex-1`}
+                onChange={(e) => {
+                  const next = [...urls];
+                  next[i] = e.target.value;
+                  setUrls(next);
+                }}
+              />
+            ))}
+          </div>
           <div className="flex items-center gap-2 mt-1">
             <button
               onClick={save}
@@ -161,14 +189,23 @@ function LeadRow({ lead, onSaved, onRun }: { lead: HunterLead; onSaved: (l: Hunt
         )}
       </td>
       <td className={tdClass}>
-        <button
-          onClick={run}
-          disabled={!canRun || running}
-          title={dirty ? "บันทึกลิงก์ก่อนตรวจสอบ" : undefined}
-          className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40"
-        >
-          {running || lead.status === "running" ? "กำลังตรวจสอบ…" : "ตรวจสอบอัตโนมัติ"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={run}
+            disabled={!canRun || running}
+            title={dirty ? "บันทึกลิงก์ก่อนตรวจสอบ" : undefined}
+            className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+          >
+            {running || lead.status === "running" ? "กำลังตรวจสอบ…" : "ตรวจสอบอัตโนมัติ"}
+          </button>
+          <button
+            onClick={del}
+            disabled={deleting || lead.status === "running" || disableActions}
+            className="rounded-md border border-danger text-danger px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+          >
+            {deleting ? "กำลังลบ…" : "ลบ"}
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -296,6 +333,47 @@ export function HunterImport() {
     }
   };
 
+  const deleteLead = async (id: string) => {
+    const res = await fetch(`/api/admin/hunter/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setLeads((prev) => prev.filter((l) => l.id !== id));
+    } else {
+      const data = await res.json().catch(() => null);
+      window.alert(data?.error || "ลบไม่สำเร็จ");
+    }
+  };
+
+  // "ตรวจสอบอัตโนมัติทั้งหมด" — runs every lead currently sitting at
+  // 'ready' (has image_urls, not yet run) ONE AT A TIME, sequentially,
+  // reusing the exact same /run endpoint each row's own button calls.
+  // Deliberately sequential rather than Promise.all: each call is a real
+  // AI review (or up to 3, per lead) hitting the shared automation
+  // business's credit balance, so firing them all at once would just
+  // contend with itself for no benefit and make a failed run harder to
+  // attribute to one lead. runningAll disables every row's own run/delete
+  // controls for the duration so two runs can't target the same lead at
+  // once.
+  const [runningAll, setRunningAll] = useState(false);
+  const [runAllProgress, setRunAllProgress] = useState<{ done: number; total: number } | null>(null);
+
+  const runAllReady = async () => {
+    const targets = leads.filter((l) => l.status === "ready").map((l) => l.id);
+    if (targets.length === 0) return;
+    setRunningAll(true);
+    setRunAllProgress({ done: 0, total: targets.length });
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        await runAutomation(targets[i]);
+        setRunAllProgress({ done: i + 1, total: targets.length });
+      }
+    } finally {
+      setRunningAll(false);
+      setRunAllProgress(null);
+    }
+  };
+
+  const readyCount = leads.filter((l) => l.status === "ready").length;
+
   return (
     <div>
       <div className="rounded-lg border border-warning bg-warningSoft px-4 py-3 text-xs text-warning leading-relaxed mb-6">
@@ -394,11 +472,28 @@ export function HunterImport() {
       </div>
 
       <div>
-        <h2 className="text-base font-medium text-primary mb-3">คิว Hunter</h2>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h2 className="text-base font-medium text-primary">คิว Hunter</h2>
+          <div className="flex items-center gap-2">
+            {runAllProgress && (
+              <span className="text-xs text-tertiary">
+                กำลังตรวจสอบ… ({runAllProgress.done}/{runAllProgress.total})
+              </span>
+            )}
+            <button
+              onClick={runAllReady}
+              disabled={runningAll || readyCount === 0}
+              className="rounded-md bg-inverse text-onInverse px-4 py-2 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+            >
+              {runningAll ? "กำลังตรวจสอบทั้งหมด…" : `ตรวจสอบอัตโนมัติทั้งหมด (${readyCount} รายการพร้อมตรวจ)`}
+            </button>
+          </div>
+        </div>
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-xs">
             <thead>
               <tr>
+                <th className={thClass}>ลำดับ</th>
                 <th className={thClass}>วันที่</th>
                 <th className={thClass}>คลินิก</th>
                 <th className={thClass}>ลิงก์รูป</th>
@@ -410,23 +505,26 @@ export function HunterImport() {
             <tbody>
               {loadingLeads ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-tertiary py-6">
+                  <td colSpan={7} className="text-center text-tertiary py-6">
                     กำลังโหลด…
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-tertiary py-6">
+                  <td colSpan={7} className="text-center text-tertiary py-6">
                     ยังไม่มีรายการ
                   </td>
                 </tr>
               ) : (
-                leads.map((lead) => (
+                leads.map((lead, i) => (
                   <LeadRow
                     key={lead.id}
                     lead={lead}
+                    index={i}
+                    disableActions={runningAll}
                     onSaved={(updated) => setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))}
                     onRun={runAutomation}
+                    onDelete={deleteLead}
                   />
                 ))
               )}
