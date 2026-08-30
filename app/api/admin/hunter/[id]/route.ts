@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
-import { updateHunterLeadImages } from "@/lib/hunterLeads";
+import { updateHunterLeadImages, deleteHunterLead } from "@/lib/hunterLeads";
 import { isValidUuid, stripNulBytes } from "@/lib/validation";
 
 const MAX_IMAGE_URLS = 3; // matches the DB CHECK constraint in migrations/009_hunter_queue.sql
@@ -51,5 +51,29 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   } catch (e) {
     console.error(`PATCH /api/admin/hunter/${params.id} failed:`, e);
     return NextResponse.json({ error: "บันทึกไม่สำเร็จ" }, { status: 500 });
+  }
+}
+
+// DELETE /api/admin/hunter/[id] — the per-row "ลบ" button in
+// HunterImport.tsx, removing a lead from the queue entirely. Plain hard
+// delete (see lib/hunterLeads.ts:deleteHunterLead) — a Hunter lead is a
+// prospecting queue entry, not billing/audit data, so there's no soft-
+// delete/undo requirement here the way there would be for a real
+// submission or credit transaction.
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  const adminEmail = await getCurrentPlatformAdminEmail();
+  if (!adminEmail) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  if (!isValidUuid(params.id)) {
+    return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
+  }
+
+  try {
+    const deleted = await deleteHunterLead(params.id);
+    if (!deleted) return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error(`DELETE /api/admin/hunter/${params.id} failed:`, e);
+    return NextResponse.json({ error: "ลบไม่สำเร็จ" }, { status: 500 });
   }
 }
