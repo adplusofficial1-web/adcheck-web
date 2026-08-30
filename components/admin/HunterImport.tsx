@@ -227,23 +227,33 @@ function LeadRow({
         </div>
       </td>
       <td className={tdClass}>
-        {lead.result_url ? (
-          <a href={lead.result_url} target="_blank" rel="noopener noreferrer" className="text-xs text-accent underline break-all">
-            ดูผลตรวจสอบ
-          </a>
-        ) : (
-          <span className="text-xs text-tertiary">-</span>
-        )}
-      </td>
-      <td className={tdClass}>
         <div className="flex items-center gap-2">
-          <button
-            onClick={run}
-            disabled={!canRun || running}
-            className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
-          >
-            {running || lead.status === "running" ? "กำลังตรวจสอบ…" : "ตรวจสอบอัตโนมัติ"}
-          </button>
+          {/* CHANGE (2026-08-31): the separate "ผลตรวจสอบ" column was
+              removed per user request — once a lead has a result_url, this
+              slot now shows a "ดูผลตรวจสอบ" link button in place of the
+              "ตรวจสอบอัตโนมัติ" button (rather than showing both side by
+              side), since re-running a 'done' lead is a no-op anyway (see
+              app/api/admin/hunter/[id]/run/route.ts) until its image_urls
+              are edited — at which point result_url is cleared and this
+              reverts to the run button automatically. */}
+          {lead.result_url ? (
+            <a
+              href={lead.result_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium whitespace-nowrap"
+            >
+              ดูผลตรวจสอบ
+            </a>
+          ) : (
+            <button
+              onClick={run}
+              disabled={!canRun || running}
+              className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+            >
+              {running || lead.status === "running" ? "กำลังตรวจสอบ…" : "ตรวจสอบอัตโนมัติ"}
+            </button>
+          )}
           <button
             onClick={del}
             disabled={deleting || lead.status === "running" || disableActions}
@@ -548,20 +558,19 @@ export function HunterImport() {
                 <th className={thClass}>ลำดับ</th>
                 <th className={thClass}>คลินิก</th>
                 <th className={thClass}>ลิงก์รูป</th>
-                <th className={thClass}>ผลตรวจสอบ</th>
                 <th className={thClass}></th>
               </tr>
             </thead>
             <tbody>
               {loadingLeads ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-tertiary py-6">
+                  <td colSpan={4} className="text-center text-tertiary py-6">
                     กำลังโหลด…
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-tertiary py-6">
+                  <td colSpan={4} className="text-center text-tertiary py-6">
                     ยังไม่มีรายการ
                   </td>
                 </tr>
