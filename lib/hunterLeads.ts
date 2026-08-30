@@ -3,7 +3,8 @@ import { sql } from "@/lib/db";
 // Admin > Marketing > Hunter's server-side queue — see
 // migrations/009_hunter_queue.sql for the full table design writeup and
 // why this is a separate table from `submissions`/`submission_images`
-// rather than reusing them.
+// rather than reusing them, and migrations/010_hunter_leads_single_result_url.sql
+// for why result_url is a single column, not an array.
 
 export type HunterLeadStatus = "awaiting_images" | "ready" | "running" | "done" | "failed";
 
@@ -15,7 +16,7 @@ export type HunterLead = {
   image_urls: string[];
   note: string | null;
   status: HunterLeadStatus;
-  result_urls: string[];
+  result_url: string | null;
   last_error: string | null;
   created_at: string;
   updated_at: string;
@@ -68,18 +69,13 @@ export async function importHunterLeads(
 //   - 'running' is left alone — editing urls mid-run shouldn't be
 //     possible from the UI anyway (the run button disables while
 //     running), but if it somehow happens, don't fight the in-flight run.
-//   - 'done'/'failed' -> 'ready', clearing result_urls/last_error,
+//   - 'done'/'failed' -> 'ready', clearing result_url/last_error,
 //     whenever the edited image_urls array no longer matches what's
-//     already in image_urls. This matters because
-//     app/api/admin/hunter/[id]/run/route.ts resumes by index
-//     (result_urls[i] corresponds to image_urls[i]) — if Hunter swaps out
-//     a failed/completed image for a different URL, the old result_urls
-//     would silently misalign with the new list without this reset.
-//     FIX (found during manual pipeline test, 2026-08-30): originally
-//     this only handled the 'awaiting_images' case, so re-editing a
-//     'failed' lead's urls left it stuck showing "ล้มเหลว" with a stale
-//     error message forever, even after fixing the bad URL — the run
-//     button never re-enabled a fresh attempt.
+//     already in image_urls. This matters because a lead's images are
+//     now reviewed together as ONE batch (checkAdImageUrls) producing
+//     ONE result_url — if Hunter swaps out any image for a different
+//     URL, the old combined result would silently describe the wrong
+//     set of images without this reset.
 export async function updateHunterLeadImages(
   id: string,
   imageUrls: string[],
@@ -93,19 +89,19 @@ export async function updateHunterLeadImages(
   const urlsChanged = JSON.stringify(existing.image_urls) !== JSON.stringify(imageUrls);
 
   let nextStatus: HunterLeadStatus = existing.status;
-  let clearResults = false;
+  let clearResult = false;
   if (existing.status === "awaiting_images" && imageUrls.length > 0) {
     nextStatus = "ready";
   } else if ((existing.status === "done" || existing.status === "failed") && urlsChanged) {
     nextStatus = imageUrls.length > 0 ? "ready" : "awaiting_images";
-    clearResults = true;
+    clearResult = true;
   }
 
-  const [row] = clearResults
+  const [row] = clearResult
     ? await sql`
         UPDATE hunter_leads
         SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus},
-            result_urls = '{}', last_error = NULL, updated_at = now()
+            result_url = NULL, last_error = NULL, updated_at = now()
         WHERE id = ${id}
         RETURNING *
       `
@@ -120,29 +116,28 @@ export async function updateHunterLeadImages(
 
 // --- Automation run bookkeeping -----------------------------------------
 // Called by app/api/admin/hunter/[id]/run/route.ts around each phase of a
-// run. Kept as three small, obviously-named functions rather than one
-// generic "updateStatus" so each call site at the route reads as exactly
-// what's happening, and so `result_urls`/`last_error` can only be touched
-// by the two calls that are actually supposed to touch them.
+// run. Kept as small, obviously-named functions rather than one generic
+// "updateStatus" so each call site at the route reads as exactly what's
+// happening.
+//
+// CHANGE (2026-08-31): a lead's images are now reviewed together as ONE
+// batch (lib/automationCheckAd.ts:checkAdImageUrls) producing ONE
+// result_url, rather than one-result-per-image appended as the run
+// progresses — so there's no more partial "2 of 3 appended so far" state
+// to persist mid-run. The run route now calls markHunterLeadRunning, then
+// either markHunterLeadDone(id, resultUrl) or markHunterLeadFailed once,
+// after the whole batch settles.
 
 export async function markHunterLeadRunning(id: string): Promise<void> {
   await sql`UPDATE hunter_leads SET status = 'running', last_error = NULL, updated_at = now() WHERE id = ${id}`;
 }
 
-// Appends one more completed result URL (same order as image_urls) —
-// called once per image as the run progresses, so a lead that fails
-// partway through still has every result obtained before the failure
-// saved, not lost.
-export async function appendHunterLeadResult(id: string, resultUrl: string): Promise<void> {
+export async function markHunterLeadDone(id: string, resultUrl: string): Promise<void> {
   await sql`
     UPDATE hunter_leads
-    SET result_urls = array_append(result_urls, ${resultUrl}), updated_at = now()
+    SET status = 'done', result_url = ${resultUrl}, last_error = NULL, updated_at = now()
     WHERE id = ${id}
   `;
-}
-
-export async function markHunterLeadDone(id: string): Promise<void> {
-  await sql`UPDATE hunter_leads SET status = 'done', last_error = NULL, updated_at = now() WHERE id = ${id}`;
 }
 
 export async function markHunterLeadFailed(id: string, errorMessage: string): Promise<void> {

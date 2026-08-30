@@ -4,16 +4,15 @@ import { reserveCredits, refundCredits } from "@/lib/credits";
 import { MAX_FILE_SIZE_BYTES, ALLOWED_MEDIA_TYPES } from "@/lib/uploadLimits";
 import { stripNulBytes } from "@/lib/validation";
 
-// Shared core of "review one ad image given only its public URL", used by
-// two callers:
+// Shared core of "review one or more ad images given only their public
+// URLs", used by three callers:
 //   - app/api/automation/check-ad/route.ts — the external n8n-facing HTTP
-//     endpoint (x-api-key auth), unchanged in behavior after this
-//     extraction.
+//     endpoint (x-api-key auth), one image in, one submission, unchanged in
+//     behavior after this extraction. Uses checkAdImageUrl().
 //   - app/api/admin/hunter/[id]/run/route.ts — the admin "run automation"
-//     button for a Hunter lead, calling this directly in-process rather
-//     than making an HTTP round-trip back into this same Next.js app
-//     (which would need a hardcoded domain and the shared secret just to
-//     talk to itself).
+//     button for a Hunter lead. Uses checkAdImageUrls() so all of a lead's
+//     (up to 3) images land in ONE shared submission — see that function's
+//     comment for why this changed from one-submission-per-image.
 //
 // Pulled out of check-ad/route.ts verbatim (same fetch/size/content-type
 // checks, same reviewImage() call, same flags/status derivation, same
@@ -29,6 +28,23 @@ export type CheckAdResult = {
   flags: any[];
 };
 
+// One image's outcome inside a multi-image batch (checkAdImageUrls) — same
+// per-image status/flags as CheckAdResult, but without its own
+// resultUrl/submissionId since a batch shares ONE submission (and hence one
+// resultUrl) across every image in it.
+export type CheckAdBatchImageResult = {
+  imageUrl: string;
+  status: "passed" | "caution" | "violation";
+  flags: any[];
+  failed: boolean; // true if this specific image's fetch/review step failed
+};
+
+export type CheckAdBatchResult = {
+  submissionId: string;
+  resultUrl: string;
+  images: CheckAdBatchImageResult[];
+};
+
 export class CheckAdError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -37,13 +53,10 @@ export class CheckAdError extends Error {
   }
 }
 
-export async function checkAdImageUrl(
-  imageUrl: string,
-  opts?: { caption?: string }
-): Promise<CheckAdResult> {
-  const caption = opts?.caption ? stripNulBytes(opts.caption) : undefined;
+// --- Internal: fetch one image's bytes over HTTP ------------------------
+type FetchedImage = { base64Image: string; mediaType: string; filename: string };
 
-  // --- Fetch the image server-side ---------------------------------------
+async function fetchImageBytes(imageUrl: string): Promise<FetchedImage> {
   // FIX (found during manual pipeline test, 2026-08-30): a bare fetch()
   // with no User-Agent header gets a flat 400 from at least Wikimedia's
   // CDN (and several other image hosts do the same) — they treat a
@@ -105,44 +118,29 @@ export async function checkAdImageUrl(
   }
   const buffer = Buffer.concat(chunks.map((c) => Buffer.from(c)));
   const base64Image = buffer.toString("base64");
-  const mediaType = contentType;
-
-  // --- Resolve the internal automation business ---------------------------
-  const business = await getOrCreateAutomationBusiness();
-  if (!business) {
-    console.error("getOrCreateAutomationBusiness() returned no row");
-    throw new CheckAdError("internal_error", 500);
-  }
-
-  // --- Reserve 1 credit, same accounting as app/api/submissions/route.ts --
-  const reserved = await reserveCredits(business.id, 1);
-  if (!reserved) {
-    throw new CheckAdError("insufficient credits", 402);
-  }
-
-  // --- Create the submission row -----------------------------------------
   const filename = imageUrl.split("/").pop()?.split("?")[0] || "automation-image";
-  let submission;
-  try {
-    [submission] = await sql`
-      INSERT INTO submissions (business_id, status, credits_used, rules_version_ref)
-      VALUES (${business.id}, 'processing', 1, 'คู่มือและประกาศ สบส./อย. ที่เกี่ยวข้อง')
-      RETURNING id, share_token
-    `;
-  } catch (e) {
-    console.error("Failed to create submission row after reserving credits:", e);
-    await refundCredits(business.id, 1);
-    throw new CheckAdError("internal_error", 500);
-  }
 
-  // --- Review synchronously ------------------------------------------------
+  return { base64Image, mediaType: contentType, filename };
+}
+
+// --- Internal: review one already-fetched image and store it against an
+// EXISTING submission row (sort_order lets several images share one
+// submission) ------------------------------------------------------------
+async function reviewAndStoreImage(
+  submissionId: string,
+  sortOrder: number,
+  fetched: FetchedImage,
+  caption: string | undefined
+): Promise<{ status: "passed" | "caution" | "violation"; flags: any[]; reviewFailed: boolean }> {
+  const { base64Image, mediaType, filename } = fetched;
+
   let result: any;
   let reviewFailed = false;
   try {
     result = await reviewImage({ base64Image, mediaType, caption, filename });
     if (result.reviewFailed) reviewFailed = true;
   } catch (e: any) {
-    console.error(`reviewImage failed for automation submission ${submission.id}:`, e);
+    console.error(`reviewImage failed for automation submission ${submissionId} image ${sortOrder}:`, e);
     reviewFailed = true;
     result = {
       status: "caution" as const,
@@ -194,16 +192,15 @@ export async function checkAdImageUrl(
       },
     ];
     console.warn(
-      `reviewImage returned status "${result.status}" with zero flags for automation submission ${submission.id} — keeping as "${derivedStatus}" with a synthetic review flag instead of downgrading to "passed"`
+      `reviewImage returned status "${result.status}" with zero flags for automation submission ${submissionId} image ${sortOrder} — keeping as "${derivedStatus}" with a synthetic review flag instead of downgrading to "passed"`
     );
   } else if (result.status !== derivedStatus) {
     console.warn(
-      `reviewImage status/flags mismatch for automation submission ${submission.id}: model said "${result.status}", derived "${derivedStatus}" from ${result.flags.length} flag(s)`
+      `reviewImage status/flags mismatch for automation submission ${submissionId} image ${sortOrder}: model said "${result.status}", derived "${derivedStatus}" from ${result.flags.length} flag(s)`
     );
   }
   result.status = derivedStatus;
 
-  // --- Store the image + flags ----------------------------------------------
   const storedImageUrl = `data:${mediaType};base64,${base64Image}`;
   const cleanFilename = stripNulBytes(filename);
   const cleanCaption = caption ? stripNulBytes(caption) : caption;
@@ -211,7 +208,7 @@ export async function checkAdImageUrl(
   try {
     const [savedImage] = await sql`
       INSERT INTO submission_images (submission_id, image_url, filename, caption, status, sort_order)
-      VALUES (${submission.id}, ${storedImageUrl}, ${cleanFilename}, ${cleanCaption || null}, ${result.status}, 0)
+      VALUES (${submissionId}, ${storedImageUrl}, ${cleanFilename}, ${cleanCaption || null}, ${result.status}, ${sortOrder})
       RETURNING id
     `;
 
@@ -226,14 +223,52 @@ export async function checkAdImageUrl(
 
       await sql`
         INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation, detailed_explanation)
-        VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${combinedExplanation})
+        VALUES (${submissionId}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${combinedExplanation})
       `;
     }
   } catch (e) {
-    console.error(`Failed to save review results for automation submission ${submission.id}:`, e);
+    console.error(`Failed to save review results for automation submission ${submissionId} image ${sortOrder}:`, e);
   }
 
-  const finalStatus = result.status === "passed" ? "passed" : "needs_review";
+  return { status: result.status, flags: result.flags, reviewFailed };
+}
+
+// --- Public: single image, own submission (external n8n endpoint) -------
+export async function checkAdImageUrl(
+  imageUrl: string,
+  opts?: { caption?: string }
+): Promise<CheckAdResult> {
+  const caption = opts?.caption ? stripNulBytes(opts.caption) : undefined;
+
+  const fetched = await fetchImageBytes(imageUrl);
+
+  const business = await getOrCreateAutomationBusiness();
+  if (!business) {
+    console.error("getOrCreateAutomationBusiness() returned no row");
+    throw new CheckAdError("internal_error", 500);
+  }
+
+  const reserved = await reserveCredits(business.id, 1);
+  if (!reserved) {
+    throw new CheckAdError("insufficient credits", 402);
+  }
+
+  let submission;
+  try {
+    [submission] = await sql`
+      INSERT INTO submissions (business_id, status, credits_used, rules_version_ref)
+      VALUES (${business.id}, 'processing', 1, 'คู่มือและประกาศ สบส./อย. ที่เกี่ยวข้อง')
+      RETURNING id, share_token
+    `;
+  } catch (e) {
+    console.error("Failed to create submission row after reserving credits:", e);
+    await refundCredits(business.id, 1);
+    throw new CheckAdError("internal_error", 500);
+  }
+
+  const { status, flags, reviewFailed } = await reviewAndStoreImage(submission.id, 0, fetched, caption);
+
+  const finalStatus = status === "passed" ? "passed" : "needs_review";
   try {
     await sql`
       UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
@@ -250,7 +285,112 @@ export async function checkAdImageUrl(
   return {
     submissionId: submission.id,
     resultUrl: `https://adcheck.pro/share/${submission.share_token}`,
-    status: result.status,
-    flags: result.flags,
+    status,
+    flags,
+  };
+}
+
+// --- Public: multiple images, ONE shared submission ----------------------
+// Used by the Hunter "run automation" button (app/api/admin/hunter/[id]/run
+// /route.ts) so a lead's up-to-3 images land on a single public share page
+// (adcheck.pro/share/{token}) instead of one separate link per image — the
+// share page (app/share/[token]/page.tsx) already renders every image
+// under one submission in one page, so this only needed a batching layer
+// here, no changes to that page.
+//
+// CHANGE (2026-08-31): previously each Hunter image called checkAdImageUrl
+// separately, creating 3 submissions/3 share links per lead
+// (hunter_leads.result_urls, plural). Replaced with this single-submission
+// batch so a lead now has ONE result_url — see migrations/010 and
+// lib/hunterLeads.ts for the corresponding schema/column change.
+//
+// Credits are reserved for the WHOLE batch up front (imageUrls.length, same
+// as app/api/submissions/route.ts does for a normal multi-image upload),
+// not per image — if reservation fails, nothing runs at all. If fetching
+// one particular image fails partway through, that single credit is
+// refunded (not the whole batch) and that image is recorded as failed
+// (CheckAdBatchImageResult.failed) rather than aborting the remaining
+// images — a bad link for image 2 of 3 shouldn't block images 1 and 3 from
+// still getting reviewed and shown on the same share page.
+export async function checkAdImageUrls(
+  imageUrls: string[],
+  opts?: { caption?: string }
+): Promise<CheckAdBatchResult> {
+  if (imageUrls.length === 0) {
+    throw new CheckAdError("imageUrls must not be empty", 400);
+  }
+  const caption = opts?.caption ? stripNulBytes(opts.caption) : undefined;
+
+  const business = await getOrCreateAutomationBusiness();
+  if (!business) {
+    console.error("getOrCreateAutomationBusiness() returned no row");
+    throw new CheckAdError("internal_error", 500);
+  }
+
+  const reserved = await reserveCredits(business.id, imageUrls.length);
+  if (!reserved) {
+    throw new CheckAdError("insufficient credits", 402);
+  }
+
+  let submission;
+  try {
+    [submission] = await sql`
+      INSERT INTO submissions (business_id, status, credits_used, rules_version_ref)
+      VALUES (${business.id}, 'processing', ${imageUrls.length}, 'คู่มือและประกาศ สบส./อย. ที่เกี่ยวข้อง')
+      RETURNING id, share_token
+    `;
+  } catch (e) {
+    console.error("Failed to create submission row after reserving credits:", e);
+    await refundCredits(business.id, imageUrls.length);
+    throw new CheckAdError("internal_error", 500);
+  }
+
+  const images: CheckAdBatchImageResult[] = [];
+  let unreviewedCount = 0;
+
+  for (let i = 0; i < imageUrls.length; i++) {
+    const imageUrl = imageUrls[i];
+    try {
+      const fetched = await fetchImageBytes(imageUrl);
+      const { status, flags, reviewFailed } = await reviewAndStoreImage(submission.id, i, fetched, caption);
+      if (reviewFailed) unreviewedCount++;
+      images.push({ imageUrl, status, flags, failed: false });
+    } catch (e) {
+      // A single image's fetch failing (bad/expired link, unsupported
+      // content-type, etc.) shouldn't sink the other images already
+      // reserved/paid-for in this same batch — record it and refund just
+      // this one credit, same as app/api/submissions/route.ts refunds
+      // per-unreviewed-image rather than all-or-nothing.
+      const message = e instanceof CheckAdError ? e.message : "internal_error";
+      console.error(`checkAdImageUrls: image ${i} ("${imageUrl}") failed for submission ${submission.id}:`, e);
+      unreviewedCount++;
+      images.push({ imageUrl, status: "caution", flags: [], failed: true });
+    }
+  }
+
+  const overallStatus: "passed" | "caution" | "violation" = images.some((i) => i.status === "violation")
+    ? "violation"
+    : images.some((i) => i.status === "caution")
+    ? "caution"
+    : "passed";
+
+  const finalStatus = overallStatus === "passed" ? "passed" : "needs_review";
+  try {
+    await sql`
+      UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
+      WHERE id = ${submission.id} AND status = 'processing'
+    `;
+  } catch (e) {
+    console.error(`Failed to set final status for automation submission ${submission.id}:`, e);
+  }
+
+  if (unreviewedCount > 0) {
+    await refundCredits(business.id, unreviewedCount);
+  }
+
+  return {
+    submissionId: submission.id,
+    resultUrl: `https://adcheck.pro/share/${submission.share_token}`,
+    images,
   };
 }
