@@ -280,7 +280,7 @@ export function ClinicSettingsCard({
       <div className="flex items-center justify-between flex-wrap gap-3 pt-4 border-t border-border">
         <div>
           <span className="inline-block text-xs font-medium px-3 py-1 mb-2 rounded-pill bg-accentSoft text-accent">
-            ใช้เครดิตรวมจากแพ็กเกจ Agency
+            ใช้เครดิตรวมจากแพ็กเกจองค์กร
           </span>
           <div className="text-xs text-secondary">
             {checksThisMonth !== undefined ? `ตรวจแล้วเดือนนี้ ${checksThisMonth} ครั้ง` : null}
