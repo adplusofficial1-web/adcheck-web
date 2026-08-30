@@ -119,10 +119,8 @@ function LeadRow({
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || "บันทึกไม่สำเร็จ");
         onSaved(data.lead);
-        setSaveMsg("บันทึกลิงก์แล้ว");
 
         if (cleaned.length >= MAX_IMAGE_URLS && data.lead.status === "ready") {
-          setSaveMsg("บันทึกลิงก์ครบแล้ว — กำลังตรวจสอบอัตโนมัติ…");
           // setRunning here (rather than calling the run() helper defined
           // below) so the "ตรวจสอบอัตโนมัติ" button visibly flips to
           // "กำลังตรวจสอบ…" for this auto-triggered run too, not just for
@@ -214,13 +212,21 @@ function LeadRow({
               />
             ))}
           </div>
-          {(saving || saveMsg) && (
-            <span className="text-[11px] text-tertiary">{saving ? "กำลังบันทึก…" : saveMsg}</span>
-          )}
-          {/* CHANGE (2026-08-31): the "สถานะ" column was removed per user
-              request — a failed run's error message still needs to surface
-              somewhere, so it now shows directly under this row's own url
-              inputs instead of under a status badge. */}
+          {/* CHANGE (2026-08-31): the inline "กำลังบันทึก…" / "บันทึกลิงก์แล้ว"
+              / "บันทึกลิงก์ครบแล้ว — กำลังตรวจสอบอัตโนมัติ…" status line was
+              removed per user request — it looked stuck/leftover once a run
+              actually finished (the row's action button already reflects
+              save/run state via canRun and the "ดูผลตรวจสอบ"/"ตรวจสอบอัตโนมัติ"
+              swap, so this extra text under the inputs was redundant).
+              saveMsg is now ONLY surfaced when a save itself actually fails
+              (bad URL, network error, etc.) — that's a real problem the
+              admin needs to see and has no other visible indicator, unlike
+              the routine "saved"/"auto-running" progress text this removed. */}
+          {saveMsg && <span className="text-[11px] text-danger">{saveMsg}</span>}
+          {/* The "สถานะ" column was removed per an earlier user request — a
+              failed run's error message still needs to surface somewhere, so
+              it shows directly under this row's own url inputs instead of
+              under a status badge. */}
           {lead.status === "failed" && lead.last_error && (
             <div className="text-[11px] text-danger max-w-[280px]">ล้มเหลว: {lead.last_error}</div>
           )}
