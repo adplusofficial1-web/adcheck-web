@@ -51,78 +51,121 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid plan" }, { status: 400 });
   }
 
-  let bound;
-  try {
-    bound = await createCustomerWithCard(token, business.contact_email ?? undefined);
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err?.message || "ไม่สามารถบันทึกบัตรได้ กรุณาตรวจสอบข้อมูลบัตรอีกครั้ง" },
-      { status: 400 }
-    );
-  }
-
-  // One saved card per business for now — replace any previous default
-  // rather than accumulating unused rows every time someone re-checks out.
-  await sql`UPDATE payment_methods SET is_default = false WHERE business_id = ${business.id}`;
-  await sql`
-    INSERT INTO payment_methods
-      (business_id, brand, last4, exp_month, exp_year, is_default, omise_customer_id, omise_card_id)
-    VALUES
-      (${business.id}, ${bound.brand}, ${bound.last4}, ${bound.expMonth}, ${bound.expYear}, true, ${bound.omiseCustomerId}, ${bound.omiseCardId})
-  `;
-
-  const chargeResult = await chargeCustomer(bound.omiseCustomerId, bound.omiseCardId, Number(plan.price_thb), {
-    description: `AdCheck ${plan.name} — ${business.name}`,
-    indicator: "CIT",
-    metadata: { business_id: business.id, plan_id: plan.id },
-  });
-
-  // Some Thai-issued cards require a 3-D Secure step-up on this first
-  // charge. The card is already bound above, so nothing is lost if the
-  // customer abandons the bank's auth page — they can just retry the
-  // charge. Final confirmation (and credit-granting) happens in
-  // app/api/webhooks/omise/route.ts once Omise reports the real outcome.
-  if (chargeResult.pending3ds) {
-    return NextResponse.json({
-      ok: false,
-      requires3ds: true,
-      authorizeUri: chargeResult.pending3ds,
-    });
-  }
-
-  if (!chargeResult.success) {
-    return NextResponse.json(
-      { error: chargeResult.failureMessage || "การตัดบัตรไม่สำเร็จ กรุณาตรวจสอบวงเงินหรือใช้บัตรอื่น" },
-      { status: 402 }
-    );
-  }
-
-  const invoiceNumber = `INV-2569-${Math.floor(Math.random() * 9000 + 1000)}`;
-  const [transaction] = (await sql`
-    INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number, omise_charge_id)
-    VALUES (${business.id}, ${plan.id}, ${plan.price_thb}, 0, ${plan.price_thb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${chargeResult.chargeId})
-    ON CONFLICT (omise_charge_id) DO NOTHING
+  // FIX (bug audit round 2, high #5): nothing here used to stop two
+  // concurrent POSTs for the same business (a network-timeout retry, a
+  // double-click before the button's disabled state painted, two open
+  // tabs) from both reaching chargeCustomer() below. Since they'd get two
+  // DIFFERENT Omise charge ids, the `ON CONFLICT (omise_charge_id)` guard
+  // further down (which only catches a retry of the SAME charge, e.g. a
+  // webhook redelivery) does nothing to stop it — the customer would be
+  // charged twice and granted two packages' worth of credits.
+  //
+  // Atomically claim a short-lived per-business lock first: this single
+  // UPDATE's row lock makes the claim itself race-safe (two concurrent
+  // UPDATEs against the same row serialize; the second only sees a "free"
+  // lock if the first genuinely never claimed it or the claim has expired),
+  // without needing interactive multi-statement transactions, which this
+  // app's Neon HTTP driver doesn't support (see lib/credits.ts's comment on
+  // reserveCredits for the same constraint). The 2-minute staleness window
+  // means a crash between claiming and releasing the lock (e.g. the process
+  // dying mid-request) can't permanently lock a business out of ever
+  // checking out again.
+  const CHECKOUT_LOCK_MINUTES = 2;
+  const [lockClaimed] = (await sql`
+    UPDATE businesses
+    SET checkout_in_progress_at = now()
+    WHERE id = ${business.id}
+      AND (checkout_in_progress_at IS NULL
+        OR checkout_in_progress_at < now() - make_interval(mins => ${CHECKOUT_LOCK_MINUTES}))
     RETURNING id
   `) as any[];
-
-  // ON CONFLICT DO NOTHING means a webhook retry (or a rare double-submit)
-  // for the exact same charge id already recorded this — nothing left to
-  // grant a second time.
-  if (!transaction) {
-    return NextResponse.json({ ok: true, invoiceNumber });
+  if (!lockClaimed) {
+    return NextResponse.json(
+      { error: "กำลังดำเนินการชำระเงินอยู่ กรุณารอสักครู่แล้วลองใหม่อีกครั้ง" },
+      { status: 409 }
+    );
   }
 
-  await sql`
-    INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)
-    VALUES (${business.id}, ${plan.id}, ${transaction.id}, ${plan.monthly_image_credits}, ${plan.monthly_image_credits}, now(), now() + interval '30 days')
-  `;
+  try {
+    let bound;
+    try {
+      bound = await createCustomerWithCard(token, business.contact_email ?? undefined);
+    } catch (err: any) {
+      return NextResponse.json(
+        { error: err?.message || "ไม่สามารถบันทึกบัตรได้ กรุณาตรวจสอบข้อมูลบัตรอีกครั้ง" },
+        { status: 400 }
+      );
+    }
 
-  await sql`
-    UPDATE businesses
-    SET plan_id = ${plan.id}, credits_reset_at = now() + interval '30 days', updated_at = now(),
-        auto_renew_enabled = true, billing_retry_count = 0
-    WHERE id = ${business.id}
-  `;
+    // One saved card per business for now — replace any previous default
+    // rather than accumulating unused rows every time someone re-checks out.
+    await sql`UPDATE payment_methods SET is_default = false WHERE business_id = ${business.id}`;
+    await sql`
+      INSERT INTO payment_methods
+        (business_id, brand, last4, exp_month, exp_year, is_default, omise_customer_id, omise_card_id)
+      VALUES
+        (${business.id}, ${bound.brand}, ${bound.last4}, ${bound.expMonth}, ${bound.expYear}, true, ${bound.omiseCustomerId}, ${bound.omiseCardId})
+    `;
 
-  return NextResponse.json({ ok: true, invoiceNumber });
+    const chargeResult = await chargeCustomer(bound.omiseCustomerId, bound.omiseCardId, Number(plan.price_thb), {
+      description: `AdCheck ${plan.name} — ${business.name}`,
+      indicator: "CIT",
+      metadata: { business_id: business.id, plan_id: plan.id },
+    });
+
+    // Some Thai-issued cards require a 3-D Secure step-up on this first
+    // charge. The card is already bound above, so nothing is lost if the
+    // customer abandons the bank's auth page — they can just retry the
+    // charge. Final confirmation (and credit-granting) happens in
+    // app/api/webhooks/omise/route.ts once Omise reports the real outcome.
+    if (chargeResult.pending3ds) {
+      return NextResponse.json({
+        ok: false,
+        requires3ds: true,
+        authorizeUri: chargeResult.pending3ds,
+      });
+    }
+
+    if (!chargeResult.success) {
+      return NextResponse.json(
+        { error: chargeResult.failureMessage || "การตัดบัตรไม่สำเร็จ กรุณาตรวจสอบวงเงินหรือใช้บัตรอื่น" },
+        { status: 402 }
+      );
+    }
+
+    const invoiceNumber = `INV-2569-${Math.floor(Math.random() * 9000 + 1000)}`;
+    const [transaction] = (await sql`
+      INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number, omise_charge_id)
+      VALUES (${business.id}, ${plan.id}, ${plan.price_thb}, 0, ${plan.price_thb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${chargeResult.chargeId})
+      ON CONFLICT (omise_charge_id) DO NOTHING
+      RETURNING id
+    `) as any[];
+
+    // ON CONFLICT DO NOTHING means a webhook retry (or a rare double-submit)
+    // for the exact same charge id already recorded this — nothing left to
+    // grant a second time.
+    if (!transaction) {
+      return NextResponse.json({ ok: true, invoiceNumber });
+    }
+
+    await sql`
+      INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)
+      VALUES (${business.id}, ${plan.id}, ${transaction.id}, ${plan.monthly_image_credits}, ${plan.monthly_image_credits}, now(), now() + interval '30 days')
+    `;
+
+    await sql`
+      UPDATE businesses
+      SET plan_id = ${plan.id}, credits_reset_at = now() + interval '30 days', updated_at = now(),
+          auto_renew_enabled = true, billing_retry_count = 0
+      WHERE id = ${business.id}
+    `;
+
+    return NextResponse.json({ ok: true, invoiceNumber });
+  } finally {
+    // Always release the lock, on every exit path (success, a card/charge
+    // failure, or an unexpected throw) — otherwise a legitimate later
+    // checkout attempt would be blocked for the rest of the 2-minute window
+    // for no reason.
+    await sql`UPDATE businesses SET checkout_in_progress_at = NULL WHERE id = ${business.id}`;
+  }
 }
