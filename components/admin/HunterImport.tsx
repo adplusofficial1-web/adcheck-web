@@ -105,14 +105,19 @@ function LeadRow({ lead, onSaved, onRun }: { lead: HunterLead; onSaved: (l: Hunt
     <tr>
       <td className={tdClass}>{new Date(lead.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}</td>
       <td className={tdClass}>
-        <div className="font-medium text-primary">{lead.clinic_name}</div>
-        {lead.source_link && (
-          <a href={lead.source_link} target="_blank" rel="noopener noreferrer" className="text-xs text-accent break-all underline">
-            {lead.source_link}
+        {lead.source_link ? (
+          <a
+            href={lead.source_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-accent underline break-all"
+          >
+            {lead.clinic_name}
           </a>
+        ) : (
+          <div className="font-medium text-primary">{lead.clinic_name}</div>
         )}
       </td>
-      <td className={tdClass}>{lead.province || "-"}</td>
       <td className={tdClass}>
         <div className="flex flex-col gap-1.5 min-w-[200px]">
           {urls.map((u, i) => (
@@ -147,14 +152,10 @@ function LeadRow({ lead, onSaved, onRun }: { lead: HunterLead; onSaved: (l: Hunt
         )}
       </td>
       <td className={tdClass}>
-        {lead.result_urls.length > 0 ? (
-          <div className="flex flex-col gap-1">
-            {lead.result_urls.map((u, i) => (
-              <a key={i} href={u} target="_blank" rel="noopener noreferrer" className="text-xs text-accent underline break-all">
-                ผลตรวจ {i + 1}
-              </a>
-            ))}
-          </div>
+        {lead.result_url ? (
+          <a href={lead.result_url} target="_blank" rel="noopener noreferrer" className="text-xs text-accent underline break-all">
+            ดูผลตรวจสอบ
+          </a>
         ) : (
           <span className="text-xs text-tertiary">-</span>
         )}
@@ -400,7 +401,6 @@ export function HunterImport() {
               <tr>
                 <th className={thClass}>วันที่</th>
                 <th className={thClass}>คลินิก</th>
-                <th className={thClass}>จังหวัด</th>
                 <th className={thClass}>ลิงก์รูป</th>
                 <th className={thClass}>สถานะ</th>
                 <th className={thClass}>ผลตรวจสอบ</th>
@@ -410,13 +410,13 @@ export function HunterImport() {
             <tbody>
               {loadingLeads ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-tertiary py-6">
+                  <td colSpan={6} className="text-center text-tertiary py-6">
                     กำลังโหลด…
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-tertiary py-6">
+                  <td colSpan={6} className="text-center text-tertiary py-6">
                     ยังไม่มีรายการ
                   </td>
                 </tr>
