@@ -13,12 +13,19 @@
 // identical in the DB to one who just paid manually.
 import { sql } from "../lib/db";
 import { isOmiseConfigured, chargeCustomer } from "../lib/omise";
+import { nextInvoiceNumber } from "../lib/invoiceNumber";
 
 const MAX_RETRIES = 3;
 
-function invoiceNumber() {
-  return `INV-2569-${Math.floor(Math.random() * 9000 + 1000)}`;
-}
+// FIX (bug audit round 3, high — confirmed live): this used to build the
+// invoice number as `INV-2569-${Math.floor(Math.random() * 9000 + 1000)}` —
+// a 4-digit random suffix into a UNIQUE column with no retry logic. Worse
+// here than anywhere else it was used: this loop has no try/catch, so a
+// collision on one business's INSERT throws and kills the whole cron run
+// mid-loop — which also skips that business's `credits_reset_at` advance
+// (the UPDATE right after the INSERT never runs), so the *next* run still
+// sees it as due and charges it again. A real double-charge path, not just
+// a missing record. See lib/invoiceNumber.ts for the sequence-based fix.
 
 async function main() {
   if (!isOmiseConfigured()) {
@@ -60,9 +67,10 @@ async function main() {
     });
 
     if (result.success) {
+      const invoiceNumber = await nextInvoiceNumber();
       const [transaction] = (await sql`
         INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number, omise_charge_id)
-        VALUES (${biz.id}, ${biz.plan_id}, ${biz.price_thb}, 0, ${biz.price_thb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber()}, ${result.chargeId})
+        VALUES (${biz.id}, ${biz.plan_id}, ${biz.price_thb}, 0, ${biz.price_thb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${result.chargeId})
         ON CONFLICT (omise_charge_id) DO NOTHING
         RETURNING id
       `) as any[];
@@ -83,9 +91,10 @@ async function main() {
       // Record the failed attempt for the transactions history even though
       // no credits are granted — same as any other declined charge would
       // show up on /settings.
+      const invoiceNumber = await nextInvoiceNumber();
       await sql`
         INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number, omise_charge_id)
-        VALUES (${biz.id}, ${biz.plan_id}, ${biz.price_thb}, 0, ${biz.price_thb}, 'บัตรเครดิต/เดบิต', 'ล้มเหลว', ${invoiceNumber()}, ${result.chargeId ?? null})
+        VALUES (${biz.id}, ${biz.plan_id}, ${biz.price_thb}, 0, ${biz.price_thb}, 'บัตรเครดิต/เดบิต', 'ล้มเหลว', ${invoiceNumber}, ${result.chargeId ?? null})
         ON CONFLICT (omise_charge_id) DO NOTHING
       `;
 
