@@ -277,6 +277,18 @@ function RuleRow({
   }
 
   async function saveEdit() {
+    // FIX (bug audit round 2 #9): unlike AddRuleForm below (which already
+    // requires both fields before submitting), this edit form had no
+    // non-empty check — saving with title/content cleared just silently
+    // blanked the rule (the API used a COALESCE that treats "" as a real
+    // value, not "leave unchanged"). The API now also rejects an empty
+    // title/content itself as a second line of defense, but catching it
+    // here avoids the round trip and gives the same inline error UX the
+    // rest of this form already uses.
+    if (!draftTitle.trim() || !draftContent.trim()) {
+      setError("กรุณาระบุทั้งชื่อเรื่องและเนื้อหา");
+      return;
+    }
     await patch({ title: draftTitle, category: draftCategory || null, content: draftContent });
     setEditing(false);
   }
