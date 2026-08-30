@@ -30,7 +30,8 @@ type ParsedRow = {
 
 const CLINIC_KEYS = ["ชื่อคลินิก", "คลินิก", "clinic", "clinic name", "name", "ชื่อ"];
 const PROVINCE_KEYS = ["จังหวัด", "province"];
-const LINK_KEYS = ["ลิงก์", "ลิงค์", "link", "url", "เพจ", "facebook", "page", "แหล่งที่มา"];
+// NOTE: ลิงก์เพจตรึงไว้ที่คอลัมน์ D (index 3) ตรงๆ แล้ว — ดูจุดที่กำหนด
+// linkIdx = 3 ด้านล่าง — จึงไม่ต้องมี LINK_KEYS สำหรับเดาจากชื่อหัวตารางอีก
 
 function findKeyIndex(header: string[], keys: string[]): number {
   for (let i = 0; i < header.length; i++) {
@@ -81,28 +82,58 @@ function LeadRow({
   const [deleting, setDeleting] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
-  const dirty = urls.some((u, i) => u.trim() !== (lead.image_urls[i] || ""));
+  // Debounce ref for auto-save — see saveUrls below.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const save = async () => {
-    setSaving(true);
-    setSaveMsg(null);
-    try {
-      const cleaned = urls.map((u) => u.trim()).filter(Boolean);
-      const res = await fetch(`/api/admin/hunter/${lead.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrls: cleaned }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "บันทึกไม่สำเร็จ");
-      onSaved(data.lead);
-      setSaveMsg("บันทึกแล้ว");
-    } catch (e: any) {
-      setSaveMsg(e?.message || "บันทึกไม่สำเร็จ");
-    } finally {
-      setSaving(false);
-    }
+  // CHANGE (2026-08-31): removed the separate "บันทึกลิงก์" button per user
+  // request — typing a URL now auto-saves (debounced 600ms after the last
+  // keystroke, so it doesn't fire a PATCH per character) and, once saved,
+  // "ตรวจสอบอัตโนมัติ" is immediately clickable with no extra save step.
+  // saveUrls takes the URLs to save explicitly (rather than reading `urls`
+  // from closure) so the debounce timer always saves the latest value even
+  // if the user kept typing after the timer was scheduled.
+  const saveUrls = useCallback(
+    async (nextUrls: string[]) => {
+      setSaving(true);
+      setSaveMsg(null);
+      try {
+        const cleaned = nextUrls.map((u) => u.trim()).filter(Boolean);
+        const res = await fetch(`/api/admin/hunter/${lead.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageUrls: cleaned }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "บันทึกไม่สำเร็จ");
+        onSaved(data.lead);
+        setSaveMsg("บันทึกลิงก์แล้ว");
+      } catch (e: any) {
+        setSaveMsg(e?.message || "บันทึกไม่สำเร็จ");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [lead.id, onSaved]
+  );
+
+  const handleUrlChange = (i: number, value: string) => {
+    const next = [...urls];
+    next[i] = value;
+    setUrls(next);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveUrls(next);
+    }, 600);
   };
+
+  // Clear any pending debounce on unmount so it can't fire (and call
+  // onSaved) after this row is gone — e.g. the lead was deleted or the
+  // list reloaded out from under it.
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, []);
 
   const run = async () => {
     setRunning(true);
@@ -124,12 +155,16 @@ function LeadRow({
   };
 
   const status = STATUS_META[lead.status] || STATUS_META.awaiting_images;
-  const canRun = lead.image_urls.length > 0 && !dirty && lead.status !== "running" && !disableActions;
+  // Run is blocked only while a save is actually in flight (to avoid
+  // racing the automation run against an unsaved edit) — not on "dirty"
+  // anymore, since every edit now auto-saves within 600ms with no separate
+  // save step. lead.image_urls (the server's last-saved value) still gates
+  // having at least one URL to run against.
+  const canRun = lead.image_urls.length > 0 && !saving && lead.status !== "running" && !disableActions;
 
   return (
     <tr>
       <td className={tdClass}>{index + 1}</td>
-      <td className={tdClass}>{new Date(lead.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}</td>
       <td className={tdClass}>
         {lead.source_link ? (
           <a
@@ -145,32 +180,21 @@ function LeadRow({
         )}
       </td>
       <td className={tdClass}>
-        <div className="flex flex-col gap-1.5 min-w-[560px]">
-          <div className="flex items-center gap-1.5">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1">
             {urls.map((u, i) => (
               <input
                 key={i}
                 value={u}
-                placeholder={`ลิงก์รูปที่ ${i + 1}`}
-                className={`${smallInputClass} flex-1`}
-                onChange={(e) => {
-                  const next = [...urls];
-                  next[i] = e.target.value;
-                  setUrls(next);
-                }}
+                placeholder={`รูป ${i + 1}`}
+                className={`${smallInputClass} w-28`}
+                onChange={(e) => handleUrlChange(i, e.target.value)}
               />
             ))}
           </div>
-          <div className="flex items-center gap-2 mt-1">
-            <button
-              onClick={save}
-              disabled={saving || !dirty}
-              className="rounded-md border border-border px-3 py-1 text-xs text-secondary disabled:opacity-40"
-            >
-              {saving ? "กำลังบันทึก…" : "บันทึกลิงก์"}
-            </button>
-            {saveMsg && <span className="text-xs text-tertiary">{saveMsg}</span>}
-          </div>
+          {(saving || saveMsg) && (
+            <span className="text-[11px] text-tertiary">{saving ? "กำลังบันทึก…" : saveMsg}</span>
+          )}
         </div>
       </td>
       <td className={tdClass}>
@@ -193,7 +217,6 @@ function LeadRow({
           <button
             onClick={run}
             disabled={!canRun || running}
-            title={dirty ? "บันทึกลิงก์ก่อนตรวจสอบ" : undefined}
             className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
           >
             {running || lead.status === "running" ? "กำลังตรวจสอบ…" : "ตรวจสอบอัตโนมัติ"}
@@ -256,12 +279,17 @@ export function HunterImport() {
           return i >= 0 ? i : 0;
         })();
         const provinceIdx = findKeyIndex(header, PROVINCE_KEYS);
-        const linkIdx = findKeyIndex(header, LINK_KEYS);
+        // CHANGE (2026-08-31): ลิงก์เพจคลินิกตรึงไว้ที่คอลัมน์ D (index 3) ของ
+        // ไฟล์ Excel ตรงๆ ตามคำขอผู้ใช้ แทนที่จะเดาจากชื่อหัวตาราง (LINK_KEYS
+        // เดิม) — ไฟล์รายชื่อคลินิกจริงที่ Hunter ใช้มีคอลัมน์ลิงก์อยู่ตำแหน่ง D
+        // เสมอ ไม่ว่าหัวตารางจะเขียนว่าอะไร การเดาจากชื่อหัวตารางเคยพลาดเวลา
+        // หัวตารางเขียนไม่ตรงกับ LINK_KEYS ที่รู้จัก
+        const linkIdx = 3;
 
         setColMapMsg(
           `ตรวจพบคอลัมน์: ชื่อคลินิก = "${header[clinicIdx] || "คอลัมน์ที่ 1"}"` +
             (provinceIdx >= 0 ? `, จังหวัด = "${header[provinceIdx]}"` : ", จังหวัด = ไม่พบ (เว้นว่างได้)") +
-            (linkIdx >= 0 ? `, ลิงก์ = "${header[linkIdx]}"` : ", ลิงก์ = ไม่พบ")
+            `, ลิงก์ = คอลัมน์ D ("${header[linkIdx] || "ไม่มีหัวตาราง"}")`
         );
 
         const result: ParsedRow[] = [];
@@ -494,7 +522,6 @@ export function HunterImport() {
             <thead>
               <tr>
                 <th className={thClass}>ลำดับ</th>
-                <th className={thClass}>วันที่</th>
                 <th className={thClass}>คลินิก</th>
                 <th className={thClass}>ลิงก์รูป</th>
                 <th className={thClass}>สถานะ</th>
@@ -505,13 +532,13 @@ export function HunterImport() {
             <tbody>
               {loadingLeads ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-tertiary py-6">
+                  <td colSpan={6} className="text-center text-tertiary py-6">
                     กำลังโหลด…
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-tertiary py-6">
+                  <td colSpan={6} className="text-center text-tertiary py-6">
                     ยังไม่มีรายการ
                   </td>
                 </tr>
