@@ -140,7 +140,7 @@ export default async function LandingPage() {
           href="/login"
           className="rounded-md bg-page text-primary px-8 py-3.5 text-[15px] font-medium hover:bg-page/90"
         >
-          ทดลองใช้ฟรี 5 ครั้ง
+          ทดลองใช้ฟรี 15 ครั้ง
         </Link>
       </section>
 
