@@ -20,36 +20,41 @@ export async function GET() {
 // it is never sent over the network or written to the database. See
 // components/settings/CardsSection.tsx for where that derivation happens.
 export async function POST(req: Request) {
-  const body = await req.json();
-  const brand: string = typeof body.brand === "string" ? body.brand : "บัตร";
-  const last4: string = typeof body.last4 === "string" ? body.last4 : "";
-  const expMonth: number = Number(body.exp_month);
-  const expYear: number = Number(body.exp_year);
+  try {
+    const body = await req.json();
+    const brand: string = typeof body.brand === "string" ? body.brand : "บัตร";
+    const last4: string = typeof body.last4 === "string" ? body.last4 : "";
+    const expMonth: number = Number(body.exp_month);
+    const expYear: number = Number(body.exp_year);
 
-  if (!/^\d{4}$/.test(last4)) {
-    return NextResponse.json({ error: "เลขบัตร 4 หลักสุดท้ายไม่ถูกต้อง" }, { status: 400 });
+    if (!/^\d{4}$/.test(last4)) {
+      return NextResponse.json({ error: "เลขบัตร 4 หลักสุดท้ายไม่ถูกต้อง" }, { status: 400 });
+    }
+    if (!Number.isInteger(expMonth) || expMonth < 1 || expMonth > 12) {
+      return NextResponse.json({ error: "เดือนหมดอายุไม่ถูกต้อง" }, { status: 400 });
+    }
+    if (!Number.isInteger(expYear) || expYear < new Date().getUTCFullYear()) {
+      return NextResponse.json({ error: "ปีหมดอายุไม่ถูกต้อง" }, { status: 400 });
+    }
+    const safeBrand = BRAND_ALLOWLIST.includes(brand) ? brand : "บัตร";
+
+    const business = await getCurrentBusiness();
+    if (!business) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const existing = await getPaymentMethods(business.id);
+    const isFirstCard = existing.length === 0;
+
+    const [card] = await sql`
+      INSERT INTO payment_methods (business_id, brand, last4, exp_month, exp_year, is_default)
+      VALUES (${business.id}, ${safeBrand}, ${last4}, ${expMonth}, ${expYear}, ${isFirstCard})
+      RETURNING id, brand, last4, exp_month, exp_year, is_default
+    `;
+
+    return NextResponse.json({ card });
+  } catch (e: any) {
+    console.error("POST /api/settings/cards failed:", e);
+    return NextResponse.json({ error: "บันทึกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" }, { status: 500 });
   }
-  if (!Number.isInteger(expMonth) || expMonth < 1 || expMonth > 12) {
-    return NextResponse.json({ error: "เดือนหมดอายุไม่ถูกต้อง" }, { status: 400 });
-  }
-  if (!Number.isInteger(expYear) || expYear < new Date().getUTCFullYear()) {
-    return NextResponse.json({ error: "ปีหมดอายุไม่ถูกต้อง" }, { status: 400 });
-  }
-  const safeBrand = BRAND_ALLOWLIST.includes(brand) ? brand : "บัตร";
-
-  const business = await getCurrentBusiness();
-  if (!business) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-
-  const existing = await getPaymentMethods(business.id);
-  const isFirstCard = existing.length === 0;
-
-  const [card] = await sql`
-    INSERT INTO payment_methods (business_id, brand, last4, exp_month, exp_year, is_default)
-    VALUES (${business.id}, ${safeBrand}, ${last4}, ${expMonth}, ${expYear}, ${isFirstCard})
-    RETURNING id, brand, last4, exp_month, exp_year, is_default
-  `;
-
-  return NextResponse.json({ card });
 }
