@@ -87,3 +87,37 @@ export async function createBusinessForEmail(email: string, name?: string | null
     `;
     return getBusinessByEmail(email);
 }
+
+// Resolves (lazily creating on first call) the single internal business row
+// that automated, non-browser submissions -- currently just
+// app/api/automation/check-ad/route.ts, the n8n-facing API-key-authenticated
+// endpoint -- are attributed to and billed against. There is no Google
+// account or session behind this row (unlike every other business, which is
+// provisioned 1:1 with a signed-in email via createBusinessForEmail above),
+// so it uses a fixed, non-guessable-in-practice sentinel contact_email
+// instead of a real user's address, purely so the same UNIQUE(contact_email)
+// + ON CONFLICT DO NOTHING + re-select pattern used above can be reused
+// as-is instead of inventing a second provisioning strategy just for this
+// one row.
+//
+// IMPORTANT: this is a REAL business row and draws from the SAME
+// credits_remaining / business_packages accounting as every other clinic --
+// it starts with nothing usable beyond the normal free signup bonus the
+// businesses table defaults new rows to, which is not meant to sustain real
+// automation volume. Someone must grant it an actual package/credits via
+// the existing admin credit-grant flow (see app/api/admin/credits) after
+// it's first created, or every /api/automation/check-ad call will fail
+// reserveCredits() with the same 402 "insufficient credits" any ordinary
+// business would get -- intentional, since it keeps automated traffic inside
+// the exact same accounting the rest of the app already trusts, rather than
+// carving out a free/unmetered side channel.
+const AUTOMATION_BUSINESS_EMAIL = "automation@adcheck.pro";
+
+export async function getOrCreateAutomationBusiness() {
+    await sql`
+        INSERT INTO businesses (name, type, contact_email)
+        VALUES ('AdCheck Automation (Internal)', 'clinic', ${AUTOMATION_BUSINESS_EMAIL})
+        ON CONFLICT (contact_email) DO NOTHING
+    `;
+    return getBusinessByEmail(AUTOMATION_BUSINESS_EMAIL);
+}
