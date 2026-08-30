@@ -207,7 +207,14 @@ export function UploadForm({
         <input
           type="file"
           multiple
-          accept="image/*"
+          // FIX (bug audit round 2, critical #2): "image/*" hid PDF files
+          // from the OS file picker entirely, even though the server (see
+          // lib/uploadLimits.ts:ALLOWED_MEDIA_TYPES) and this page's own
+          // copy ("รองรับ JPG, PNG, PDF") both support them — only
+          // drag-and-drop could get one in. Listed explicitly rather than
+          // widened to a bare "*/*" so the OS-level picker still filters
+          // out obviously-wrong file types up front.
+          accept="image/*,application/pdf"
           className="hidden"
           disabled={atLimit}
           onChange={(e) => onFiles(e.target.files)}
