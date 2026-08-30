@@ -41,13 +41,11 @@ function findKeyIndex(header: string[], keys: string[]): number {
   return -1;
 }
 
-const STATUS_META: Record<HunterLead["status"], { label: string; className: string }> = {
-  awaiting_images: { label: "รอ Hunter ดึงรูป", className: "bg-page text-tertiary" },
-  ready: { label: "พร้อมตรวจสอบ", className: "bg-warningSoft text-warning" },
-  running: { label: "กำลังตรวจสอบ…", className: "bg-warningSoft text-warning" },
-  done: { label: "ตรวจสอบเสร็จแล้ว", className: "bg-accentSoft text-accent" },
-  failed: { label: "ล้มเหลว", className: "bg-dangerSoft text-danger" },
-};
+// NOTE: the old STATUS_META badge map (สถานะ column) was removed along
+// with the "สถานะ" column per user request (2026-08-31) — lead.status is
+// still used internally (gating run/delete buttons, the "failed" error
+// message, the run-all-ready count) even though it's no longer shown as
+// its own badge.
 
 const thClass = "bg-inverse text-onInverse text-xs font-medium px-3 py-2 text-left";
 const tdClass = "px-3 py-2 border-b border-border text-left align-top";
@@ -72,6 +70,11 @@ function LeadRow({
   onRun: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
+  // MAX_IMAGE_URLS mirrors the DB CHECK constraint / MAX_IMAGE_URLS in
+  // app/api/admin/hunter/[id]/route.ts — kept as a local literal here since
+  // this is a client component and can't import a server-only constant;
+  // if that cap ever changes, update both.
+  const MAX_IMAGE_URLS = 3;
   const [urls, setUrls] = useState<string[]>(() => {
     const base = [...lead.image_urls];
     while (base.length < 3) base.push("");
@@ -92,6 +95,16 @@ function LeadRow({
   // saveUrls takes the URLs to save explicitly (rather than reading `urls`
   // from closure) so the debounce timer always saves the latest value even
   // if the user kept typing after the timer was scheduled.
+  //
+  // CHANGE (2026-08-31, same day): once the save lands with all
+  // MAX_IMAGE_URLS (3) slots filled, kick off the automation run
+  // automatically instead of waiting for the button — the user asked for
+  // "กรอกครบ 3 ลิงก์แล้วทำงานทันที". Filling only 1-2 and stopping does
+  // NOT auto-run (confirmed with the user) — that still needs the manual
+  // button, since a partial set might not be "done entering" yet. Runs
+  // only out of a state where a run makes sense (not already
+  // running/done/failed) so this can't fire twice for the same save or
+  // re-trigger on every subsequent unrelated re-render.
   const saveUrls = useCallback(
     async (nextUrls: string[]) => {
       setSaving(true);
@@ -107,13 +120,23 @@ function LeadRow({
         if (!res.ok) throw new Error(data?.error || "บันทึกไม่สำเร็จ");
         onSaved(data.lead);
         setSaveMsg("บันทึกลิงก์แล้ว");
+
+        if (cleaned.length >= MAX_IMAGE_URLS && data.lead.status === "ready") {
+          setSaveMsg("บันทึกลิงก์ครบแล้ว — กำลังตรวจสอบอัตโนมัติ…");
+          // setRunning here (rather than calling the run() helper defined
+          // below) so the "ตรวจสอบอัตโนมัติ" button visibly flips to
+          // "กำลังตรวจสอบ…" for this auto-triggered run too, not just for
+          // manual clicks.
+          setRunning(true);
+          onRun(lead.id).finally(() => setRunning(false));
+        }
       } catch (e: any) {
         setSaveMsg(e?.message || "บันทึกไม่สำเร็จ");
       } finally {
         setSaving(false);
       }
     },
-    [lead.id, onSaved]
+    [lead.id, onSaved, onRun, MAX_IMAGE_URLS]
   );
 
   const handleUrlChange = (i: number, value: string) => {
@@ -154,7 +177,6 @@ function LeadRow({
     }
   };
 
-  const status = STATUS_META[lead.status] || STATUS_META.awaiting_images;
   // Run is blocked only while a save is actually in flight (to avoid
   // racing the automation run against an unsaved edit) — not on "dirty"
   // anymore, since every edit now auto-saves within 600ms with no separate
@@ -195,13 +217,14 @@ function LeadRow({
           {(saving || saveMsg) && (
             <span className="text-[11px] text-tertiary">{saving ? "กำลังบันทึก…" : saveMsg}</span>
           )}
+          {/* CHANGE (2026-08-31): the "สถานะ" column was removed per user
+              request — a failed run's error message still needs to surface
+              somewhere, so it now shows directly under this row's own url
+              inputs instead of under a status badge. */}
+          {lead.status === "failed" && lead.last_error && (
+            <div className="text-[11px] text-danger max-w-[280px]">ล้มเหลว: {lead.last_error}</div>
+          )}
         </div>
-      </td>
-      <td className={tdClass}>
-        <span className={`inline-block rounded-pill text-xs font-medium px-3 py-1 ${status.className}`}>{status.label}</span>
-        {lead.status === "failed" && lead.last_error && (
-          <div className="text-xs text-danger mt-1 max-w-[220px]">{lead.last_error}</div>
-        )}
       </td>
       <td className={tdClass}>
         {lead.result_url ? (
@@ -406,7 +429,8 @@ export function HunterImport() {
     <div>
       <div className="rounded-lg border border-warning bg-warningSoft px-4 py-3 text-xs text-warning leading-relaxed mb-6">
         ขั้นตอน: อัปโหลดไฟล์ Excel รายชื่อคลินิก → ระบบนำเข้าคิว &quot;รอ Hunter ดึงรูป&quot; → Hunter กรอกลิงก์รูปที่ดึงมาได้
-        (สูงสุด 3 รูป) → กดปุ่ม &quot;ตรวจสอบอัตโนมัติ&quot; → ระบบส่งแต่ละรูปเข้า AI ตรวจสอบผ่าน adcheck.pro จริงและได้ลิงก์ผลตรวจสอบ
+        (สูงสุด 3 รูป) — กรอกครบ 3 ลิงก์แล้วระบบจะเริ่มตรวจสอบอัตโนมัติทันที ไม่ต้องกดปุ่ม (กรอกไม่ครบ 3 ให้กดปุ่ม
+        &quot;ตรวจสอบอัตโนมัติ&quot; เอง) → ระบบส่งแต่ละรูปเข้า AI ตรวจสอบผ่าน adcheck.pro จริงและได้ลิงก์ผลตรวจสอบ
         กลับมาอัตโนมัติ (ไม่หักเครดิตจากคลินิกจริง — ใช้บัญชีภายในของ AD Plus)
       </div>
 
@@ -524,7 +548,6 @@ export function HunterImport() {
                 <th className={thClass}>ลำดับ</th>
                 <th className={thClass}>คลินิก</th>
                 <th className={thClass}>ลิงก์รูป</th>
-                <th className={thClass}>สถานะ</th>
                 <th className={thClass}>ผลตรวจสอบ</th>
                 <th className={thClass}></th>
               </tr>
@@ -532,13 +555,13 @@ export function HunterImport() {
             <tbody>
               {loadingLeads ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-tertiary py-6">
+                  <td colSpan={5} className="text-center text-tertiary py-6">
                     กำลังโหลด…
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-tertiary py-6">
+                  <td colSpan={5} className="text-center text-tertiary py-6">
                     ยังไม่มีรายการ
                   </td>
                 </tr>
