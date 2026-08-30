@@ -1,0 +1,33 @@
+-- Bug audit round 3, high (confirmed live in production): every call site
+-- that generated an invoice_number built it as
+-- `INV-2569-${Math.floor(Math.random() * 9000 + 1000)}` — a 4-digit random
+-- suffix drawn from only 9000 possible values, inserted into a column that
+-- carries a UNIQUE constraint (transactions_invoice_number_key) with no
+-- retry-on-conflict logic anywhere that used it. By the birthday paradox
+-- that's better than even odds of a collision by roughly the 80th-100th
+-- transaction, and this business already runs automated recurring billing
+-- (scripts/runAutoBilling.ts) on top of organic checkout traffic — not a
+-- hypothetical.
+--
+-- A collision means the Omise charge has ALREADY succeeded (the customer's
+-- card was already billed) but the `INSERT INTO transactions` recording it
+-- throws a raw unique-violation error — in scripts/runAutoBilling.ts
+-- specifically, that exception is unhandled and kills the whole cron run
+-- mid-loop, which also skips the `credits_reset_at` advance for the
+-- business that just collided, so the *next* cron run sees it as still due
+-- and charges it again: a real double-charge path, not just a missing
+-- record.
+--
+-- Fixed by drawing the numeric suffix from a real sequence — unique by
+-- construction, no retry logic required — instead of Math.random(). See
+-- lib/invoiceNumber.ts. Started at 10000 (5 digits) specifically so a
+-- freshly-generated number can never collide with any existing 4-digit
+-- random invoice_number already in the table (verified: all existing rows
+-- at the time of this fix were in the 1000-9999 range).
+--
+-- Already applied directly to production via the Neon MCP connection
+-- during this session — this file is kept purely as a historical record,
+-- same pattern as migrations/002_compliance_rules.sql and others in this
+-- directory. Not meant to be re-run against prod.
+
+CREATE SEQUENCE IF NOT EXISTS transactions_invoice_seq START WITH 10000 INCREMENT BY 1;
