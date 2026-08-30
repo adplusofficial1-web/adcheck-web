@@ -1,5 +1,6 @@
 import { listMarketingAssociations } from "@/lib/marketingAssociations";
 import { MarketingTracker } from "@/components/admin/MarketingTracker";
+import { MarketingSubNav } from "@/components/admin/MarketingSubNav";
 
 // Same reasoning as app/admin/credits/page.tsx's dynamic export — an admin
 // updating a card's phase/status and immediately checking the board wants
@@ -19,7 +20,14 @@ export default async function MarketingPage() {
         </p>
       </div>
 
-      <div className="mt-8">
+      {/* Hunter (Excel-import queue) lives at the sibling route below —
+          see MarketingSubNav.tsx for why this stayed a separate tab
+          instead of replacing this page. */}
+      <div className="mt-6">
+        <MarketingSubNav />
+      </div>
+
+      <div className="mt-2">
         <MarketingTracker initialAssociations={associations} />
       </div>
     </div>
