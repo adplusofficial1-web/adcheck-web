@@ -198,7 +198,10 @@ export default async function AgencyDashboardPage() {
                     <div className="flex items-center justify-between text-xs pt-3 mb-3 border-t border-border text-secondary">
                       <span className="truncate">{top.filename}</span>
                       <span className="shrink-0">
-                        {new Date(top.created_at).toLocaleDateString("th-TH")} · {STATUS_LABEL[top.status] || top.status}
+                        {/* FIX (bug audit round 3): pin Asia/Bangkok — see the
+                            comment in components/results/ResultsPageContent.tsx. */}
+                        {new Date(top.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })} ·{" "}
+                        {STATUS_LABEL[top.status] || top.status}
                       </span>
                     </div>
                   )}
