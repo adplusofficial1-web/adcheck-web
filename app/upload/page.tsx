@@ -45,23 +45,23 @@ export default async function UploadPage({
         {isForOther && !agencyPlanBlocked && (
           <p className="text-sm text-secondary mb-2">
             กำลังอัพโหลดให้ <span className="font-medium text-primary">{target.name}</span> ในเครือข่ายของคุณ —
-            ใช้เครดิตรวมจากแพ็กเกจ Agency ของคุณ
+            ใช้เครดิตรวมจากแพ็กเกจองค์กรของคุณ
           </p>
         )}
         {agencyPlanBlocked ? (
           <div className="rounded-lg border border-warning bg-warningSoft p-5 mt-6">
             <p className="text-sm font-medium mb-1">
-              ต้องสมัครแพ็กเกจ Agency ก่อนอัพโหลดให้คลินิกในเครือข่าย
+              ต้องสมัครแพ็กเกจองค์กรก่อนอัพโหลดให้คลินิกในเครือข่าย
             </p>
             <p className="text-sm text-secondary mb-4">
-              บัญชีของคุณยังไม่ได้สมัคร หรือแพ็กเกจ Agency (หลายสาขา) หมดอายุแล้ว — สมัครหรือต่ออายุเพื่อปลดล็อกการ
+              บัญชีของคุณยังไม่ได้สมัคร หรือแพ็กเกจองค์กร (หลายสาขา) หมดอายุแล้ว — สมัครหรือต่ออายุเพื่อปลดล็อกการ
               อัพโหลดให้ทุกคลินิกในเครือข่ายนี้อีกครั้ง
             </p>
             <Link
               href="/agency/checkout?plan=agency"
               className="inline-block rounded-md bg-inverse text-onInverse px-4 py-2 text-sm font-medium"
             >
-              สมัคร/ต่ออายุแพ็กเกจ Agency →
+              สมัคร/ต่ออายุแพ็กเกจองค์กร →
             </Link>
           </div>
         ) : (
