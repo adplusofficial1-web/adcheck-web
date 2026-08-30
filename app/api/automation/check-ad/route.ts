@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import { sql, getOrCreateAutomationBusiness } from "@/lib/db";
-import { reviewImage } from "@/lib/reviewImage";
-import { reserveCredits, refundCredits } from "@/lib/credits";
-import { MAX_FILE_SIZE_BYTES, ALLOWED_MEDIA_TYPES } from "@/lib/uploadLimits";
+import { checkAdImageUrl, CheckAdError } from "@/lib/automationCheckAd";
 import { stripNulBytes } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -61,13 +58,14 @@ export const runtime = "nodejs";
 // human watching a progress bar. n8n instead wants one image in, one
 // verdict out, in the SAME HTTP response (no separate polling step in the
 // workflow), so this route awaits reviewImage() directly rather than
-// kicking off background work. Everything else — the flags/status
-// derivation logic (including the "model said non-passed but returned an
-// empty flags array" guard), the reviewImage-failure fallback synthetic
-// flag + credit refund, and how a submission_images row is shaped/stored —
-// is copied faithfully from that route's processOneImage() rather than
-// reinvented, so results from either path are indistinguishable to anyone
-// looking at the DB or the shared results page afterward.
+// kicking off background work.
+//
+// CHANGE: the actual fetch/review/store logic below used to live directly
+// in this file. It's now shared with app/api/admin/hunter/[id]/run/route.ts
+// (the admin "run automation" button for a Hunter lead) via
+// lib/automationCheckAd.ts:checkAdImageUrl() — extracted verbatim, no
+// behavior change here, so results from either caller are still
+// indistinguishable in the database.
 export async function POST(req: Request) {
   try {
     // --- Auth -----------------------------------------------------------
@@ -91,257 +89,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "imageUrl is required" }, { status: 400 });
     }
 
-    // --- Fetch the image server-side ---------------------------------------
-    // Never trust client-provided base64 here — n8n only ever has a URL
-    // (e.g. Meta's ad CDN URL for the creative), so the bytes have to be
-    // pulled down by this server, not handed to us directly. Mirrors the
-    // same content-type/size checks app/api/submissions/route.ts applies to
-    // browser-uploaded base64 (see its ALLOWED_MEDIA_TYPES/MAX_FILE_SIZE_BYTES
-    // checks), just against a fetched response instead of a data URL.
-    let fetchRes: Response;
-    try {
-      fetchRes = await fetch(imageUrl);
-    } catch (e) {
-      return NextResponse.json({ error: "failed to fetch imageUrl" }, { status: 400 });
-    }
-    if (!fetchRes.ok) {
-      return NextResponse.json(
-        { error: `failed to fetch imageUrl (status ${fetchRes.status})` },
-        { status: 400 }
-      );
-    }
-
-    const contentType = fetchRes.headers.get("content-type")?.split(";")[0]?.trim() || "";
-    if (!ALLOWED_MEDIA_TYPES.includes(contentType)) {
-      return NextResponse.json(
-        { error: `unsupported content-type "${contentType}" (JPG, PNG, PDF only)` },
-        { status: 400 }
-      );
-    }
-
-    // Content-Length is only a hint (it can be absent, or a lie) — check it
-    // when present as a cheap early rejection, but the authoritative check
-    // is the actual byte cap enforced while reading the body below.
-    const declaredLength = fetchRes.headers.get("content-length");
-    if (declaredLength && Number(declaredLength) > MAX_FILE_SIZE_BYTES) {
-      return NextResponse.json({ error: "image exceeds max file size" }, { status: 400 });
-    }
-
-    if (!fetchRes.body) {
-      return NextResponse.json({ error: "imageUrl returned no body" }, { status: 400 });
-    }
-    const reader = fetchRes.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let totalBytes = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        totalBytes += value.byteLength;
-        // Enforce the real cap while streaming, not just from the
-        // (possibly absent/untrustworthy) Content-Length header above —
-        // stop pulling bytes the moment the cap is exceeded rather than
-        // buffering an unbounded response into memory.
-        if (totalBytes > MAX_FILE_SIZE_BYTES) {
-          try {
-            await reader.cancel();
-          } catch {
-            // best-effort — nothing to do if the underlying stream can't be cancelled
-          }
-          return NextResponse.json({ error: "image exceeds max file size" }, { status: 400 });
-        }
-        chunks.push(value);
-      }
-    }
-    const buffer = Buffer.concat(chunks.map((c) => Buffer.from(c)));
-    const base64Image = buffer.toString("base64");
-    const mediaType = contentType;
-
-    // --- Resolve the internal automation business ---------------------------
-    const business = await getOrCreateAutomationBusiness();
-    if (!business) {
-      console.error("getOrCreateAutomationBusiness() returned no row");
-      return NextResponse.json({ error: "internal_error" }, { status: 500 });
-    }
-
-    // --- Reserve 1 credit, same accounting as app/api/submissions/route.ts --
-    const reserved = await reserveCredits(business.id, 1);
-    if (!reserved) {
-      return NextResponse.json({ error: "insufficient credits" }, { status: 402 });
-    }
-
-    // --- Create the submission row -----------------------------------------
-    const filename = imageUrl.split("/").pop()?.split("?")[0] || "automation-image";
-    let submission;
-    try {
-      [submission] = await sql`
-        INSERT INTO submissions (business_id, status, credits_used, rules_version_ref)
-        VALUES (${business.id}, 'processing', 1, 'คู่มือและประกาศ สบส./อย. ที่เกี่ยวข้อง')
-        RETURNING id, share_token
-      `;
-    } catch (e) {
-      // Credits were already reserved above — give them back if the
-      // submission row itself couldn't even be created, mirroring
-      // app/api/submissions/route.ts's own handling of this failure mode.
-      console.error("Failed to create submission row after reserving credits:", e);
-      await refundCredits(business.id, 1);
-      return NextResponse.json({ error: "internal_error" }, { status: 500 });
-    }
-
-    // --- Review synchronously (single image, caller wants the result now) --
-    let result: any;
-    let reviewFailed = false;
-    try {
-      result = await reviewImage({
-        base64Image,
-        mediaType,
-        caption,
-        filename,
-      });
-      // Mirrors processOneImage in app/api/submissions/route.ts: reviewImage()
-      // can return normally with reviewFailed=true (e.g. the knowledge-base
-      // fallback) without ever calling the AI — route that through the same
-      // refund accounting as a thrown error.
-      if (result.reviewFailed) reviewFailed = true;
-    } catch (e: any) {
-      console.error(`reviewImage failed for automation submission ${submission.id}:`, e);
-      reviewFailed = true;
-      // Same synthetic fallback flag as the real endpoint — never let a
-      // failed AI call fall through as an empty flags array, which
-      // downstream would silently derive to "passed".
-      result = {
-        status: "caution" as const,
-        confidence: 0,
-        flags: [
-          {
-            quoted_text: caption || filename,
-            category: "ข้อผิดพลาดของระบบ",
-            legal_ref: "-",
-            severity: "ควรระวัง" as const,
-            confidence_level: "ต่ำ" as const,
-            topic: "ระบบ AI ไม่สามารถตรวจสอบภาพนี้ได้",
-            detailed_explanation: `การเรียกระบบ AI เพื่อตรวจสอบภาพนี้ล้มเหลว (${
-              e?.message || "ไม่ทราบสาเหตุ"
-            }) จึงยังไม่ได้ตรวจสอบเนื้อหาจริงตามกฎหมาย/ระเบียบที่เกี่ยวข้อง ผลที่แสดงนี้ไม่ใช่ผลตรวจสอบที่สมบูรณ์`,
-            suggested_correction: "กรุณาส่งภาพนี้ตรวจใหม่อีกครั้ง หากยังล้มเหลวซ้ำให้ติดต่อทีมขาน",
-          },
-        ],
-      };
-    }
-
-    // Defensive: same as processOneImage — never let a malformed/missing
-    // `flags` field from the model crash this request.
-    if (!Array.isArray(result.flags)) result.flags = [];
-    result.flags = result.flags.filter((f: any) => f && f.quoted_text);
-
-    // Derive status purely from flag severities, never trusting the model's
-    // top-level `status` field on its own — identical logic to
-    // processOneImage in app/api/submissions/route.ts.
-    const hasViolation = result.flags.some((f: any) => f.severity === "ห้ามเด็ดขาด");
-    const hasCaution = result.flags.some((f: any) => f.severity === "ควรระวัง");
-    let derivedStatus: "passed" | "caution" | "violation" = hasViolation
-      ? "violation"
-      : hasCaution
-      ? "caution"
-      : result.flags.length > 0
-      ? "caution"
-      : "passed";
-
-    // CRITICAL (same guard as app/api/submissions/route.ts): never let an
-    // EMPTY flags array silently override a non-"passed" model verdict —
-    // that would hide a real flagged ad as compliant. Keep the model's
-    // status and attach a synthetic flag so it still visibly lands in
-    // manual review instead of disappearing into "passed".
-    if (result.flags.length === 0 && result.status !== "passed") {
-      derivedStatus = result.status === "violation" ? "violation" : "caution";
-      result.flags = [
-        {
-          quoted_text: caption || filename,
-          category: "ต้องตรวจสอบเพิ่มเติม",
-          legal_ref: "-",
-          severity: derivedStatus === "violation" ? "ห้ามเด็ดขาด" : "ควรระวัง",
-          confidence_level: "ต่ำ",
-          topic: "AI ระบุว่าพบความเสี่ยงแต่ไม่ได้ระบุรายละเอียด",
-          detailed_explanation:
-            "ระบบ AI ประเมินว่าภาพนี้มีความเสี่ยงไม่ผ่านเกณฑ์ แต่ไม่ได้ระบุข้อความหรือจุดที่มีปัญหาอย่างเจาะจงในรอบนี้ " +
-            "จึงยังไม่สามารถแสดงเหตุผลและมาดรากฎหมายที่เกี่ยวข้องได้ครบถ้วน",
-          suggested_correction: "กรุณาให้เจ้าหน้าที่ตรวจสอบภาพนี้ด้วยตนเอง หรือกดส่งภาพนี้ตรวจซ้ำอีกครั้ง",
-        },
-      ];
-      console.warn(
-        `reviewImage returned status "${result.status}" with zero flags for automation submission ${submission.id} — keeping as "${derivedStatus}" with a synthetic review flag instead of downgrading to "passed"`
-      );
-    } else if (result.status !== derivedStatus) {
-      console.warn(
-        `reviewImage status/flags mismatch for automation submission ${submission.id}: model said "${result.status}", derived "${derivedStatus}" from ${result.flags.length} flag(s)`
-      );
-    }
-    result.status = derivedStatus;
-
-    // --- Store the image + flags, same shape as app/api/submissions/route.ts
-    // TEMPORARY: stored inline as a data URL, same as the real endpoint —
-    // see the TEMPORARY comment there for the plan to move to R2 later.
-    const storedImageUrl = `data:${mediaType};base64,${base64Image}`;
-    const cleanFilename = stripNulBytes(filename);
-    const cleanCaption = caption ? stripNulBytes(caption) : caption;
-
-    try {
-      const [savedImage] = await sql`
-        INSERT INTO submission_images (submission_id, image_url, filename, caption, status, sort_order)
-        VALUES (${submission.id}, ${storedImageUrl}, ${cleanFilename}, ${cleanCaption || null}, ${result.status}, 0)
-        RETURNING id
-      `;
-
-      for (const f of result.flags) {
-        if (!f || !f.quoted_text) continue;
-        const reasonPart = f.detailed_explanation ? f.detailed_explanation.trim() : "";
-        const fixPart = f.suggested_correction ? f.suggested_correction.trim() : "";
-        const combinedExplanation =
-          reasonPart && fixPart
-            ? `${reasonPart}\n\nวิธีแก้ไข: ${fixPart}`
-            : reasonPart || (fixPart ? `วิธีแก้ไข: ${fixPart}` : null);
-
-        await sql`
-          INSERT INTO review_flags (submission_id, submission_image_id, quoted_text, category, legal_ref, severity, confidence_level, explanation, detailed_explanation)
-          VALUES (${submission.id}, ${savedImage.id}, ${f.quoted_text}, ${f.category ?? null}, ${f.legal_ref ?? null}, ${f.severity ?? "ควรระวัง"}, ${f.confidence_level ?? "ปานกลาง"}, ${f.topic ?? null}, ${combinedExplanation})
-        `;
-      }
-    } catch (e) {
-      console.error(`Failed to save review results for automation submission ${submission.id}:`, e);
-    }
-
-    // --- Finalize the submission row ----------------------------------------
-    // submissions.status is a strict enum used elsewhere (the dashboard's
-    // "si.status = 'passed'" filter, the status-polling route's TypeScript
-    // union) that only ever holds 'processing' | 'passed' | 'needs_review' |
-    // 'failed' — it does NOT accept the 3-value per-image 'caution'/
-    // 'violation' status used elsewhere in this file. Collapse to the same
-    // 2-value convention the real endpoint uses (app/api/submissions/route.ts's
-    // `finalStatus`), even though this route's JSON response still returns
-    // the more granular per-image status ('passed'/'caution'/'violation')
-    // to the caller — submissions.status is the coarse dashboard-facing
-    // status; result.status is this image's real verdict.
-    const finalStatus = result.status === "passed" ? "passed" : "needs_review";
-    try {
-      await sql`
-        UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
-        WHERE id = ${submission.id} AND status = 'processing'
-      `;
-    } catch (e) {
-      console.error(`Failed to set final status for automation submission ${submission.id}:`, e);
-    }
-
-    // Refund the reserved credit if this image never actually got a genuine
-    // AI review — same reasoning as unreviewedCount in
-    // app/api/submissions/route.ts: an outage or knowledge-base miss isn't a
-    // review that happened, so it isn't chargeable.
-    if (reviewFailed) {
-      await refundCredits(business.id, 1);
-    }
+    const result = await checkAdImageUrl(imageUrl, { caption });
 
     return NextResponse.json({
-      submissionId: submission.id,
-      resultUrl: `https://adcheck.pro/share/${submission.share_token}`,
+      submissionId: result.submissionId,
+      resultUrl: result.resultUrl,
       status: result.status,
       flags: result.flags,
       caption: caption ?? null,
@@ -349,6 +101,9 @@ export async function POST(req: Request) {
       clinicLabel: clinicLabel ?? null,
     });
   } catch (e) {
+    if (e instanceof CheckAdError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error("Unexpected error in POST /api/automation/check-ad:", e);
     return NextResponse.json({ error: "internal_error" }, { status: 500 });
   }
