@@ -35,11 +35,19 @@ const AGENCY_MENU_ITEMS: { href: string | null; label: string }[] = [
   { href: "/agency/settings", label: "ตั้งค่า" },
 ];
 
-// Pill toggle for switching between the solo "คลินิก" view (this account's
-// own dashboard/history/settings) and "Agency" mode (managing a network of
+// Pill toggle for switching between the solo "ทั่วไป" view (this account's
+// own dashboard/history/settings) and "องค์กร" mode (managing a network of
 // clinics added under it — see lib/agency.ts). Every account can flip this;
 // there's no separate agency signup, becoming an agency is just adding a
 // clinic from /agency/dashboard.
+//
+// FIX (label rename, requested by user, 30 ส.ค. 2569): the pill used to
+// read "คลินิก" / "Agency" — renamed to "ทั่วไป" / "องค์กร" per explicit
+// request. This is a display-only rename: the underlying isAgency flag,
+// /agency/* routes, DB `type` column values ("clinic"/"agency"), and every
+// other internal identifier are untouched, so nothing about routing,
+// billing, or access control changes — only what these two states are
+// called on screen.
 function ModeToggle({ isAgency }: { isAgency: boolean }) {
   return (
     <div className="flex items-center p-1 shrink-0 rounded-pill bg-white/10 border border-onInverse/30">
@@ -49,7 +57,7 @@ function ModeToggle({ isAgency }: { isAgency: boolean }) {
           !isAgency ? "bg-white text-inverse" : "text-onInverse/75"
         }`}
       >
-        คลินิก
+        ทั่วไป
       </Link>
       <Link
         href="/agency/dashboard"
@@ -57,7 +65,7 @@ function ModeToggle({ isAgency }: { isAgency: boolean }) {
           isAgency ? "bg-white text-inverse" : "text-onInverse/75"
         }`}
       >
-        Agency
+        องค์กร
       </Link>
     </div>
   );
