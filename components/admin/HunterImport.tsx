@@ -1,39 +1,26 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
+import type { HunterLead } from "@/lib/hunterLeads";
 
 // Admin > Marketing > Hunter — Hunter อัปโหลดรายชื่อคลินิกเป็นไฟล์ Excel
 // (.xlsx/.xls/.csv) ระบบจะจับคอลัมน์ ชื่อคลินิก / จังหวัด / ลิงก์ อัตโนมัติ
-// (รองรับหัวตารางไทย/อังกฤษ) แล้วนำเข้าคิว "รอ Hunter ดึงรูป" เพื่อให้ Hunter
-// ตามไปดึงรูป 3 รูปต่อคลินิก และส่งต่อให้ QC ตรวจสอบผ่าน adcheck.pro จริงใน
-// ขั้นตอนถัดไป.
+// (รองรับหัวตารางไทย/อังกฤษ) แล้วนำเข้าคิว "รอ Hunter ดึงรูป" ให้ Hunter
+// กรอกลิงก์รูปที่ดึงมาได้ (สูงสุด 3 รูปต่อคลินิก) แล้วกดปุ่ม "ตรวจสอบอัตโนมัติ"
+// เพื่อส่งแต่ละรูปเข้า AI ตรวจสอบจริงและได้ลิงก์ผลตรวจสอบ
+// (adcheck.pro/share/{token}) กลับมาโดยอัตโนมัติ — ไม่ต้องมีคนอัปโหลดเข้า
+// adcheck.pro ทีละรูปด้วยมืออีกต่อไป
+//
+// CHANGE: คิวนี้เคยเก็บใน localStorage ของเบราว์เซอร์ (เห็นเฉพาะเครื่องที่
+// import ไว้) — ย้ายมาเก็บในตาราง hunter_leads จริง (ดู
+// migrations/009_hunter_queue.sql, lib/hunterLeads.ts) ผ่าน
+// /api/admin/hunter เพื่อให้ทุกคนที่เข้าหน้านี้เห็นคิวเดียวกัน และเพื่อให้ปุ่ม
+// "ตรวจสอบอัตโนมัติ" (/api/admin/hunter/[id]/run) มีที่เก็บผลลัพธ์ฝั่งเซิร์ฟเวอร์
+// ให้เขียนกลับ
 //
 // สร้างเป็นแท็บย่อยของ /admin/marketing (ไม่ใช่ /admin/hunter ตามที่ไฟล์ต้นฉบับ
-// แนะนำ) ตามคำขอผู้ใช้ — /admin/marketing มีหน้า Marketing Tracker (ติดตาม
-// สมาคมวิชาชีพ, lib/marketingAssociations.ts) อยู่แล้วซึ่งเป็นคนละเรื่องกัน
-// เก็บทั้งสองไว้เป็นแท็บแยก (ดู app/admin/marketing/hunter/page.tsx และ
-// components/admin/MarketingSubNav.tsx) แทนที่จะทับของเดิม เพื่อไม่ให้ฟีเจอร์
-// เดิมหายไป — เหตุผลเดียวกับที่ "รายงานปัญหา" แยกแท็บจาก "Marketing" ใน
-// AdminNav.tsx.
-//
-// เก็บคิวไว้ที่ localStorage ของเบราว์เซอร์ (key: "hunter_queue") ชั่วคราว
-// ตามที่ไฟล์ต้นฉบับตั้งใจไว้ — เมื่อทีมพัฒนาต้องการต่อเข้าฐานข้อมูลจริง
-// (ตาราง Postgres ใหม่ + API route) ค่อยเปลี่ยนตรงนี้เป็น fetch แทน
-// localStorage.getItem/setItem โดยไม่ต้องแตะ UI ส่วนอื่น.
-
-type QueueRow = {
-  date: string;
-  clinic: string;
-  province: string;
-  source: string;
-  hunter: string;
-  images: string[];
-  imgCount: number;
-  note: string;
-  status: string;
-  send: string;
-};
+// แนะนำ) ตามคำขอผู้ใช้ — ดู components/admin/MarketingSubNav.tsx
 
 type ParsedRow = {
   clinic: string;
@@ -45,19 +32,6 @@ const CLINIC_KEYS = ["ชื่อคลินิก", "คลินิก", "cl
 const PROVINCE_KEYS = ["จังหวัด", "province"];
 const LINK_KEYS = ["ลิงก์", "ลิงค์", "link", "url", "เพจ", "facebook", "page", "แหล่งที่มา"];
 
-// FIX (same bug class as components/admin/MarketingTracker.tsx:todayStr —
-// see its comment): the original file computed this with
-// `new Date().toISOString().slice(0, 10)`, which is always UTC — wrong
-// "today" for a Thailand-based Hunter/admin team, and liable to land on
-// the previous calendar day for anyone importing between 00:00-06:59
-// Thailand time. Shifted by Thailand's fixed UTC+7 (no DST) first so
-// "today" always means Thailand's today regardless of the host's own
-// timezone.
-function todayStr(): string {
-  const bangkokMs = Date.now() + 7 * 60 * 60 * 1000;
-  return new Date(bangkokMs).toISOString().slice(0, 10);
-}
-
 function findKeyIndex(header: string[], keys: string[]): number {
   for (let i = 0; i < header.length; i++) {
     const norm = String(header[i] || "").trim().toLowerCase();
@@ -66,42 +40,164 @@ function findKeyIndex(header: string[], keys: string[]): number {
   return -1;
 }
 
+const STATUS_META: Record<HunterLead["status"], { label: string; className: string }> = {
+  awaiting_images: { label: "รอ Hunter ดึงรูป", className: "bg-page text-tertiary" },
+  ready: { label: "พร้อมตรวจสอบ", className: "bg-warningSoft text-warning" },
+  running: { label: "กำลังตรวจสอบ…", className: "bg-warningSoft text-warning" },
+  done: { label: "ตรวจสอบเสร็จแล้ว", className: "bg-accentSoft text-accent" },
+  failed: { label: "ล้มเหลว", className: "bg-dangerSoft text-danger" },
+};
+
 const thClass = "bg-inverse text-onInverse text-xs font-medium px-3 py-2 text-left";
 const tdClass = "px-3 py-2 border-b border-border text-left align-top";
+const smallInputClass =
+  "w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30";
+
+// One lead row's inline "up to 3 image URL" editor + run button — split
+// out so its own useState for the 3 url inputs doesn't have to live in
+// the parent's per-row map.
+function LeadRow({ lead, onSaved, onRun }: { lead: HunterLead; onSaved: (l: HunterLead) => void; onRun: (id: string) => Promise<void> }) {
+  const [urls, setUrls] = useState<string[]>(() => {
+    const base = [...lead.image_urls];
+    while (base.length < 3) base.push("");
+    return base;
+  });
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  const dirty = urls.some((u, i) => u.trim() !== (lead.image_urls[i] || ""));
+
+  const save = async () => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const cleaned = urls.map((u) => u.trim()).filter(Boolean);
+      const res = await fetch(`/api/admin/hunter/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrls: cleaned }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "บันทึกไม่สำเร็จ");
+      onSaved(data.lead);
+      setSaveMsg("บันทึกแล้ว");
+    } catch (e: any) {
+      setSaveMsg(e?.message || "บันทึกไม่สำเร็จ");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const run = async () => {
+    setRunning(true);
+    try {
+      await onRun(lead.id);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const status = STATUS_META[lead.status] || STATUS_META.awaiting_images;
+  const canRun = lead.image_urls.length > 0 && !dirty && lead.status !== "running";
+
+  return (
+    <tr>
+      <td className={tdClass}>{new Date(lead.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}</td>
+      <td className={tdClass}>
+        <div className="font-medium text-primary">{lead.clinic_name}</div>
+        {lead.source_link && (
+          <a href={lead.source_link} target="_blank" rel="noopener noreferrer" className="text-xs text-accent break-all underline">
+            {lead.source_link}
+          </a>
+        )}
+      </td>
+      <td className={tdClass}>{lead.province || "-"}</td>
+      <td className={tdClass}>
+        <div className="flex flex-col gap-1.5 min-w-[200px]">
+          {urls.map((u, i) => (
+            <input
+              key={i}
+              value={u}
+              placeholder={`ลิงก์รูปที่ ${i + 1}`}
+              className={smallInputClass}
+              onChange={(e) => {
+                const next = [...urls];
+                next[i] = e.target.value;
+                setUrls(next);
+              }}
+            />
+          ))}
+          <div className="flex items-center gap-2 mt-1">
+            <button
+              onClick={save}
+              disabled={saving || !dirty}
+              className="rounded-md border border-border px-3 py-1 text-xs text-secondary disabled:opacity-40"
+            >
+              {saving ? "กำลังบันทึก…" : "บันทึกลิงก์"}
+            </button>
+            {saveMsg && <span className="text-xs text-tertiary">{saveMsg}</span>}
+          </div>
+        </div>
+      </td>
+      <td className={tdClass}>
+        <span className={`inline-block rounded-pill text-xs font-medium px-3 py-1 ${status.className}`}>{status.label}</span>
+        {lead.status === "failed" && lead.last_error && (
+          <div className="text-xs text-danger mt-1 max-w-[220px]">{lead.last_error}</div>
+        )}
+      </td>
+      <td className={tdClass}>
+        {lead.result_urls.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            {lead.result_urls.map((u, i) => (
+              <a key={i} href={u} target="_blank" rel="noopener noreferrer" className="text-xs text-accent underline break-all">
+                ผลตรวจ {i + 1}
+              </a>
+            ))}
+          </div>
+        ) : (
+          <span className="text-xs text-tertiary">-</span>
+        )}
+      </td>
+      <td className={tdClass}>
+        <button
+          onClick={run}
+          disabled={!canRun || running}
+          title={dirty ? "บันทึกลิงก์ก่อนตรวจสอบ" : undefined}
+          className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+        >
+          {running || lead.status === "running" ? "กำลังตรวจสอบ…" : "ตรวจสอบอัตโนมัติ"}
+        </button>
+      </td>
+    </tr>
+  );
+}
 
 export function HunterImport() {
-  const [queue, setQueue] = useState<QueueRow[]>([]);
+  const [leads, setLeads] = useState<HunterLead[]>([]);
+  const [loadingLeads, setLoadingLeads] = useState(true);
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState("");
   const [colMapMsg, setColMapMsg] = useState("");
   const [uploadMsg, setUploadMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [importMsg, setImportMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [importing, setImporting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [loaded, setLoaded] = useState(false);
 
-  // Read the localStorage queue lazily on first client render rather than
-  // in useEffect — avoids an extra render flash and matches the pattern
-  // this component already needs anyway since localStorage is
-  // client-only. `loaded` gates it so this only runs once.
-  if (typeof window !== "undefined" && !loaded) {
-    setLoaded(true);
-    const raw = localStorage.getItem("hunter_queue");
-    if (raw) {
-      try {
-        setQueue(JSON.parse(raw));
-      } catch {
-        // Corrupt/old data — start fresh rather than crashing the page.
-      }
-    }
-  }
-
-  const saveQueue = useCallback((rows: QueueRow[]) => {
-    setQueue(rows);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("hunter_queue", JSON.stringify(rows));
+  const loadLeads = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/hunter");
+      const data = await res.json();
+      if (res.ok) setLeads(data.leads || []);
+    } finally {
+      setLoadingLeads(false);
     }
   }, []);
+
+  useEffect(() => {
+    loadLeads();
+  }, [loadLeads]);
 
   const handleFile = useCallback((file: File) => {
     setFileName(`ไฟล์: ${file.name}`);
@@ -166,31 +262,45 @@ export function HunterImport() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const importRows = () => {
-    const additions: QueueRow[] = parsedRows.map((r) => ({
-      date: todayStr(),
-      clinic: r.clinic,
-      province: r.province,
-      source: r.link,
-      hunter: "นำเข้าจากไฟล์ Excel",
-      images: [],
-      imgCount: 0,
-      note: "นำเข้าจากรายชื่อ Excel — Hunter ยังต้องดึงรูป 3 รูปและกรอกลิงก์เพิ่มก่อนส่งตรวจสอบจริง",
-      status: "รอ Hunter ดึงรูป",
-      send: "รอแอดมินดึงไปส่ง",
-    }));
-    const next = [...queue, ...additions];
-    saveQueue(next);
-    setImportMsg({ text: `นำเข้า ${additions.length} รายการเข้าคิวแล้ว`, ok: true });
-    cancelPreview();
+  const importRows = async () => {
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const res = await fetch("/api/admin/hunter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: parsedRows }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "นำเข้าไม่สำเร็จ");
+      setImportMsg({ text: `นำเข้า ${data.inserted} รายการเข้าคิวแล้ว`, ok: true });
+      cancelPreview();
+      await loadLeads();
+    } catch (e: any) {
+      setImportMsg({ text: e?.message || "นำเข้าไม่สำเร็จ", ok: false });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const runAutomation = async (id: string) => {
+    const res = await fetch(`/api/admin/hunter/${id}/run`, { method: "POST" });
+    const data = await res.json();
+    if (data?.lead) {
+      setLeads((prev) => prev.map((l) => (l.id === id ? data.lead : l)));
+    }
+    if (!res.ok) {
+      // Error is already reflected in lead.last_error/status from the
+      // response above — nothing else to show here.
+    }
   };
 
   return (
     <div>
       <div className="rounded-lg border border-warning bg-warningSoft px-4 py-3 text-xs text-warning leading-relaxed mb-6">
-        ขั้นตอน: อัปโหลดไฟล์ Excel รายชื่อคลินิก → ระบบนำเข้าคิว &quot;รอ Hunter ดึงรูป&quot; → Hunter ตามไปดึงรูป 3
-        รูปต่อคลินิกและกรอกลิงก์ → ทีม QC นำรูปไปตรวจสอบผ่าน adcheck.pro จริง → ใส่ลิงก์ผลตรวจสอบ
-        (adcheck.pro/results/{"{id}"}) กลับเข้าคิว
+        ขั้นตอน: อัปโหลดไฟล์ Excel รายชื่อคลินิก → ระบบนำเข้าคิว &quot;รอ Hunter ดึงรูป&quot; → Hunter กรอกลิงก์รูปที่ดึงมาได้
+        (สูงสุด 3 รูป) → กดปุ่ม &quot;ตรวจสอบอัตโนมัติ&quot; → ระบบส่งแต่ละรูปเข้า AI ตรวจสอบผ่าน adcheck.pro จริงและได้ลิงก์ผลตรวจสอบ
+        กลับมาอัตโนมัติ (ไม่หักเครดิตจากคลินิกจริง — ใช้บัญชีภายในของ AD Plus)
       </div>
 
       <div className="rounded-lg border border-border bg-surface p-6 mb-6">
@@ -262,12 +372,14 @@ export function HunterImport() {
             <div className="flex items-center gap-3 mt-4 flex-wrap">
               <button
                 onClick={importRows}
-                className="rounded-md bg-inverse text-onInverse px-5 py-2.5 text-sm font-medium"
+                disabled={importing}
+                className="rounded-md bg-inverse text-onInverse px-5 py-2.5 text-sm font-medium disabled:opacity-40"
               >
-                นำเข้าทั้งหมดเข้าคิว
+                {importing ? "กำลังนำเข้า…" : "นำเข้าทั้งหมดเข้าคิว"}
               </button>
               <button
                 onClick={cancelPreview}
+                disabled={importing}
                 className="rounded-md border border-border px-4 py-2 text-sm text-secondary"
               >
                 ยกเลิก
@@ -281,7 +393,7 @@ export function HunterImport() {
       </div>
 
       <div>
-        <h2 className="text-base font-medium text-primary mb-3">คิวที่ส่งแล้ว (รอ QC ตรวจสอบผ่าน adcheck.pro)</h2>
+        <h2 className="text-base font-medium text-primary mb-3">คิว Hunter</h2>
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-xs">
             <thead>
@@ -289,32 +401,33 @@ export function HunterImport() {
                 <th className={thClass}>วันที่</th>
                 <th className={thClass}>คลินิก</th>
                 <th className={thClass}>จังหวัด</th>
-                <th className={thClass}>แหล่งที่มา/Hunter</th>
-                <th className={thClass}>รูป</th>
+                <th className={thClass}>ลิงก์รูป</th>
                 <th className={thClass}>สถานะ</th>
+                <th className={thClass}>ผลตรวจสอบ</th>
+                <th className={thClass}></th>
               </tr>
             </thead>
             <tbody>
-              {queue.length === 0 ? (
+              {loadingLeads ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-tertiary py-6">
+                  <td colSpan={7} className="text-center text-tertiary py-6">
+                    กำลังโหลด…
+                  </td>
+                </tr>
+              ) : leads.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center text-tertiary py-6">
                     ยังไม่มีรายการ
                   </td>
                 </tr>
               ) : (
-                [...queue].reverse().map((r, i) => (
-                  <tr key={i}>
-                    <td className={tdClass}>{r.date}</td>
-                    <td className={tdClass}>{r.clinic}</td>
-                    <td className={tdClass}>{r.province || "-"}</td>
-                    <td className={tdClass}>{r.source || r.hunter || "-"}</td>
-                    <td className={tdClass}>{r.imgCount || 0}/3</td>
-                    <td className={tdClass}>
-                      <span className="inline-block rounded-pill bg-page text-tertiary text-xs font-medium px-3 py-1">
-                        {r.status || "รอ QC ตรวจสอบ"}
-                      </span>
-                    </td>
-                  </tr>
+                leads.map((lead) => (
+                  <LeadRow
+                    key={lead.id}
+                    lead={lead}
+                    onSaved={(updated) => setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))}
+                    onRun={runAutomation}
+                  />
                 ))
               )}
             </tbody>
