@@ -105,7 +105,9 @@ export default async function DashboardPage() {
             >
               <span>{r.filename}</span>
               <span className="text-secondary">
-                {new Date(r.created_at).toLocaleDateString("th-TH")} ·{" "}
+                {/* FIX (bug audit round 3): pin Asia/Bangkok — see the comment
+                    in components/results/ResultsPageContent.tsx. */}
+                {new Date(r.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })} ·{" "}
                 {r.flag_count > 0 ? `${r.flag_count} จุดเสี่ยง` : "ผ่าน"}
               </span>
             </Link>
