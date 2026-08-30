@@ -5,7 +5,7 @@ import { getBusinessByIdForOwner, hasActiveAgencyPlan } from "@/lib/agency";
 import { reviewImage } from "@/lib/reviewImage";
 import { reserveCredits, refundCredits } from "@/lib/credits";
 import { MAX_UPLOAD_IMAGES, MAX_FILE_SIZE_BYTES, ALLOWED_MEDIA_TYPES } from "@/lib/uploadLimits";
-import { isValidUuid } from "@/lib/validation";
+import { isValidUuid, stripNulBytes } from "@/lib/validation";
 
 type IncomingImage = {
   filename: string;
@@ -229,6 +229,13 @@ async function processSubmissionImages(
         caption: img.caption,
         filename: img.filename,
       });
+      // FIX (bug audit round 2 #10): reviewImage() can return normally
+      // (no throw) for a result that never actually called the AI — e.g.
+      // the knowledge-base-search-came-up-empty fallback. Route that
+      // through the same refund accounting as a thrown error so the
+      // business isn't charged for an image whose content was never
+      // genuinely inspected.
+      if (result.reviewFailed) reviewFailed = true;
     } catch (e: any) {
       console.error(`reviewImage failed for ${img.filename}:`, e);
       reviewFailed = true;
@@ -345,9 +352,18 @@ async function processSubmissionImages(
     // that image's result is simply missing from the results page, instead
     // of nuking the entire batch's outcome.
     try {
+      // FIX (bug audit round 2 #6): filename/caption are user-supplied free
+      // text and Postgres text columns reject a raw NUL byte outright — the
+      // same class of incident already handled for the knowledge base and
+      // issue-report forms (see lib/validation.ts:stripNulBytes) was never
+      // applied here, so a NUL in either field would throw inside this
+      // try/catch, silently dropping the image from the results with no
+      // credit refund even though the review itself had already succeeded.
+      const cleanFilename = stripNulBytes(img.filename);
+      const cleanCaption = img.caption ? stripNulBytes(img.caption) : img.caption;
       const [savedImage] = await sql`
         INSERT INTO submission_images (submission_id, image_url, filename, caption, status, sort_order)
-        VALUES (${submissionId}, ${storedImageUrl}, ${img.filename}, ${img.caption || null}, ${result.status}, ${i})
+        VALUES (${submissionId}, ${storedImageUrl}, ${cleanFilename}, ${cleanCaption || null}, ${result.status}, ${i})
         RETURNING id
       `;
 
@@ -402,10 +418,44 @@ async function processSubmissionImages(
 
   const finalStatus = overall === "passed" ? "passed" : "needs_review";
 
-  await sql`
-    UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
-    WHERE id = ${submissionId}
-  `;
+  // FIX (bug audit round 2 #3): this UPDATE used to have no WHERE-status
+  // guard and no try/catch of its own. If it threw (a transient DB blip)
+  // AFTER every image in the batch had already been genuinely reviewed and
+  // saved (the per-image try/catch above already committed those rows),
+  // the exception used to propagate up to the POST handler's outer
+  // `.catch`, which marks the WHOLE submission 'failed' and refunds EVERY
+  // reserved credit — over-refunding (most images really were reviewed)
+  // while burying real, already-saved results behind a 'failed' status.
+  //
+  // It's also the same statement that, unguarded, could resurrect a
+  // submission the watchdog in app/api/submissions/[id]/status/route.ts
+  // had already marked 'failed' (and refunded credits_used for) if this
+  // background loop was just slow rather than actually dead — flipping it
+  // back to a "completed" status the customer was already refunded for.
+  //
+  // The `AND status = 'processing'` guard makes this a no-op once the
+  // watchdog has won that race, so a slow-but-not-dead run can never
+  // resurrect an already-refunded submission. Catching locally (instead of
+  // letting a real DB error propagate) means a transient failure here no
+  // longer triggers an immediate, wrong-amount refund — the submission
+  // simply stays 'processing' and the SAME watchdog picks it up on the next
+  // status poll, marking it 'failed' and refunding credits_used exactly
+  // once, consistently, instead of this function computing its own
+  // (in this failure case, incorrect) refund amount.
+  let statusUpdated = false;
+  try {
+    const [row] = (await sql`
+      UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
+      WHERE id = ${submissionId} AND status = 'processing'
+      RETURNING id
+    `) as any[];
+    statusUpdated = Boolean(row);
+  } catch (e) {
+    console.error(
+      `Failed to set final status for submission ${submissionId} (images/flags were already saved successfully — the watchdog in .../status/route.ts will settle this submission's status and refund on the next poll):`,
+      e
+    );
+  }
 
   // Credits for this submission were already reserved atomically up front
   // (reserveCredits, called from POST above, before this function ever
@@ -414,7 +464,13 @@ async function processSubmissionImages(
   // giving back credits for any image that never got a genuine AI review
   // (bug audit #14) — a resubmit after an AI outage shouldn't be a second
   // full charge on top of the first.
-  if (unreviewedCount > 0) {
+  //
+  // Only when THIS run's own status update actually landed (statusUpdated):
+  // if the watchdog beat us to 'failed' above, it already refunded the full
+  // credits_used amount for this submission — refunding unreviewedCount on
+  // top of that would double-refund the images that individually failed
+  // review.
+  if (statusUpdated && unreviewedCount > 0) {
     await refundCredits(business.id, unreviewedCount);
   }
 }
