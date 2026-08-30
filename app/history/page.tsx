@@ -79,7 +79,9 @@ export default async function HistoryPage({
                   <span className="text-sm font-medium">{img.filename}</span>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-secondary">
-                  <span>{new Date(img.created_at).toLocaleDateString("th-TH")}</span>
+                  {/* FIX (bug audit round 3): pin Asia/Bangkok — see the
+                      comment in components/results/ResultsPageContent.tsx. */}
+                  <span>{new Date(img.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}</span>
                   <span className={`rounded-pill px-3 py-1 text-xs font-medium ${s.badge}`}>{s.label}</span>
                 </div>
               </Link>
