@@ -1,6 +1,16 @@
 import Link from "next/link";
 import type { ActivePackage } from "@/lib/credits";
 
+// FIX (bug audit round 3): the "หมดอายุวันที่" text below used to call
+// toLocaleDateString("th-TH") with no `timeZone` — this component is
+// rendered inside SettingsClient.tsx, a "use client" component, so it is
+// both server-rendered for the initial HTML and re-run in the browser
+// during hydration. Without a pinned timezone, those two runs can disagree
+// (Render's server defaults to UTC; the browser is whatever the visitor's
+// OS is set to), producing a real React hydration mismatch — same failure
+// mode confirmed live on the admin pages via lib/formatDateTime.ts, and
+// also just plain wrong for anyone viewing within 7 hours of UTC midnight.
+//
 // Whole days left until `expiresAt`, ceil()'d so "later today" still reads
 // as at least 1 day. 0 or negative means that package's own 30-day cycle
 // has already lapsed.
@@ -73,14 +83,19 @@ export function PackageCreditsCard({
                     {pkg.plan_name}
                   </span>
                   <div className="text-sm font-medium">
-                    {pkg.price_thb ? `${Number(pkg.price_thb).toLocaleString()} บาท` : "—"}
+                    {/* FIX (bug audit round 3, minor/preventive): explicit
+                        "th-TH" locale — this card renders inside a "use
+                        client" tree (see the timeZone fix above for why that
+                        matters), and a bare toLocaleString() depends on
+                        whichever default locale the calling runtime resolves. */}
+                    {pkg.price_thb ? `${Number(pkg.price_thb).toLocaleString("th-TH")} บาท` : "—"}
                     {pkg.credits_granted ? `  ·  ${pkg.credits_granted} เครดิต/แพ็กเกจ` : ""}
                   </div>
                   <div className="text-xs text-secondary mt-1">
                     {remaining > 0
-                      ? `เหลืออีก ${remaining} วัน — หมดอายุวันที่ ${new Date(
-                          pkg.expires_at
-                        ).toLocaleDateString("th-TH")}`
+                      ? `เหลืออีก ${remaining} วัน — หมดอายุวันที่ ${new Date(pkg.expires_at).toLocaleDateString("th-TH", {
+                          timeZone: "Asia/Bangkok",
+                        })}`
                       : "กำลังจะหมดอายุ"}
                   </div>
                 </div>

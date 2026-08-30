@@ -375,14 +375,24 @@ export function SettingsClient({
                   </div>
                   <div className="text-xs text-tertiary">
                     {t.invoice_number} ·{" "}
+                    {/* FIX (bug audit round 3): missing `timeZone` here made this
+                        both a real hydration mismatch (this is a "use client"
+                        component, so the invoice timestamp gets formatted once
+                        on the server — UTC — and again in the browser, whose
+                        timezone can differ) and just plain wrong for anyone
+                        viewing within a few hours of UTC midnight. Same fix as
+                        lib/formatDateTime.ts. */}
                     {new Date(t.created_at).toLocaleString("th-TH", {
                       dateStyle: "medium",
                       timeStyle: "short",
+                      timeZone: "Asia/Bangkok",
                     })}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="text-sm font-medium">{Number(t.amount_thb).toLocaleString()} บาท</div>
+                  {/* FIX (bug audit round 3, minor/preventive): explicit "th-TH"
+                      locale — same reasoning as the timeZone fix above. */}
+                  <div className="text-sm font-medium">{Number(t.amount_thb).toLocaleString("th-TH")} บาท</div>
                   <span
                     className={`inline-block mt-1 rounded-pill text-[11px] font-medium px-2 py-0.5 ${
                       STATUS_STYLE[t.status] || "bg-page text-secondary"
