@@ -1,0 +1,21 @@
+-- Bug audit round 2, high #5: no idempotency guard against a genuine
+-- double-submit on card checkout (app/api/billing/card/route.ts) — two
+-- concurrent POSTs for the same business (network-retry, double-click,
+-- two tabs) could both reach Omise and get two DIFFERENT charge ids, so
+-- the existing `ON CONFLICT (omise_charge_id)` guard (which only catches a
+-- retry of the SAME charge, e.g. a webhook redelivery) never caught it —
+-- the customer could be charged twice and granted two packages' credits.
+--
+-- checkout_in_progress_at is a short-lived per-business lock: the route
+-- claims it atomically (a single UPDATE ... WHERE checkout_in_progress_at
+-- IS NULL OR stale, RETURNING) before ever calling Omise, and always
+-- clears it in a `finally` on every exit path. The 2-minute staleness
+-- window (enforced in application code, not here) means a crash mid-charge
+-- can't permanently lock a business out of checking out again.
+--
+-- Already applied directly to production via the Neon MCP connection
+-- during this session — this file is kept purely as a historical record,
+-- same pattern as migrations/002_compliance_rules.sql and others in this
+-- directory. Not meant to be re-run against prod.
+
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS checkout_in_progress_at timestamptz NULL;
