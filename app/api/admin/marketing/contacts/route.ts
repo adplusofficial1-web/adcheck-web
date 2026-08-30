@@ -46,6 +46,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ contacts });
   } catch (e: any) {
     console.error("GET /api/admin/marketing/contacts failed:", e);
-    return NextResponse.json({ error: e?.message || "โหลดข้อมูลไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: "โหลดข้อมูลไม่สำเร็จ" }, { status: 500 });
   }
 }
