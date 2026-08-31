@@ -29,8 +29,12 @@
 // what a person is actively doing. Re-run safe: a lead this run can't find
 // any images for just stays 'awaiting_images' for the next scheduled run
 // (or a human) to pick up — see lib/facebookAdLibrary.ts's own
-// never-throws contract.
-import puppeteer from "puppeteer";
+// never-throws contract. A lead this run finds images for but then crashes
+// before reviewing (see the two-phase structure below) is left in 'ready'
+// — updateHunterLeadImages already moves it there — which is exactly the
+// pre-existing "a human pasted the images, ready to review" state, so
+// nothing is lost even on a mid-run crash.
+import puppeteer, { type Browser } from "puppeteer";
 import { sql } from "../lib/db";
 import { findLeadImageUrls } from "../lib/facebookAdLibrary";
 import {
@@ -94,6 +98,71 @@ const PUPPETEER_LAUNCH_ARGS = [
 ];
 
 type PendingLead = { id: string; clinic_name: string; province: string | null; source_link: string | null };
+type FoundLead = { lead: PendingLead; imageUrls: string[] };
+
+// Phase 1: drive headless Chrome to find images for every lead in this
+// batch. Kept as its own function so the browser (and everything Chrome is
+// holding in memory) is fully closed — see the `finally` below — before
+// phase 2 ever starts spending memory on image downloads + the Anthropic
+// API call. Returns only the leads that got images; a lead with none found
+// is logged here and simply left 'awaiting_images' for next time.
+async function findImagesForLeads(leads: PendingLead[]): Promise<FoundLead[]> {
+  const browser: Browser = await puppeteer.launch({
+    headless: true,
+    args: PUPPETEER_LAUNCH_ARGS,
+  });
+
+  const found: FoundLead[] = [];
+  try {
+    for (const lead of leads) {
+      const imageUrls = await findLeadImageUrls(browser, lead);
+      if (imageUrls.length === 0) {
+        console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): no images found, left awaiting_images`);
+        continue;
+      }
+
+      // Reuses the exact same update path the manual admin UI's PATCH hits
+      // (lib/hunterLeads.ts:updateHunterLeadImages), so a lead this job
+      // fills in is indistinguishable in the DB from one a human filled in
+      // by hand — same status transition (-> 'ready'), same stale-result-
+      // clearing logic. This also means a crash between here and phase 2
+      // below leaves the lead safely in 'ready', not stuck or duplicated.
+      await updateHunterLeadImages(lead.id, imageUrls);
+      console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): found ${imageUrls.length} image(s)`);
+      found.push({ lead, imageUrls });
+    }
+  } finally {
+    // FIX (2026-08-31): closing Chrome here — before any AI review call —
+    // is the fix for a second "out of memory" crash (exit 137) that hit
+    // when the review step for the batch's last lead ran while headless
+    // Chrome was still resident. Splitting into two phases means the two
+    // memory-heavy operations (a full browser vs. base64 image encode +
+    // API request) never overlap.
+    await browser.close();
+  }
+  return found;
+}
+
+// Phase 2: run the same AI compliance check the manual "run automation"
+// button triggers (app/api/admin/hunter/[id]/run/route.ts), once per lead
+// that phase 1 found images for. Runs after Chrome has fully exited.
+async function reviewFoundLeads(foundLeads: FoundLead[]): Promise<number> {
+  let reviewedCount = 0;
+  for (const { lead, imageUrls } of foundLeads) {
+    await markHunterLeadRunning(lead.id);
+    try {
+      const result = await checkAdImageUrls(imageUrls, { caption: lead.clinic_name });
+      await markHunterLeadDone(lead.id, result.resultUrl);
+      reviewedCount++;
+      console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): review done -> ${result.resultUrl}`);
+    } catch (e) {
+      const message = e instanceof CheckAdError ? e.message : "internal_error";
+      console.error(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): automation run failed:`, e);
+      await markHunterLeadFailed(lead.id, message);
+    }
+  }
+  return reviewedCount;
+}
 
 async function main() {
   const leads = (await sql`
@@ -110,57 +179,12 @@ async function main() {
     return;
   }
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: PUPPETEER_LAUNCH_ARGS,
-  });
-
-  let foundCount = 0;
-  let reviewedCount = 0;
-  let skippedCount = 0;
-
-  try {
-    for (const lead of leads) {
-      const imageUrls = await findLeadImageUrls(browser, lead);
-      if (imageUrls.length === 0) {
-        console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): no images found, left awaiting_images`);
-        skippedCount++;
-        continue;
-      }
-      foundCount++;
-
-      // Reuses the exact same update path the manual admin UI's PATCH hits
-      // (lib/hunterLeads.ts:updateHunterLeadImages), so a lead this job
-      // fills in is indistinguishable in the DB from one a human filled in
-      // by hand — same status transition, same stale-result-clearing logic.
-      await updateHunterLeadImages(lead.id, imageUrls);
-      console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): found ${imageUrls.length} image(s)`);
-
-      // Auto-runs the AI compliance check immediately (explicit product
-      // decision, 2026-08-31) — mirrors
-      // app/api/admin/hunter/[id]/run/route.ts exactly (same
-      // markHunterLeadRunning -> checkAdImageUrls -> markHunterLeadDone/
-      // Failed sequence), just called in-process here instead of over HTTP
-      // since this script already imports the same lib functions the route
-      // uses.
-      await markHunterLeadRunning(lead.id);
-      try {
-        const result = await checkAdImageUrls(imageUrls, { caption: lead.clinic_name });
-        await markHunterLeadDone(lead.id, result.resultUrl);
-        reviewedCount++;
-        console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): review done -> ${result.resultUrl}`);
-      } catch (e) {
-        const message = e instanceof CheckAdError ? e.message : "internal_error";
-        console.error(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): automation run failed:`, e);
-        await markHunterLeadFailed(lead.id, message);
-      }
-    }
-  } finally {
-    await browser.close();
-  }
+  const foundLeads = await findImagesForLeads(leads);
+  const reviewedCount = await reviewFoundLeads(foundLeads);
+  const skippedCount = leads.length - foundLeads.length;
 
   console.log(
-    `[hunter-auto-fill] run complete — ${foundCount}/${leads.length} lead(s) got images (${reviewedCount} reviewed successfully), ${skippedCount} left awaiting_images`
+    `[hunter-auto-fill] run complete — ${foundLeads.length}/${leads.length} lead(s) got images (${reviewedCount} reviewed successfully), ${skippedCount} left awaiting_images`
   );
 }
 
