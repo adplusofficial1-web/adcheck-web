@@ -60,7 +60,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   await markHunterLeadRunning(params.id);
 
   try {
-    const result = await checkAdImageUrls(lead.image_urls, { caption: lead.clinic_name });
+    // Haiku 4.5 (2026-08-31): same model as the Hunter auto-fill cron job
+    // (scripts/hunterAutoFillJob.ts) — kept consistent so a lead reviewed by
+    // this manual button behaves the same as one reviewed automatically.
+    // See lib/automationCheckAd.ts's top-of-file note for the comparison
+    // that justified this; the customer-facing endpoint is unaffected.
+    const result = await checkAdImageUrls(lead.image_urls, { caption: lead.clinic_name, model: "claude-haiku-4-5" });
     await markHunterLeadDone(params.id, result.resultUrl);
     const updated = await getHunterLead(params.id);
     return NextResponse.json({ lead: updated });
