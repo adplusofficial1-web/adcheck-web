@@ -21,6 +21,14 @@ import { stripNulBytes } from "@/lib/validation";
 // indistinguishable in the database afterward — see that route's own
 // comment for the full reasoning behind each step.
 
+// NOTE (2026-08-31): opts.model is optional and defaults to reviewImage()'s
+// own default ("claude-sonnet-5") when omitted. checkAdImageUrl() (the
+// external n8n / customer-facing endpoint) is called with no model, so it
+// keeps using Sonnet 5 unchanged. checkAdImageUrls() (Hunter-only — see the
+// caller list above) is passed model: "claude-haiku-4-5" explicitly by both
+// its callers, after a side-by-side quality/speed comparison
+// (scripts/compareModels.ts) showed Haiku 4.5 acceptable for this
+// lower-stakes, internal lead-review path.
 export type CheckAdResult = {
   submissionId: string;
   resultUrl: string;
@@ -130,14 +138,15 @@ async function reviewAndStoreImage(
   submissionId: string,
   sortOrder: number,
   fetched: FetchedImage,
-  caption: string | undefined
+  caption: string | undefined,
+  model?: string
 ): Promise<{ status: "passed" | "caution" | "violation"; flags: any[]; reviewFailed: boolean }> {
   const { base64Image, mediaType, filename } = fetched;
 
   let result: any;
   let reviewFailed = false;
   try {
-    result = await reviewImage({ base64Image, mediaType, caption, filename });
+    result = await reviewImage({ base64Image, mediaType, caption, filename, model });
     if (result.reviewFailed) reviewFailed = true;
   } catch (e: any) {
     console.error(`reviewImage failed for automation submission ${submissionId} image ${sortOrder}:`, e);
@@ -236,7 +245,7 @@ async function reviewAndStoreImage(
 // --- Public: single image, own submission (external n8n endpoint) -------
 export async function checkAdImageUrl(
   imageUrl: string,
-  opts?: { caption?: string }
+  opts?: { caption?: string; model?: string }
 ): Promise<CheckAdResult> {
   const caption = opts?.caption ? stripNulBytes(opts.caption) : undefined;
 
@@ -266,7 +275,7 @@ export async function checkAdImageUrl(
     throw new CheckAdError("internal_error", 500);
   }
 
-  const { status, flags, reviewFailed } = await reviewAndStoreImage(submission.id, 0, fetched, caption);
+  const { status, flags, reviewFailed } = await reviewAndStoreImage(submission.id, 0, fetched, caption, opts?.model);
 
   const finalStatus = status === "passed" ? "passed" : "needs_review";
   try {
@@ -314,7 +323,7 @@ export async function checkAdImageUrl(
 // still getting reviewed and shown on the same share page.
 export async function checkAdImageUrls(
   imageUrls: string[],
-  opts?: { caption?: string }
+  opts?: { caption?: string; model?: string }
 ): Promise<CheckAdBatchResult> {
   if (imageUrls.length === 0) {
     throw new CheckAdError("imageUrls must not be empty", 400);
@@ -352,7 +361,7 @@ export async function checkAdImageUrls(
     const imageUrl = imageUrls[i];
     try {
       const fetched = await fetchImageBytes(imageUrl);
-      const { status, flags, reviewFailed } = await reviewAndStoreImage(submission.id, i, fetched, caption);
+      const { status, flags, reviewFailed } = await reviewAndStoreImage(submission.id, i, fetched, caption, opts?.model);
       if (reviewFailed) unreviewedCount++;
       images.push({ imageUrl, status, flags, failed: false });
     } catch (e) {
