@@ -48,7 +48,50 @@ import { checkAdImageUrls, CheckAdError } from "../lib/automationCheckAd";
 // Facebook's rate-limit/ToS tolerance) in one run. Raise deliberately, not
 // by accident — see lib/facebookAdLibrary.ts's module comment on why
 // volume matters here specifically.
-const MAX_LEADS_PER_RUN = 25;
+//
+// FIX (2026-08-31): lowered from 25 to 5 after the Render Cron Job's
+// Starter plan (512MB RAM) hit "Out of memory" running headless Chrome
+// across a long batch in one process. A smaller batch means less chance of
+// hitting the ceiling on a given run — any lead left over just waits for
+// the next scheduled run (see the re-run-safe note above), so this only
+// slows the backlog down, it doesn't lose anything.
+const MAX_LEADS_PER_RUN = 5;
+
+// FIX (2026-08-31): trimmed Chrome's own memory footprint to fit the 512MB
+// Render Starter plan, alongside the MAX_LEADS_PER_RUN cut above. Beyond
+// --no-sandbox/--disable-setuid-sandbox (needed for Render's container —
+// see below), these disable background/telemetry/renderer subsystems this
+// script never uses (no extensions, no GPU, no sync, no translate, no
+// audio) and merge Chrome's renderer into the main process
+// (--single-process/--no-zygote) rather than spawning separate ones — the
+// standard trade for running Chrome in a small, single-purpose container
+// where a bit less isolation is an acceptable cost for staying under the
+// memory ceiling.
+const PUPPETEER_LAUNCH_ARGS = [
+  // Render's build/runtime image runs as a non-root user without a
+  // sandbox-capable kernel namespace set up for Chromium's default
+  // sandbox — same reason the official Render Puppeteer guide
+  // (render.com/docs/deploy-puppeteer-node) and most other constrained-
+  // container deployments disable it. This does not weaken anything this
+  // script relies on for safety: it only ever navigates to
+  // facebook.com/ads/library URLs this file itself builds, never
+  // arbitrary/user-supplied URLs or scripts.
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-gpu",
+  "--disable-extensions",
+  "--disable-background-networking",
+  "--disable-default-apps",
+  "--disable-sync",
+  "--disable-translate",
+  "--metrics-recording-only",
+  "--mute-audio",
+  "--no-first-run",
+  "--safebrowsing-disable-auto-update",
+  "--single-process",
+  "--no-zygote",
+];
 
 type PendingLead = { id: string; clinic_name: string; province: string | null; source_link: string | null };
 
@@ -69,15 +112,7 @@ async function main() {
 
   const browser = await puppeteer.launch({
     headless: true,
-    // Render's build/runtime image runs as a non-root user without a
-    // sandbox-capable kernel namespace set up for Chromium's default
-    // sandbox — same reason the official Render Puppeteer guide
-    // (render.com/docs/deploy-puppeteer-node) and most other constrained-
-    // container deployments disable it. This does not weaken anything this
-    // script relies on for safety: it only ever navigates to
-    // facebook.com/ads/library URLs this file itself builds, never
-    // arbitrary/user-supplied URLs or scripts.
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: PUPPETEER_LAUNCH_ARGS,
   });
 
   let foundCount = 0;
