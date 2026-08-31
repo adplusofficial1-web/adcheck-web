@@ -151,7 +151,13 @@ async function reviewFoundLeads(foundLeads: FoundLead[]): Promise<number> {
   for (const { lead, imageUrls } of foundLeads) {
     await markHunterLeadRunning(lead.id);
     try {
-      const result = await checkAdImageUrls(imageUrls, { caption: lead.clinic_name });
+      // Haiku 4.5 (2026-08-31): after a side-by-side comparison against
+      // Sonnet 5 on real Hunter lead images (scripts/compareModels.ts)
+      // showed acceptable quality at noticeably lower latency/cost, this
+      // internal Hunter review path was switched to Haiku 4.5. The
+      // customer-facing check-ad endpoint (lib/automationCheckAd.ts's
+      // checkAdImageUrl, singular) is untouched and still uses Sonnet 5.
+      const result = await checkAdImageUrls(imageUrls, { caption: lead.clinic_name, model: "claude-haiku-4-5" });
       await markHunterLeadDone(lead.id, result.resultUrl);
       reviewedCount++;
       console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): review done -> ${result.resultUrl}`);
