@@ -84,6 +84,9 @@ function LeadRow({
   const [running, setRunning] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  // Timer for the "คัดลอกแล้ว ✓" label reset — see copyResultLink below.
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounce ref for auto-save — see saveUrls below.
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -153,6 +156,7 @@ function LeadRow({
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
     };
   }, []);
 
@@ -163,6 +167,40 @@ function LeadRow({
     } finally {
       setRunning(false);
     }
+  };
+
+  // CHANGE (2026-08-31): "ดูผลตรวจสอบ" used to open result_url in a new tab
+  // — per user request it now copies the link to the clipboard instead, so
+  // it's immediately ready to paste (into a message to the clinic, a
+  // spreadsheet, etc.) with no extra "copy from address bar" step. Same
+  // clipboard-with-fallback approach as components/ShareLinkButton.tsx.
+  const copyResultLink = async () => {
+    if (!lead.result_url) return;
+    try {
+      await navigator.clipboard.writeText(lead.result_url);
+    } catch {
+      // Clipboard API needs a secure-context permission that isn't always
+      // granted — fall back to the classic hidden-textarea + execCommand
+      // trick instead of doing nothing.
+      const textarea = document.createElement("textarea");
+      textarea.value = lead.result_url;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+      } catch {
+        // Truly nothing left to try — skip the "copied" claim below so
+        // the admin isn't told it worked when it didn't.
+        document.body.removeChild(textarea);
+        return;
+      }
+      document.body.removeChild(textarea);
+    }
+    setCopied(true);
+    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    copyResetTimer.current = setTimeout(() => setCopied(false), 2000);
   };
 
   const del = async () => {
@@ -236,21 +274,25 @@ function LeadRow({
         <div className="flex items-center gap-2">
           {/* CHANGE (2026-08-31): the separate "ผลตรวจสอบ" column was
               removed per user request — once a lead has a result_url, this
-              slot now shows a "ดูผลตรวจสอบ" link button in place of the
+              slot now shows a "ดูผลตรวจสอบ" button in place of the
               "ตรวจสอบอัตโนมัติ" button (rather than showing both side by
               side), since re-running a 'done' lead is a no-op anyway (see
               app/api/admin/hunter/[id]/run/route.ts) until its image_urls
               are edited — at which point result_url is cleared and this
-              reverts to the run button automatically. */}
+              reverts to the run button automatically.
+              CHANGE (2026-08-31, same day): this button used to be a plain
+              <a target="_blank"> that opened result_url in a new tab — per
+              user request, clicking it now copies the link to the
+              clipboard instead (ready to paste immediately), rather than
+              navigating away. */}
           {lead.result_url ? (
-            <a
-              href={lead.result_url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={copyResultLink}
               className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium whitespace-nowrap"
             >
-              ดูผลตรวจสอบ
-            </a>
+              {copied ? "คัดลอกแล้ว ✓" : "ดูผลตรวจสอบ"}
+            </button>
           ) : (
             <button
               onClick={run}
