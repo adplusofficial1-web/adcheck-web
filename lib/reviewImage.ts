@@ -156,6 +156,14 @@ export async function reviewImage(params: {
   mediaType?: string;
   caption?: string;
   filename: string;
+  // Optional override for one-off comparisons (e.g. scripts/compareModels.ts
+  // testing Claude Haiku 4.5 against the production default) — every real
+  // caller (submissions route, Hunter automation) omits this and keeps
+  // getting claude-sonnet-5 exactly as before. Not wired to any env var or
+  // admin setting on purpose: changing the model for real production
+  // traffic should stay a deliberate code change, not something a stray env
+  // var could flip silently.
+  model?: string;
 }): Promise<ReviewResult> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error(
@@ -234,7 +242,7 @@ ${buildLegalContextBlock(matchedRules)}`;
   });
 
   const message = await getClient().messages.create({
-    model: "claude-sonnet-5",
+    model: params.model || "claude-sonnet-5",
     // Capped at 3000 by design, for cost control — deliberately NOT raised
     // further. Images with several flags were still hitting the old 4096
     // ceiling and truncating mid-JSON in production (26/8/2026: a 4-flag
