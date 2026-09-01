@@ -109,7 +109,7 @@ export function HunterPipelineOverview() {
     <div className="mt-10">
       <h2 className="text-lg font-medium text-primary">Hunter — ภาพรวมสถานะ Pipeline</h2>
       <p className="mt-1 text-sm text-secondary max-w-2xl">
-        นับจากสถานะที่ Hunter แี่ละคนตั้งเองต่อคลินิกที่ตนกำลังติดตาม (คนละชุดกับตารางค่าคอมมิชชั่นด้านบน) —
+        นับจากสถานะที่ Hunter แต่ละคนตั้งเองต่อคลินิกที่ตนกำลังติดตาม (คนละชุดกับตารางค่าคอมมิชชั่นด้านบน) —
         คลิกที่ชื่อ Hunter เพื่อดูจำนวนแยกตามสถานะของคนนั้น
       </p>
 
