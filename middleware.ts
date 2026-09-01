@@ -35,6 +35,15 @@ import { NextResponse } from "next/server";
 // /sales/:path* also matches /sales/login itself, same as /admin/:path*
 // matches every /admin/* page — harmless, since this handler never
 // redirects or blocks anything, it only forwards x-pathname (see below).
+//
+// ADDED (Hunter Freelancer Page, 2026-09-01): /hunter/:path* and
+// /api/hunter/:path* — same belt-and-suspenders-only role, not real
+// gating. /hunter itself and GET /api/hunter/leads each check
+// lib/currentHunterUser.ts's getCurrentHunterUser() themselves and
+// redirect/403 on their own (fail-closed), following the exact same
+// per-route convention as /sales and /admin. This is a NEW top-level area,
+// separate from /admin/marketing/hunter (which stays under /admin/:path*
+// above, platform-admin-only) — see app/hunter/page.tsx.
 export default auth((req) => {
   // FIX (bug audit round 2, low): app/admin/layout.tsx used to hardcode
   // every signed-out redirect's callbackUrl to /admin/knowledge-base
@@ -69,5 +78,7 @@ export const config = {
           "/api/admin/:path*",
           "/sales/:path*",
           "/api/sales/:path*",
+          "/hunter/:path*",
+          "/api/hunter/:path*",
         ],
 };
