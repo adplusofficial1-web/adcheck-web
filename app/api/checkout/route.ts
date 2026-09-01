@@ -24,7 +24,7 @@ import { nextInvoiceNumber } from "@/lib/invoiceNumber";
 const PAYMENT_GATEWAY_ENABLED = false;
 
 export async function POST(req: Request) {
-  const { planCode, channel } = await req.json();
+  const { planCode, channel, termsAccepted } = await req.json();
 
   const business = await getCurrentBusiness();
   if (!business) {
@@ -38,6 +38,20 @@ export async function POST(req: Request) {
           "ระบบชำระเงินยังไม่เปิดให้บริการในขณะนี้ กรุณาติดต่อทีมงานเพื่อดำเนินการชำระเงินและเติมเครดิต",
       },
       { status: 503 }
+    );
+  }
+
+  // Mirrors the same check in app/api/billing/card/route.ts — CheckoutForm.tsx's
+  // checkbox (acceptance of components/DisclaimerBox.tsx) disabling the pay
+  // button is only a UI nicety; a direct POST past the UI could skip it.
+  // Placed after the gateway-enabled check purely to match that route's
+  // ordering; once a real gateway is wired up for one of these channels
+  // (see the comment on PAYMENT_GATEWAY_ENABLED above), this still runs
+  // before any transaction/business_packages row is written.
+  if (termsAccepted !== true) {
+    return NextResponse.json(
+      { error: "กรุณายอมรับข้อกำหนดและข้อจำกัดความรับผิดชอบก่อนดำเนินการชำระเงิน" },
+      { status: 400 }
     );
   }
 
