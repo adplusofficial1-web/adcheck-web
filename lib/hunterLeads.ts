@@ -11,31 +11,35 @@ import { sql } from "@/lib/db";
 // migrations/013_hunter_sent.sql for hunter_sent_at — the admin-driven "ส่ง"
 // step that decides when a checked lead becomes visible on the read-only
 // Hunter Freelancer page (/hunter, see listHunterLeadsPublicView below).
+// See migrations/017_hunter_lead_assignment.sql for assigned_hunter_user_id
+// — every "ส่ง" lead now goes to exactly ONE Hunter (picked automatically,
+// see pickHunterForAssignment below) instead of broadcasting to everyone.
 
 export type HunterLeadStatus = "awaiting_images" | "ready" | "running" | "done" | "failed";
 export type HunterLeadReviewStatus = "passed" | "caution" | "violation";
 
 export type HunterLead = {
-  id: string;
-  clinic_name: string;
-  province: string | null;
-  source_link: string | null;
-  image_urls: string[];
-  note: string | null;
-  status: HunterLeadStatus;
-  result_url: string | null;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-  review_status: HunterLeadReviewStatus | null;
-  flag_count: number | null;
-  hunter_sent_at: string | null;
+id: string;
+clinic_name: string;
+province: string | null;
+source_link: string | null;
+image_urls: string[];
+note: string | null;
+status: HunterLeadStatus;
+result_url: string | null;
+last_error: string | null;
+created_at: string;
+updated_at: string;
+review_status: HunterLeadReviewStatus | null;
+flag_count: number | null;
+hunter_sent_at: string | null;
+assigned_hunter_user_id: string | null;
 };
 
 const ALLOWED_STATUS: HunterLeadStatus[] = ["awaiting_images", "ready", "running", "done", "failed"];
 
 export function isHunterLeadStatus(v: unknown): v is HunterLeadStatus {
-  return typeof v === "string" && (ALLOWED_STATUS as string[]).includes(v);
+return typeof v === "string" && (ALLOWED_STATUS as string[]).includes(v);
 }
 
 // The minimal shape the Hunter Freelancer Page (/hunter) is allowed to
@@ -44,20 +48,20 @@ export function isHunterLeadStatus(v: unknown): v is HunterLeadStatus {
 // queue, not something an external freelancer's read-only view needs
 // exposed. See lib/currentHunterUser.ts / app/api/hunter/leads/route.ts.
 export type HunterLeadPublicView = {
-  id: string;
-  clinic_name: string;
-  province: string | null;
-  source_link: string | null;
-  status: HunterLeadStatus;
-  result_url: string | null;
-  created_at: string;
+id: string;
+clinic_name: string;
+province: string | null;
+source_link: string | null;
+status: HunterLeadStatus;
+result_url: string | null;
+created_at: string;
 };
 
 // Every lead, newest first — matches the "คิวที่ส่งแล้ว" table's original
 // [...queue].reverse() ordering from the localStorage-only version.
 export async function listHunterLeads(): Promise<HunterLead[]> {
-  const rows = await sql`SELECT * FROM hunter_leads ORDER BY created_at DESC`;
-  return rows as HunterLead[];
+const rows = await sql`SELECT * FROM hunter_leads ORDER BY created_at DESC`;
+return rows as HunterLead[];
 }
 
 // Same ordering as listHunterLeads, but selects only the columns a Hunter
@@ -70,25 +74,35 @@ export async function listHunterLeads(): Promise<HunterLead[]> {
 // here — a lead being status='done' is no longer enough on its own.
 // Confirmed with user: freelancers should see only what's been sent to
 // them, not the whole queue as soon as it's checked.
+//
+// NOTE (2026-09-01, Automatic Hunter Lead Assignment): this function is no
+// longer what actually powers a signed-in Hunter's /hunter Pipeline tab —
+// that's lib/hunterPipeline.ts:listHunterLeadsForHunter(hunterUserId), which
+// additionally filters to hl.assigned_hunter_user_id = hunterUserId so each
+// Hunter only sees the ONE clinic they were assigned, not every sent lead.
+// This unscoped version is kept only as a small helper (unused internally
+// right now, left in place rather than deleted mid-fix) — do NOT wire it
+// back into any Hunter-facing route without adding the same assignment
+// filter, or the broadcast bug this fix addresses comes right back.
 export async function listHunterLeadsPublicView(): Promise<HunterLeadPublicView[]> {
-  const rows = await sql`
-    SELECT id, clinic_name, province, source_link, status, result_url, created_at
-    FROM hunter_leads
-    WHERE hunter_sent_at IS NOT NULL
-    ORDER BY created_at DESC
-  `;
-  return rows as HunterLeadPublicView[];
+const rows = await sql`
+SELECT id, clinic_name, province, source_link, status, result_url, created_at
+FROM hunter_leads
+WHERE hunter_sent_at IS NOT NULL
+ORDER BY created_at DESC
+`;
+return rows as HunterLeadPublicView[];
 }
 
 // Match key for clinic-name duplicate detection — trim + lowercase only.
 // Confirmed with user (2026-09-01): dedupe compares "ชื่อคลินิกอย่างเดียว"
 // (clinic name only, not name+province), case/whitespace-insensitive so
-// "ABC Clinic" / "abc clinic " / "  ABC Clinic" are all treated as the same
+// "ABC Clinic" / "abc clinic " / " ABC Clinic" are all treated as the same
 // clinic. Exported so the import preview (HunterImport.tsx) can flag
 // likely duplicates client-side using the exact same rule the server
 // enforces authoritatively below.
 export function normalizeClinicName(name: string): string {
-  return name.trim().toLowerCase();
+return name.trim().toLowerCase();
 }
 
 // Bulk-insert straight from the Excel-import preview (HunterImport.tsx) —
@@ -107,35 +121,35 @@ export function normalizeClinicName(name: string): string {
 // actually inserted and how many were skipped as duplicates so the caller
 // can show the admin both numbers.
 export async function importHunterLeads(
-  rows: { clinic: string; province: string; link: string }[]
+rows: { clinic: string; province: string; link: string }[]
 ): Promise<{ inserted: number; skippedDuplicate: number }> {
-  if (rows.length === 0) return { inserted: 0, skippedDuplicate: 0 };
+if (rows.length === 0) return { inserted: 0, skippedDuplicate: 0 };
 
-  const existingRows = (await sql`SELECT clinic_name FROM hunter_leads`) as { clinic_name: string }[];
-  const existingNames = new Set(existingRows.map((r) => normalizeClinicName(r.clinic_name)));
-  const seenInBatch = new Set<string>();
+const existingRows = (await sql`SELECT clinic_name FROM hunter_leads`) as { clinic_name: string }[];
+const existingNames = new Set(existingRows.map((r) => normalizeClinicName(r.clinic_name)));
+const seenInBatch = new Set<string>();
 
-  let inserted = 0;
-  let skippedDuplicate = 0;
+let inserted = 0;
+let skippedDuplicate = 0;
 
-  // Plain sequential inserts rather than a single multi-row INSERT — the
-  // Excel import batch is at most a few hundred rows (typical Hunter
-  // lead-list size), so this isn't a hot path worth the extra query-
-  // building complexity of a bulk VALUES statement.
-  for (const r of rows) {
-    const key = normalizeClinicName(r.clinic);
-    if (key && (existingNames.has(key) || seenInBatch.has(key))) {
-      skippedDuplicate++;
-      continue;
-    }
-    if (key) seenInBatch.add(key);
-    await sql`
-      INSERT INTO hunter_leads (clinic_name, province, source_link, status)
-      VALUES (${r.clinic}, ${r.province || null}, ${r.link || null}, 'awaiting_images')
-    `;
-    inserted++;
-  }
-  return { inserted, skippedDuplicate };
+// Plain sequential inserts rather than a single multi-row INSERT — the
+// Excel import batch is at most a few hundred rows (typical Hunter
+// lead-list size), so this isn't a hot path worth the extra query-
+// building complexity of a bulk VALUES statement.
+for (const r of rows) {
+const key = normalizeClinicName(r.clinic);
+if (key && (existingNames.has(key) || seenInBatch.has(key))) {
+skippedDuplicate++;
+continue;
+}
+if (key) seenInBatch.add(key);
+await sql`
+INSERT INTO hunter_leads (clinic_name, province, source_link, status)
+VALUES (${r.clinic}, ${r.province || null}, ${r.link || null}, 'awaiting_images')
+`;
+inserted++;
+}
+return { inserted, skippedDuplicate };
 }
 
 // Hunter filling in image URLs (and/or a note) for a lead they're
@@ -143,86 +157,92 @@ export async function importHunterLeads(
 // migration).
 //
 // Status handling:
-//   - 'awaiting_images' -> 'ready' the moment the first image URL lands,
-//     so the admin "run automation" list only ever shows leads that
-//     actually have something to review.
-//   - 'running' is left alone — editing urls mid-run shouldn't be
-//     possible from the UI anyway (the run button disables while
-//     running), but if it somehow happens, don't fight the in-flight run.
-//   - 'done'/'failed' -> 'ready', clearing result_url/last_error,
-//     whenever the edited image_urls array no longer matches what's
-//     already in image_urls. This matters because a lead's images are
-//     now reviewed together as ONE batch (checkAdImageUrls) producing
-//     ONE result_url — if Hunter swaps out any image for a different
-//     URL, the old combined result would silently describe the wrong
-//     set of images without this reset.
+// - 'awaiting_images' -> 'ready' the moment the first image URL lands,
+// so the admin "run automation" list only ever shows leads that
+// actually have something to review.
+// - 'running' is left alone — editing urls mid-run shouldn't be
+// possible from the UI anyway (the run button disables while
+// running), but if it somehow happens, don't fight the in-flight run.
+// - 'done'/'failed' -> 'ready', clearing result_url/last_error,
+// whenever the edited image_urls array no longer matches what's
+// already in image_urls. This matters because a lead's images are
+// now reviewed together as ONE batch (checkAdImageUrls) producing
+// ONE result_url — if Hunter swaps out any image for a different
+// URL, the old combined result would silently describe the wrong
+// set of images without this reset.
 export async function updateHunterLeadImages(
-  id: string,
-  imageUrls: string[],
-  note?: string
+id: string,
+imageUrls: string[],
+note?: string
 ): Promise<HunterLead | null> {
-  const [existing] = (await sql`
-    SELECT status, image_urls FROM hunter_leads WHERE id = ${id}
-  `) as { status: HunterLeadStatus; image_urls: string[] }[];
-  if (!existing) return null;
+const [existing] = (await sql`
+SELECT status, image_urls FROM hunter_leads WHERE id = ${id}
+`) as { status: HunterLeadStatus; image_urls: string[] }[];
+if (!existing) return null;
 
-  const urlsChanged = JSON.stringify(existing.image_urls) !== JSON.stringify(imageUrls);
+const urlsChanged = JSON.stringify(existing.image_urls) !== JSON.stringify(imageUrls);
 
-  // CHANGE (2026-08-31, found via manual test after switching the UI to
-  // auto-save-on-type): the previous version only handled
-  // awaiting_images->ready and done/failed->ready/awaiting_images —
-  // clearing a 'ready' lead's URLs back down to 0 (e.g. Hunter deletes what
-  // they typed) left status stuck at 'ready' forever, with an empty
-  // image_urls, so "ตรวจสอบอัตโนมัติ" stayed shown as available even
-  // though there was nothing left to review (the run route's own
-  // image_urls.length===0 check would 400 if clicked, but the row
-  // shouldn't even look ready). Rewritten to derive nextStatus from
-  // existing.status + the resulting url count uniformly, covering every
-  // direction of the transition symmetrically instead of one-off cases:
-  //   - awaiting_images/ready <-> each other, purely by url count (never
-  //     touches running/done/failed — those only ever change via the
-  //     automation run itself, see markHunterLeadRunning/Done/Failed below)
-  //   - done/failed -> ready/awaiting_images (clearing result_url) only
-  //     when the urls actually changed, so re-saving the same urls after a
-  //     completed run doesn't wipe its result for no reason
-  let nextStatus: HunterLeadStatus = existing.status;
-  let clearResult = false;
-  if (existing.status === "awaiting_images" || existing.status === "ready") {
-    nextStatus = imageUrls.length > 0 ? "ready" : "awaiting_images";
-  } else if ((existing.status === "done" || existing.status === "failed") && urlsChanged) {
-    nextStatus = imageUrls.length > 0 ? "ready" : "awaiting_images";
-    clearResult = true;
-  }
+// CHANGE (2026-08-31, found via manual test after switching the UI to
+// auto-save-on-type): the previous version only handled
+// awaiting_images->ready and done/failed->ready/awaiting_images —
+// clearing a 'ready' lead's URLs back down to 0 (e.g. Hunter deletes what
+// they typed) left status stuck at 'ready' forever, with an empty
+// image_urls, so "ตรวจสอบอัตโนมัติ" stayed shown as available even
+// though there was nothing left to review (the run route's own
+// image_urls.length===0 check would 400 if clicked, but the row
+// shouldn't even look ready). Rewritten to derive nextStatus from
+// existing.status + the resulting url count uniformly, covering every
+// direction of the transition symmetrically instead of one-off cases:
+// - awaiting_images/ready <-> each other, purely by url count (never
+// touches running/done/failed — those only ever change via the
+// automation run itself, see markHunterLeadRunning/Done/Failed below)
+// - done/failed -> ready/awaiting_images (clearing result_url) only
+// when the urls actually changed, so re-saving the same urls after a
+// completed run doesn't wipe its result for no reason
+let nextStatus: HunterLeadStatus = existing.status;
+let clearResult = false;
+if (existing.status === "awaiting_images" || existing.status === "ready") {
+nextStatus = imageUrls.length > 0 ? "ready" : "awaiting_images";
+} else if ((existing.status === "done" || existing.status === "failed") && urlsChanged) {
+nextStatus = imageUrls.length > 0 ? "ready" : "awaiting_images";
+clearResult = true;
+}
 
-  // Clearing result_url (via clearResult below) means this lead is no
-  // longer a finished, reviewed lead — also clear review_status/flag_count
-  // so it drops out of the Sales Lead Distribution pool query (which
-  // filters on review_status) exactly as it drops out of "done" leads
-  // generally, instead of leaving stale review data behind.
-  //
-  // CHANGE (2026-09-01, "ส่ง" workflow): also clear hunter_sent_at here — if
-  // Hunter freelancers were already sent this lead's old result and the
-  // admin now swaps the images, the old result_url they were given is gone
-  // (set to NULL above), so it must also disappear from their /hunter list
-  // (listHunterLeadsPublicView filters on hunter_sent_at IS NOT NULL) rather
-  // than linger there pointing at nothing. Re-sending after the re-review
-  // completes is the same explicit "ส่ง" click as any other lead.
-  const [row] = clearResult
-    ? await sql`
-        UPDATE hunter_leads
-        SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus},
-            result_url = NULL, last_error = NULL, review_status = NULL, flag_count = NULL,
-            hunter_sent_at = NULL, updated_at = now()
-        WHERE id = ${id}
-        RETURNING *
-      `
-    : await sql`
-        UPDATE hunter_leads
-        SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus}, updated_at = now()
-        WHERE id = ${id}
-        RETURNING *
-      `;
-  return (row as HunterLead) ?? null;
+// Clearing result_url (via clearResult below) means this lead is no
+// longer a finished, reviewed lead — also clear review_status/flag_count
+// so it drops out of the Sales Lead Distribution pool query (which
+// filters on review_status) exactly as it drops out of "done" leads
+// generally, instead of leaving stale review data behind.
+//
+// CHANGE (2026-09-01, "ส่ง" workflow): also clear hunter_sent_at here — if
+// Hunter freelancers were already sent this lead's old result and the
+// admin now swaps the images, the old result_url they were given is gone
+// (set to NULL above), so it must also disappear from their /hunter list
+// (listHunterLeadsPublicView filters on hunter_sent_at IS NOT NULL) rather
+// than linger there pointing at nothing. Re-sending after the re-review
+// completes is the same explicit "ส่ง" click as any other lead.
+//
+// CHANGE (2026-09-01, Automatic Hunter Lead Assignment): also clear
+// assigned_hunter_user_id alongside hunter_sent_at, for the same reason —
+// a re-sent lead should be assigned fresh by pickHunterForAssignment
+// below, not silently keep pointing at whichever Hunter got the old
+// (now-invalid) result.
+const [row] = clearResult
+? await sql`
+UPDATE hunter_leads
+SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus},
+result_url = NULL, last_error = NULL, review_status = NULL, flag_count = NULL,
+hunter_sent_at = NULL, assigned_hunter_user_id = NULL, updated_at = now()
+WHERE id = ${id}
+RETURNING *
+`
+: await sql`
+UPDATE hunter_leads
+SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus}, updated_at = now()
+WHERE id = ${id}
+RETURNING *
+`;
+return (row as HunterLead) ?? null;
 }
 
 // --- Automation run bookkeeping -----------------------------------------
@@ -240,7 +260,7 @@ export async function updateHunterLeadImages(
 // markHunterLeadFailed once, after the whole batch settles.
 
 export async function markHunterLeadRunning(id: string): Promise<void> {
-  await sql`UPDATE hunter_leads SET status = 'running', last_error = NULL, updated_at = now() WHERE id = ${id}`;
+await sql`UPDATE hunter_leads SET status = 'running', last_error = NULL, updated_at = now() WHERE id = ${id}`;
 }
 
 // CHANGE (Sales Lead Distribution, 2026-09-01): now also takes the batch's
@@ -252,21 +272,68 @@ export async function markHunterLeadRunning(id: string): Promise<void> {
 // every existing caller was already holding these values, they just
 // weren't being saved anywhere before this.
 export async function markHunterLeadDone(
-  id: string,
-  resultUrl: string,
-  reviewStatus: HunterLeadReviewStatus,
-  flagCount: number
+id: string,
+resultUrl: string,
+reviewStatus: HunterLeadReviewStatus,
+flagCount: number
 ): Promise<void> {
-  await sql`
-    UPDATE hunter_leads
-    SET status = 'done', result_url = ${resultUrl}, last_error = NULL,
-        review_status = ${reviewStatus}, flag_count = ${flagCount}, updated_at = now()
-    WHERE id = ${id}
-  `;
+await sql`
+UPDATE hunter_leads
+SET status = 'done', result_url = ${resultUrl}, last_error = NULL,
+review_status = ${reviewStatus}, flag_count = ${flagCount}, updated_at = now()
+WHERE id = ${id}
+`;
 }
 
 export async function markHunterLeadFailed(id: string, errorMessage: string): Promise<void> {
-  await sql`UPDATE hunter_leads SET status = 'failed', last_error = ${errorMessage}, updated_at = now() WHERE id = ${id}`;
+await sql`UPDATE hunter_leads SET status = 'failed', last_error = ${errorMessage}, updated_at = now() WHERE id = ${id}`;
+}
+
+// --- Automatic lead assignment (2569-09-01, Automatic Hunter Lead
+// Assignment fix) --------------------------------------------------------
+// Fixes a real bug reported by the site owner: every active Hunter was
+// seeing the exact same admin-"ส่ง" clinics at once (hunter_sent_at was a
+// single shared broadcast flag with no per-Hunter scoping), so multiple
+// Hunters could independently contact the same clinic. See
+// migrations/017_hunter_lead_assignment.sql for the full writeup and the
+// project doc "Hunter Lead Assignment - No Duplicates.md".
+//
+// Picks the active Hunter with the fewest currently-OPEN admin-sent leads,
+// tie-broken by earliest hunter_users.created_at — the exact same
+// "least-loaded, tie-break by created_at" convention
+// lib/salesLeads.ts:distributeDailyLeads uses for sales reps, so this
+// isn't a third distribution rule invented for Hunters specifically.
+// "Open" = a lead already assigned to this Hunter (hunter_sent_at IS NOT
+// NULL) whose PRIVATE pipeline status (hunter_lead_pipeline — defaults to
+// 'new' when this Hunter has no row for it yet) isn't one of the terminal
+// states (closed_won/closed_lost/no_response) — mirrors
+// sales_lead_assignments' own open-status list. Never reads/writes
+// hunter_self_leads (a completely different, already-private-by-
+// construction table — see migrations/016_hunter_self_leads.sql).
+//
+// Returns null (never throws itself) when there is no active Hunter at
+// all to assign to — callers decide how to surface that; see
+// markHunterLeadSent below, which turns a null pick into a clear thrown
+// error rather than silently no-op'ing a "ส่ง" click.
+export async function pickHunterForAssignment(): Promise<string | null> {
+const rows = (await sql`
+SELECT hu.id
+FROM hunter_users hu
+LEFT JOIN hunter_leads hl
+ON hl.assigned_hunter_user_id = hu.id AND hl.hunter_sent_at IS NOT NULL
+LEFT JOIN hunter_lead_pipeline hlp
+ON hlp.hunter_lead_id = hl.id AND hlp.hunter_user_id = hu.id
+WHERE hu.active = true
+GROUP BY hu.id, hu.created_at
+ORDER BY
+COUNT(hl.id) FILTER (
+WHERE hl.id IS NOT NULL
+AND COALESCE(hlp.status, 'new') NOT IN ('closed_won', 'closed_lost', 'no_response')
+) ASC,
+hu.created_at ASC
+LIMIT 1
+`) as { id: string }[];
+return rows[0]?.id ?? null;
 }
 
 // --- "ส่ง" workflow (Hunter Freelancer Page, 2026-09-01) ------------------
@@ -279,25 +346,50 @@ export async function markHunterLeadFailed(id: string, errorMessage: string): Pr
 // Only ever sends a lead that's actually 'done' — the WHERE clause makes
 // this a no-op (returns null) rather than an error if called on a lead
 // that isn't ready yet, so the route can treat "nothing changed" plainly.
+//
+// CHANGE (2569-09-01, Automatic Hunter Lead Assignment): now also picks
+// exactly ONE active Hunter (pickHunterForAssignment above) and stamps
+// assigned_hunter_user_id in the same UPDATE as hunter_sent_at, instead of
+// leaving every Hunter to see the same broadcast list. Throws a plain
+// Error (rather than returning null, which the route would otherwise read
+// as "lead not found/not done") when there is no active Hunter at all —
+// the route below turns this into a clear 400 for the admin instead of
+// either silently no-op'ing the "ส่ง" click or a raw 500. Runs the pick
+// BEFORE the UPDATE (two round-trips, not one atomic statement) — fine
+// for a single admin click; the "ส่งทั้งหมด" batch path
+// (app/api/admin/hunter/send-all/route.ts) is what actually has to worry
+// about concurrent picks racing on stale counts, and that route calls
+// this function once per lead SEQUENTIALLY specifically so each pick sees
+// every prior iteration's already-committed assignment.
 export async function markHunterLeadSent(id: string): Promise<HunterLead | null> {
-  const [row] = await sql`
-    UPDATE hunter_leads SET hunter_sent_at = now() WHERE id = ${id} AND status = 'done'
-    RETURNING *
-  `;
-  return (row as HunterLead) ?? null;
+const hunterUserId = await pickHunterForAssignment();
+if (!hunterUserId) {
+throw new Error("ไม่มี Hunter ที่เปิดใช้งานอยู่ในระบบ ไม่สามารถส่งได้");
+}
+const [row] = await sql`
+UPDATE hunter_leads SET hunter_sent_at = now(), assigned_hunter_user_id = ${hunterUserId}
+WHERE id = ${id} AND status = 'done'
+RETURNING *
+`;
+return (row as HunterLead) ?? null;
 }
 
+// CHANGE (2569-09-01, Automatic Hunter Lead Assignment): also clears
+// assigned_hunter_user_id back to NULL, not just hunter_sent_at — a
+// "ยกเลิกส่ง" lead should be a completely blank slate, picked fresh by
+// pickHunterForAssignment whenever it's sent again, not silently still
+// pointed at whichever Hunter it was assigned to before.
 export async function unmarkHunterLeadSent(id: string): Promise<HunterLead | null> {
-  const [row] = await sql`
-    UPDATE hunter_leads SET hunter_sent_at = NULL WHERE id = ${id}
-    RETURNING *
-  `;
-  return (row as HunterLead) ?? null;
+const [row] = await sql`
+UPDATE hunter_leads SET hunter_sent_at = NULL, assigned_hunter_user_id = NULL WHERE id = ${id}
+RETURNING *
+`;
+return (row as HunterLead) ?? null;
 }
 
 export async function getHunterLead(id: string): Promise<HunterLead | null> {
-  const [row] = await sql`SELECT * FROM hunter_leads WHERE id = ${id}`;
-  return (row as HunterLead) ?? null;
+const [row] = await sql`SELECT * FROM hunter_leads WHERE id = ${id}`;
+return (row as HunterLead) ?? null;
 }
 
 // Hunter/admin removing a lead from the queue entirely (the per-row "ลบ"
@@ -315,8 +407,8 @@ export async function getHunterLead(id: string): Promise<HunterLead | null> {
 // deletable out from under them via the Hunter queue's "ลบ" button.
 // Returns true if a row was actually deleted.
 export async function deleteHunterLead(id: string): Promise<boolean> {
-  const rows = await sql`DELETE FROM hunter_leads WHERE id = ${id} RETURNING id`;
-  return rows.length > 0;
+const rows = await sql`DELETE FROM hunter_leads WHERE id = ${id} RETURNING id`;
+return rows.length > 0;
 }
 
 // Checkbox-based bulk delete (2026-09-01, per user request: "มีปุ่มติ๊กที่
@@ -330,24 +422,24 @@ export async function deleteHunterLead(id: string): Promise<boolean> {
 // which ids actually got deleted and which failed (with a reason) so the
 // caller can report both back to the admin.
 export async function bulkDeleteHunterLeads(
-  ids: string[]
+ids: string[]
 ): Promise<{ deletedIds: string[]; failed: { id: string; error: string }[] }> {
-  const deletedIds: string[] = [];
-  const failed: { id: string; error: string }[] = [];
-  for (const id of ids) {
-    try {
-      const rows = await sql`DELETE FROM hunter_leads WHERE id = ${id} RETURNING id`;
-      if (rows.length > 0) {
-        deletedIds.push(id);
-      } else {
-        failed.push({ id, error: "ไม่พบรายการนี้" });
-      }
-    } catch {
-      // Same FK situation as deleteHunterLead above (lead already assigned
-      // to a sales rep via sales_lead_assignments.hunter_lead_id) — surface
-      // a plain-language reason rather than the raw DB error.
-      failed.push({ id, error: "ลบไม่สำเร็จ (อาจถูกมอบหมายให้เซลล์แล้ว)" });
-    }
-  }
-  return { deletedIds, failed };
+const deletedIds: string[] = [];
+const failed: { id: string; error: string }[] = [];
+for (const id of ids) {
+try {
+const rows = await sql`DELETE FROM hunter_leads WHERE id = ${id} RETURNING id`;
+if (rows.length > 0) {
+deletedIds.push(id);
+} else {
+failed.push({ id, error: "ไม่พบรายการนี้" });
+}
+} catch {
+// Same FK situation as deleteHunterLead above (lead already assigned
+// to a sales rep via sales_lead_assignments.hunter_lead_id) — surface
+// a plain-language reason rather than the raw DB error.
+failed.push({ id, error: "ลบไม่สำเร็จ (อาจถูกมอบหมายให้เซลล์แล้ว)" });
+}
+}
+return { deletedIds, failed };
 }
