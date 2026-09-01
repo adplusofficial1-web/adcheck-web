@@ -46,6 +46,40 @@ function findKeyIndex(header: string[], keys: string[]): number {
 // still used internally (gating run/delete buttons, the "failed" error
 // message, the run-all-ready count) even though it's no longer shown as
 // its own badge.
+//
+// CHANGE (2026-09-01, "ส่ง" workflow): a "สถานะ" column is back, but it's a
+// different, coarser 3-state view than the old one — รอตรวจสอบ (not
+// status='done' yet) / รอคิว (status='done' but not sent to Hunter
+// freelancers yet) / ส่งสำเร็จ (hunter_sent_at is set — visible on /hunter).
+// See displayStatus() below and migrations/013_hunter_sent.sql.
+
+type DisplayStatus = "awaiting_review" | "queued" | "sent";
+
+function displayStatus(lead: HunterLead): DisplayStatus {
+  if (lead.hunter_sent_at) return "sent";
+  if (lead.status === "done") return "queued";
+  return "awaiting_review";
+}
+
+const DISPLAY_STATUS_LABEL: Record<DisplayStatus, string> = {
+  awaiting_review: "รอตรวจสอบ",
+  queued: "รอคิว",
+  sent: "ส่งสำเร็จ",
+};
+
+function StatusBadge({ status }: { status: DisplayStatus }) {
+  const cls =
+    status === "sent"
+      ? "bg-accentSoft text-accent"
+      : status === "queued"
+      ? "bg-warningSoft text-warning"
+      : "bg-page text-tertiary border border-border";
+  return (
+    <span className={`rounded-pill px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${cls}`}>
+      {DISPLAY_STATUS_LABEL[status]}
+    </span>
+  );
+}
 
 const thClass = "bg-inverse text-onInverse text-xs font-medium px-3 py-2 text-left";
 const tdClass = "px-3 py-2 border-b border-border text-left align-top";
@@ -62,6 +96,8 @@ function LeadRow({
   onSaved,
   onRun,
   onDelete,
+  onSend,
+  onUnsend,
 }: {
   lead: HunterLead;
   index: number;
@@ -69,6 +105,8 @@ function LeadRow({
   onSaved: (l: HunterLead) => void;
   onRun: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onSend: (id: string) => Promise<void>;
+  onUnsend: (id: string) => Promise<void>;
 }) {
   // MAX_IMAGE_URLS mirrors the DB CHECK constraint / MAX_IMAGE_URLS in
   // app/api/admin/hunter/[id]/route.ts — kept as a local literal here since
@@ -83,6 +121,7 @@ function LeadRow({
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sending, setSending] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   // Timer for the "คัดลอกแล้ว ✓" label reset — see copyResultLink below.
@@ -213,6 +252,26 @@ function LeadRow({
     }
   };
 
+  // "ส่ง" — hand this checked lead's result to Hunter freelancers (makes it
+  // appear on their read-only /hunter list). "ยกเลิกส่ง" undoes that without
+  // touching the lead or its result. See app/api/admin/hunter/[id]/send/route.ts.
+  const send = async () => {
+    setSending(true);
+    try {
+      await onSend(lead.id);
+    } finally {
+      setSending(false);
+    }
+  };
+  const unsend = async () => {
+    setSending(true);
+    try {
+      await onUnsend(lead.id);
+    } finally {
+      setSending(false);
+    }
+  };
+
   // Run is blocked only while a save is actually in flight (to avoid
   // racing the automation run against an unsaved edit) — not on "dirty"
   // anymore, since every edit now auto-saves within 600ms with no separate
@@ -271,7 +330,10 @@ function LeadRow({
         </div>
       </td>
       <td className={tdClass}>
-        <div className="flex items-center gap-2">
+        <StatusBadge status={displayStatus(lead)} />
+      </td>
+      <td className={tdClass}>
+        <div className="flex items-center gap-2 flex-wrap">
           {/* CHANGE (2026-08-31): the separate "ผลตรวจสอบ" column was
               removed per user request — once a lead has a result_url, this
               slot now shows a "ดูผลตรวจสอบ" button in place of the
@@ -302,6 +364,26 @@ function LeadRow({
               {running || lead.status === "running" ? "กำลังตรวจสอบ…" : "ตรวจสอบอัตโนมัติ"}
             </button>
           )}
+          {lead.status === "done" &&
+            (lead.hunter_sent_at ? (
+              <button
+                type="button"
+                onClick={unsend}
+                disabled={sending || disableActions}
+                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-secondary disabled:opacity-40 whitespace-nowrap"
+              >
+                {sending ? "กำลังยกเลิก…" : "ยกเลิกส่ง"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={send}
+                disabled={sending || disableActions}
+                className="rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+              >
+                {sending ? "กำลังส่ง…" : "ส่ง"}
+              </button>
+            ))}
           <button
             onClick={del}
             disabled={deleting || lead.status === "running" || disableActions}
@@ -324,7 +406,6 @@ export function HunterImport() {
   const [uploadMsg, setUploadMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [importMsg, setImportMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [importing, setImporting] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadLeads = useCallback(async () => {
@@ -452,6 +533,28 @@ export function HunterImport() {
     }
   };
 
+  // "ส่ง" / "ยกเลิกส่ง" — see app/api/admin/hunter/[id]/send/route.ts and the
+  // "ส่ง" workflow note at the top of this file.
+  const sendLead = async (id: string) => {
+    const res = await fetch(`/api/admin/hunter/${id}/send`, { method: "POST" });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.lead) {
+      setLeads((prev) => prev.map((l) => (l.id === id ? data.lead : l)));
+    } else {
+      window.alert(data?.error || "ส่งไม่สำเร็จ");
+    }
+  };
+
+  const unsendLead = async (id: string) => {
+    const res = await fetch(`/api/admin/hunter/${id}/send`, { method: "DELETE" });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.lead) {
+      setLeads((prev) => prev.map((l) => (l.id === id ? data.lead : l)));
+    } else {
+      window.alert(data?.error || "ยกเลิกการส่งไม่สำเร็จ");
+    }
+  };
+
   // "ตรวจสอบอัตโนมัติทั้งหมด" — runs every lead currently sitting at
   // 'ready' (has image_urls, not yet run) ONE AT A TIME, sequentially,
   // reusing the exact same /run endpoint each row's own button calls.
@@ -483,6 +586,12 @@ export function HunterImport() {
 
   const readyCount = leads.filter((l) => l.status === "ready").length;
 
+  // Counts for the 3-state สถานะ summary next to "คิว Hunter" — see
+  // displayStatus() at the top of this file.
+  const awaitingReviewCount = leads.filter((l) => displayStatus(l) === "awaiting_review").length;
+  const queuedCount = leads.filter((l) => displayStatus(l) === "queued").length;
+  const sentCount = leads.filter((l) => displayStatus(l) === "sent").length;
+
   return (
     <div>
       <div className="rounded-lg border border-warning bg-warningSoft px-4 py-3 text-xs text-warning leading-relaxed mb-6">
@@ -492,31 +601,16 @@ export function HunterImport() {
         กลับมาอัตโนมัติ (ไม่หักเครดิตจากคลินิกจริง — ใช้บัญชีภายในของ AD Plus)
       </div>
 
-      <div className="rounded-lg border border-border bg-surface p-6 mb-6">
-        <h2 className="text-sm font-medium text-primary mb-1">อัปโหลดรายชื่อคลินิกจากไฟล์ Excel</h2>
-        <p className="text-xs text-secondary mb-4">
-          รองรับ .xlsx / .xls / .csv — ต้องมีคอลัมน์ชื่อคลินิกและลิงก์เพจอย่างน้อย (จังหวัดใส่หรือไม่ใส่ก็ได้)
-        </p>
-
-        <div
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-          }}
-          className={`rounded-lg border-2 border-dashed px-6 py-8 text-center cursor-pointer transition-colors ${
-            dragOver ? "border-accent bg-accentSoft/40" : "border-border"
-          }`}
-        >
-          <div className="text-2xl mb-1">📄</div>
-          <div className="text-sm text-primary">ลากไฟล์มาวาง หรือ คลิกเพื่อเลือกไฟล์</div>
-          <div className="text-xs text-tertiary mt-1">.xlsx, .xls, .csv</div>
+      <div className="rounded-lg border border-border bg-surface p-4 mb-6">
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded-md bg-inverse text-onInverse px-4 py-2 text-sm font-medium whitespace-nowrap"
+          >
+            📄 อัปโหลดรายชื่อคลินิก (.xlsx/.xls/.csv)
+          </button>
+          {fileName && <span className="text-xs font-medium text-primary">{fileName}</span>}
         </div>
         <input
           ref={fileInputRef}
@@ -528,10 +622,9 @@ export function HunterImport() {
           }}
         />
 
-        {fileName && <div className="text-xs font-medium text-primary mt-3">{fileName}</div>}
-        {colMapMsg && <div className="text-xs text-tertiary mt-1.5">{colMapMsg}</div>}
+        {colMapMsg && <div className="text-xs text-tertiary mt-2">{colMapMsg}</div>}
         {uploadMsg && (
-          <div className={`text-xs mt-2 ${uploadMsg.ok ? "text-accent" : "text-danger"}`}>{uploadMsg.text}</div>
+          <div className={`text-xs mt-1 ${uploadMsg.ok ? "text-accent" : "text-danger"}`}>{uploadMsg.text}</div>
         )}
 
         {parsedRows.length > 0 && (
@@ -582,7 +675,7 @@ export function HunterImport() {
       </div>
 
       <div>
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
           <h2 className="text-base font-medium text-primary">คิว Hunter</h2>
           <div className="flex items-center gap-2">
             {runAllProgress && (
@@ -599,6 +692,13 @@ export function HunterImport() {
             </button>
           </div>
         </div>
+        <div className="flex items-center gap-3 mb-3 text-xs text-secondary flex-wrap">
+          <span>รอตรวจสอบ {awaitingReviewCount}</span>
+          <span>·</span>
+          <span>รอคิว {queuedCount}</span>
+          <span>·</span>
+          <span>ส่งสำเร็จ {sentCount}</span>
+        </div>
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-xs">
             <thead>
@@ -606,19 +706,20 @@ export function HunterImport() {
                 <th className={thClass}>ลำดับ</th>
                 <th className={thClass}>คลินิก</th>
                 <th className={thClass}>ลิงก์รูป</th>
+                <th className={thClass}>สถานะ</th>
                 <th className={thClass}></th>
               </tr>
             </thead>
             <tbody>
               {loadingLeads ? (
                 <tr>
-                  <td colSpan={4} className="text-center text-tertiary py-6">
+                  <td colSpan={5} className="text-center text-tertiary py-6">
                     กำลังโหลด…
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center text-tertiary py-6">
+                  <td colSpan={5} className="text-center text-tertiary py-6">
                     ยังไม่มีรายการ
                   </td>
                 </tr>
@@ -632,6 +733,8 @@ export function HunterImport() {
                     onSaved={(updated) => setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))}
                     onRun={runAutomation}
                     onDelete={deleteLead}
+                    onSend={sendLead}
+                    onUnsend={unsendLead}
                   />
                 ))
               )}
