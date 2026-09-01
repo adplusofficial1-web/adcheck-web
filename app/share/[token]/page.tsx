@@ -85,6 +85,31 @@ export default async function SharedResultsPage({ params }: { params: { token: s
         </Link>
       </header>
 
+      {/* Free-trial + demo highlight for visitors who only ever see this
+          public share link and never the landing page (see app/page.tsx for
+          the same "ทดลองใช้ฟรี 15 ครั้ง" wording used there) — the point the
+          user asked for: something that visibly says "this is free" plus a
+          no-login way to see what a review looks like (case-studies is the
+          public, unauthenticated example-results page). */}
+      <div className="bg-accentSoft border-b border-border">
+        <div className="max-w-5xl mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-accent font-medium">
+            ✨ ตรวจผลนี้ด้วย ADCheck — ทดลองใช้ฟรี 15 ครั้ง ไม่มีค่าใช้จ่าย
+          </p>
+          <div className="flex items-center gap-4 shrink-0">
+            <Link href="/case-studies" className="text-sm text-accent underline whitespace-nowrap">
+              ดูตัวอย่างผลตรวจ (Demo) →
+            </Link>
+            <Link
+              href="/login"
+              className="rounded-md bg-inverse text-onInverse px-4 py-2 text-sm font-medium whitespace-nowrap hover:bg-inverse/90"
+            >
+              ทดลองใช้ฟรี
+            </Link>
+          </div>
+        </div>
+      </div>
+
       <div className="max-w-5xl mx-auto px-6 py-14">
         <h1 className="text-2xl font-medium mb-1">ผลการตรวจสอบ ({images.length} ภาพ)</h1>
         <p className="text-sm text-secondary mb-6">
@@ -199,7 +224,7 @@ export default async function SharedResultsPage({ params }: { params: { token: s
             href="/"
             className="rounded-md bg-inverse text-onInverse px-4 py-2 text-sm ml-auto"
           >
-            ตรวจสอบโฆษณาของคุณเองที่ ADCheck →
+            ทดลองใช้ฟรี 15 ครั้งที่ ADCheck →
           </a>
         </div>
       </div>
