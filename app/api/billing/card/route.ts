@@ -3,6 +3,7 @@ import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { isOmiseConfigured, createCustomerWithCard, chargeCustomer } from "@/lib/omise";
 import { nextInvoiceNumber } from "@/lib/invoiceNumber";
+import { recordHunterCommissionIfApplicable } from "@/lib/hunterCommission";
 
 // Binds a card via Omise (create Customer + Card from a one-time Omise.js
 // token) and immediately charges it for the selected plan — this is the
@@ -168,6 +169,14 @@ export async function POST(req: Request) {
     if (!transaction) {
       return NextResponse.json({ ok: true, invoiceNumber });
     }
+
+    // Hunter Referral Commission (2569-09-01): this is the Customer-
+    // Initiated first charge on a newly-bound card — exactly the kind of
+    // payment that should count toward a Hunter's referral commission (see
+    // lib/hunterCommission.ts, a no-op if this business wasn't referred by
+    // a Hunter). Placed right after the ON CONFLICT/webhook-retry guard
+    // above so a retry can never double-record the same transaction twice.
+    await recordHunterCommissionIfApplicable(business.id, transaction.id, Number(plan.price_thb));
 
     await sql`
       INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)
