@@ -96,3 +96,69 @@ export async function countClosedWonByHunter(hunterUserId: string): Promise<numb
   `) as { count: number }[];
   return count;
 }
+
+// --- Admin "ภาพรวมสถานะ Pipeline ของ Hunter ทุกคน" (2026-09-01) --------------
+// Added per explicit user request: "ต้องการ Section ดูภาพรวมจำนวนสถานะ
+// Pipeline ของ Hunter ทุกคนรวมกัน กดเข้าไปดูสามารถดูได้รายคน". Powers
+// GET /api/admin/hunter-pipeline-overview and
+// components/admin/HunterPipelineOverview.tsx — combined totals across every
+// Hunter, plus a per-Hunter breakdown so an admin clicking one name sees just
+// that row's counts (confirmed with the user: counts only, not the
+// underlying list of individual clinics).
+
+export type HunterPipelineTotals = Record<HunterPipelineStatus, number>;
+
+export type HunterPipelineOverviewRow = {
+  id: string;
+  name: string;
+  email: string;
+  active: boolean;
+  new_count: number;
+  contacted_count: number;
+  interested_count: number;
+  closed_won_count: number;
+  closed_lost_count: number;
+  no_response_count: number;
+};
+
+// One row per Hunter (active or not, same reasoning as listHunterAdminOverview
+// in lib/hunterCommission.ts), LEFT JOINed against their own
+// hunter_lead_pipeline rows so a Hunter who hasn't touched anything yet still
+// appears with all-zero counts rather than being missing from the table.
+export async function listHunterPipelineOverview(): Promise<HunterPipelineOverviewRow[]> {
+  const rows = await sql`
+    SELECT
+      h.id, h.name, h.email, h.active,
+      count(*) FILTER (WHERE hlp.status = 'new')::int AS new_count,
+      count(*) FILTER (WHERE hlp.status = 'contacted')::int AS contacted_count,
+      count(*) FILTER (WHERE hlp.status = 'interested')::int AS interested_count,
+      count(*) FILTER (WHERE hlp.status = 'closed_won')::int AS closed_won_count,
+      count(*) FILTER (WHERE hlp.status = 'closed_lost')::int AS closed_lost_count,
+      count(*) FILTER (WHERE hlp.status = 'no_response')::int AS no_response_count
+    FROM hunter_users h
+    LEFT JOIN hunter_lead_pipeline hlp ON hlp.hunter_user_id = h.id
+    GROUP BY h.id, h.name, h.email, h.active, h.created_at
+    ORDER BY h.created_at ASC
+  `;
+  return rows as HunterPipelineOverviewRow[];
+}
+
+// Combined totals across every Hunter — a separate, tiny query rather than
+// summed client-side from listHunterPipelineOverview, so the "รวมทุกคน"
+// figure stays exact even if a Hunter's status changes between the two
+// queries resolving.
+export async function getHunterPipelineTotals(): Promise<HunterPipelineTotals> {
+  const rows = (await sql`
+    SELECT status, count(*)::int AS count FROM hunter_lead_pipeline GROUP BY status
+  `) as { status: HunterPipelineStatus; count: number }[];
+  const totals: HunterPipelineTotals = {
+    new: 0,
+    contacted: 0,
+    interested: 0,
+    closed_won: 0,
+    closed_lost: 0,
+    no_response: 0,
+  };
+  for (const r of rows) totals[r.status] = r.count;
+  return totals;
+}
