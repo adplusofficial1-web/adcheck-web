@@ -103,7 +103,7 @@ export async function createBusinessForEmail(
 
 // Resolves (lazily creating on first call) the single internal business row
 // that automated, non-browser submissions -- currently just
-// app/api/automation/check-ad/route.ts, the n8n-facing API-authenticated
+// app/api/automation/check-ad/route.ts, the n8n-facing API-key-authenticated
 // endpoint -- are attributed to and billed against. There is no Google
 // account or session behind this row (unlike every other business, which is
 // provisioned 1:1 with a signed-in email via createBusinessForEmail above),
