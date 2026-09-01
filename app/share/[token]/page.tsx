@@ -219,6 +219,18 @@ export default async function SharedResultsPage({ params }: { params: { token: s
         </div>
 
         <div className="flex items-center gap-4 mt-8">
+          {/* Public PDF twin of the authenticated download button on
+              components/results/ResultsPageContent.tsx — looked up by the
+              same share_token instead of a session, see
+              app/share/[token]/pdf/page.tsx. */}
+          <a
+            href={`/share/${params.token}/pdf`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md border border-border px-4 py-2 text-sm"
+          >
+            ดาวน์โหลด PDF
+          </a>
           <ShareLinkButton shareToken={submission.share_token} />
           <a
             href="/"
