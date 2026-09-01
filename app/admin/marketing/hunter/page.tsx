@@ -2,6 +2,7 @@ import { HunterImport } from "@/components/admin/HunterImport";
 import { MarketingSubNav } from "@/components/admin/MarketingSubNav";
 import { SalesOverview } from "@/components/admin/SalesOverview";
 import { HunterUsersManager } from "@/components/admin/HunterUsersManager";
+import { HunterCommissionOverview } from "@/components/admin/HunterCommissionOverview";
 
 // Admin > Marketing > Hunter — see components/admin/HunterImport.tsx for
 // the full writeup. Kept as a route sibling of /admin/marketing (not a
@@ -28,6 +29,12 @@ import { HunterUsersManager } from "@/components/admin/HunterUsersManager";
 // 50+ rows in practice) — an admin adding/disabling a sales rep or Hunter
 // freelancer used to have to scroll past the entire clinic queue to reach
 // those forms every time.
+//
+// ADDED (Hunter Referral Commission, 2569-09-01): HunterCommissionOverview
+// — the admin-side payout queue (per-Hunter totals + mark-paid) — sits
+// right below HunterUsersManager, same reasoning as the ordering above:
+// an admin managing who's whitelisted and who's owed money shouldn't have
+// to scroll past the clinic import queue to reach either.
 export default function MarketingHunterPage() {
   return (
     <div className="max-w-5xl mx-auto">
@@ -46,6 +53,8 @@ export default function MarketingHunterPage() {
       <SalesOverview />
 
       <HunterUsersManager />
+
+      <HunterCommissionOverview />
 
       <div className="mt-10">
         <HunterImport />
