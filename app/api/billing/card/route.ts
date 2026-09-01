@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   // around recurring billing (see the earlier conversation on this).
   if (consent !== true) {
     return NextResponse.json(
-      { error: "กรุณายืนยันความยินยอมให้ตัดเงินอัติก่อนผูกบัตร" },
+      { error: "กรุณายืนยันความยินยอมให้ตัดเงินอัตโนมัติก่อนผูกบัตร" },
       { status: 400 }
     );
   }
