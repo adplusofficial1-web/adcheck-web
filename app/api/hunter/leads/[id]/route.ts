@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { getCurrentHunterUser } from "@/lib/currentHunterUser";
 import { sql } from "@/lib/db";
-import { upsertHunterLeadPipeline, isHunterPipelineStatus, type HunterPipelineStatus } from "@/lib/hunterPipeline";
+import {
+  upsertHunterLeadPipeline,
+  updateHunterSelfLead,
+  deleteHunterSelfLead,
+  isHunterPipelineStatus,
+  type HunterPipelineStatus,
+} from "@/lib/hunterPipeline";
 import { isValidUuid, stripNulBytes } from "@/lib/validation";
 
 // PATCH /api/hunter/leads/[id] — a Hunter freelancer updating their OWN
@@ -48,7 +54,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ error: "ไม่มีข้อมูลให้อัปเดต" }, { status: 400 });
   }
 
+  // CHANGE (2569-09-01, self-sourced leads): body.source tells us which
+  // table this id actually lives in — see lib/hunterPipeline.ts's
+  // HunterPipelineLead.source. Defaults to the admin path when omitted so
+  // any caller written before this change keeps working unchanged.
+  const isSelf = body?.source === "self";
+
   try {
+    if (isSelf) {
+      const updated = await updateHunterSelfLead(hunterUser.id, params.id, { status, notes });
+      if (!updated) return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
+      return NextResponse.json({ pipelineStatus: updated.status, notes: updated.notes });
+    }
+
     const [sent] = await sql`
       SELECT 1 FROM hunter_leads WHERE id = ${params.id} AND hunter_sent_at IS NOT NULL
     `;
@@ -60,5 +78,33 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   } catch (e) {
     console.error(`PATCH /api/hunter/leads/${params.id} failed:`, e);
     return NextResponse.json({ error: "อัปเดตไม่สำเร็จ" }, { status: 500 });
+  }
+}
+
+// DELETE /api/hunter/leads/[id]?source=self — a Hunter removing a clinic
+// THEY added themselves from their own Pipeline (per user request,
+// 2569-09-01). Only ever deletes a hunter_self_leads row this Hunter owns
+// — admin-sent leads (hunter_leads) are never deletable from here at all,
+// hence the explicit ?source=self requirement rather than inferring it.
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  const hunterUser = await getCurrentHunterUser();
+  if (!hunterUser) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  if (!isValidUuid(params.id)) {
+    return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  if (searchParams.get("source") !== "self") {
+    return NextResponse.json({ error: "ลบได้เฉพาะคลินิกที่คุณเพิ่มเอง" }, { status: 400 });
+  }
+
+  try {
+    const deleted = await deleteHunterSelfLead(hunterUser.id, params.id);
+    if (!deleted) return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error(`DELETE /api/hunter/leads/${params.id} failed:`, e);
+    return NextResponse.json({ error: "ลบไม่สำเร็จ" }, { status: 500 });
   }
 }
