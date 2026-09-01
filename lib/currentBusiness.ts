@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { auth } from "@/auth";
 import { getBusinessByEmail, createBusinessForEmail } from "@/lib/db";
 import { isSalesUserEmail, getActiveSalesUserById } from "@/lib/salesLeads";
-import { isHunterUserEmail } from "@/lib/hunterUsers";
+import { isHunterUserEmail, getActiveHunterUserById } from "@/lib/hunterUsers";
 
 // The single place every authenticated page/API route goes to find "whose
 // data is this". Reads the signed-in Google account's email off the
@@ -47,10 +47,24 @@ export async function getCurrentBusiness() {
   // for what this attribution is used for. Never re-checked after this —
   // attribution is permanent from the moment of signup.
   const salesRefId = cookies().get("sales_ref")?.value;
-  const referredBy = salesRefId ? await getActiveSalesUserById(salesRefId) : null;
+  const referredBySales = salesRefId ? await getActiveSalesUserById(salesRefId) : null;
+
+  // Hunter Commission (2026-09-01): same mechanism as Sales Commission
+  // above, for a Hunter freelancer's referral link
+  // (/login?hunterRef=<hunter_user_id>) and its "hunter_ref" cookie — see
+  // migrations/013_hunter_commissions.sql. Independent of the sales_ref
+  // check above: a signup can carry neither, either, or (rare edge case,
+  // if someone clicked both links) both cookies at once.
+  const hunterRefId = cookies().get("hunter_ref")?.value;
+  const referredByHunter = hunterRefId ? await getActiveHunterUserById(hunterRefId) : null;
 
   // First time we've seen this email — normally auth.ts's signIn callback
   // already created the row before the session existed at all, so this is
   // just a fallback for the rare case that step didn't run.
-  return createBusinessForEmail(email, session?.user?.name, referredBy?.id ?? null);
+  return createBusinessForEmail(
+    email,
+    session?.user?.name,
+    referredBySales?.id ?? null,
+    referredByHunter?.id ?? null
+  );
 }
