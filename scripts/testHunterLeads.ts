@@ -63,7 +63,10 @@ async function reviewFoundLeads(foundLeads: FoundLead[]): Promise<number> {
     await markHunterLeadRunning(lead.id);
     try {
       const result = await checkAdImageUrls(imageUrls, { caption: lead.clinic_name, model: "claude-haiku-4-5" });
-      await markHunterLeadDone(lead.id, result.resultUrl);
+      // Sales Lead Distribution (2026-09-01): markHunterLeadDone now also
+      // takes the batch's overall review_status/flag_count — see
+      // lib/hunterLeads.ts and lib/automationCheckAd.ts's CheckAdBatchResult.
+      await markHunterLeadDone(lead.id, result.resultUrl, result.overallStatus, result.flagCount);
       reviewedCount++;
       console.log(`[test-hunter] ${lead.id} ("${lead.clinic_name}"): review done -> ${result.resultUrl}`);
       result.images.forEach((img, i) =>

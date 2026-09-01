@@ -34,6 +34,13 @@
 // — updateHunterLeadImages already moves it there — which is exactly the
 // pre-existing "a human pasted the images, ready to review" state, so
 // nothing is lost even on a mid-run crash.
+//
+// NOTE (Sales Lead Distribution, 2026-09-01): every lead this job moves to
+// 'done' now also gets review_status/flag_count persisted (see
+// reviewFoundLeads below) — the daily scripts/salesLeadDistributionJob.ts
+// cron reads those columns to build its pool of "leads with a real
+// compliance problem" to hand out to sales reps. No behavior change to the
+// Hunter pipeline itself, just additional bookkeeping on the same write.
 import puppeteer, { type Browser } from "puppeteer";
 import { sql } from "../lib/db";
 import { findLeadImageUrls } from "../lib/facebookAdLibrary";
@@ -158,7 +165,10 @@ async function reviewFoundLeads(foundLeads: FoundLead[]): Promise<number> {
       // customer-facing check-ad endpoint (lib/automationCheckAd.ts's
       // checkAdImageUrl, singular) is untouched and still uses Sonnet 5.
       const result = await checkAdImageUrls(imageUrls, { caption: lead.clinic_name, model: "claude-haiku-4-5" });
-      await markHunterLeadDone(lead.id, result.resultUrl);
+      // Sales Lead Distribution (2026-09-01): see the module comment above
+      // — persists the overall outcome so this lead can enter the sales
+      // pool if it found a problem.
+      await markHunterLeadDone(lead.id, result.resultUrl, result.overallStatus, result.flagCount);
       reviewedCount++;
       console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): review done -> ${result.resultUrl}`);
     } catch (e) {
