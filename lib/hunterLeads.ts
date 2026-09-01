@@ -7,7 +7,10 @@ import { sql } from "@/lib/db";
 // for why result_url is a single column, not an array. See
 // migrations/011_sales_leads.sql for review_status/flag_count, added so the
 // Sales Lead Distribution pool (lib/salesLeads.ts) can filter to only
-// leads whose AI review actually found a problem.
+// leads whose AI review actually found a problem. See
+// migrations/013_hunter_sent.sql for hunter_sent_at — the admin-driven "ส่ง"
+// step that decides when a checked lead becomes visible on the read-only
+// Hunter Freelancer page (/hunter, see listHunterLeadsPublicView below).
 
 export type HunterLeadStatus = "awaiting_images" | "ready" | "running" | "done" | "failed";
 export type HunterLeadReviewStatus = "passed" | "caution" | "violation";
@@ -26,6 +29,7 @@ export type HunterLead = {
   updated_at: string;
   review_status: HunterLeadReviewStatus | null;
   flag_count: number | null;
+  hunter_sent_at: string | null;
 };
 
 const ALLOWED_STATUS: HunterLeadStatus[] = ["awaiting_images", "ready", "running", "done", "failed"];
@@ -59,10 +63,18 @@ export async function listHunterLeads(): Promise<HunterLead[]> {
 // Same ordering as listHunterLeads, but selects only the columns a Hunter
 // freelancer's read-only view is allowed to see — see HunterLeadPublicView
 // above. Powers GET /api/hunter/leads.
+//
+// CHANGE (2026-09-01, "ส่ง" workflow — migrations/013_hunter_sent.sql):
+// only leads the admin has explicitly marked "ส่งสำเร็จ" (hunter_sent_at
+// set via markHunterLeadSent, the "ส่ง" button in HunterImport.tsx) show up
+// here — a lead being status='done' is no longer enough on its own.
+// Confirmed with user: freelancers should see only what's been sent to
+// them, not the whole queue as soon as it's checked.
 export async function listHunterLeadsPublicView(): Promise<HunterLeadPublicView[]> {
   const rows = await sql`
     SELECT id, clinic_name, province, source_link, status, result_url, created_at
     FROM hunter_leads
+    WHERE hunter_sent_at IS NOT NULL
     ORDER BY created_at DESC
   `;
   return rows as HunterLeadPublicView[];
@@ -152,11 +164,20 @@ export async function updateHunterLeadImages(
   // so it drops out of the Sales Lead Distribution pool query (which
   // filters on review_status) exactly as it drops out of "done" leads
   // generally, instead of leaving stale review data behind.
+  //
+  // CHANGE (2026-09-01, "ส่ง" workflow): also clear hunter_sent_at here — if
+  // Hunter freelancers were already sent this lead's old result and the
+  // admin now swaps the images, the old result_url they were given is gone
+  // (set to NULL above), so it must also disappear from their /hunter list
+  // (listHunterLeadsPublicView filters on hunter_sent_at IS NOT NULL) rather
+  // than linger there pointing at nothing. Re-sending after the re-review
+  // completes is the same explicit "ส่ง" click as any other lead.
   const [row] = clearResult
     ? await sql`
         UPDATE hunter_leads
         SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus},
-            result_url = NULL, last_error = NULL, review_status = NULL, flag_count = NULL, updated_at = now()
+            result_url = NULL, last_error = NULL, review_status = NULL, flag_count = NULL,
+            hunter_sent_at = NULL, updated_at = now()
         WHERE id = ${id}
         RETURNING *
       `
@@ -211,6 +232,32 @@ export async function markHunterLeadDone(
 
 export async function markHunterLeadFailed(id: string, errorMessage: string): Promise<void> {
   await sql`UPDATE hunter_leads SET status = 'failed', last_error = ${errorMessage}, updated_at = now() WHERE id = ${id}`;
+}
+
+// --- "ส่ง" workflow (Hunter Freelancer Page, 2026-09-01) ------------------
+// The admin-driven gate between "checked" (status='done') and "visible to
+// Hunter freelancers on /hunter" — see migrations/013_hunter_sent.sql and
+// listHunterLeadsPublicView above. Called by
+// app/api/admin/hunter/[id]/send/route.ts (the "ส่ง"/"ยกเลิกส่ง" buttons in
+// HunterImport.tsx's queue table).
+
+// Only ever sends a lead that's actually 'done' — the WHERE clause makes
+// this a no-op (returns null) rather than an error if called on a lead
+// that isn't ready yet, so the route can treat "nothing changed" plainly.
+export async function markHunterLeadSent(id: string): Promise<HunterLead | null> {
+  const [row] = await sql`
+    UPDATE hunter_leads SET hunter_sent_at = now() WHERE id = ${id} AND status = 'done'
+    RETURNING *
+  `;
+  return (row as HunterLead) ?? null;
+}
+
+export async function unmarkHunterLeadSent(id: string): Promise<HunterLead | null> {
+  const [row] = await sql`
+    UPDATE hunter_leads SET hunter_sent_at = NULL WHERE id = ${id}
+    RETURNING *
+  `;
+  return (row as HunterLead) ?? null;
 }
 
 export async function getHunterLead(id: string): Promise<HunterLead | null> {
