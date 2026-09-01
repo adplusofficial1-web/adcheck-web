@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { getBusinessByEmail, createBusinessForEmail } from "@/lib/db";
 import { isSalesUserEmail } from "@/lib/salesLeads";
+import { isHunterUserEmail } from "@/lib/hunterUsers";
 
 // The single place every authenticated page/API route goes to find "whose
 // data is this". Reads the signed-in Google account's email off the
@@ -28,6 +29,12 @@ export async function getCurrentBusiness() {
   // in currentSalesUser.ts) so the guard holds no matter which page
   // triggers the very first lookup for that email.
   if (await isSalesUserEmail(email)) return null;
+
+  // Hunter Freelancer Page (2026-09-01): same guard, same reasoning, for
+  // the separate /hunter area's whitelist — see lib/currentHunterUser.ts.
+  // A Hunter freelancer's Google account must never become a customer
+  // business either.
+  if (await isHunterUserEmail(email)) return null;
 
   // First time we've seen this email — normally auth.ts's signIn callback
   // already created the row before the session existed at all, so this is

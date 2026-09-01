@@ -34,11 +34,38 @@ export function isHunterLeadStatus(v: unknown): v is HunterLeadStatus {
   return typeof v === "string" && (ALLOWED_STATUS as string[]).includes(v);
 }
 
+// The minimal shape the Hunter Freelancer Page (/hunter) is allowed to
+// see — deliberately NOT the full HunterLead: no image_urls, note, or
+// last_error, since those are internal working fields for the admin
+// queue, not something an external freelancer's read-only view needs
+// exposed. See lib/currentHunterUser.ts / app/api/hunter/leads/route.ts.
+export type HunterLeadPublicView = {
+  id: string;
+  clinic_name: string;
+  province: string | null;
+  source_link: string | null;
+  status: HunterLeadStatus;
+  result_url: string | null;
+  created_at: string;
+};
+
 // Every lead, newest first — matches the "คิวที่ส่งแล้ว" table's original
 // [...queue].reverse() ordering from the localStorage-only version.
 export async function listHunterLeads(): Promise<HunterLead[]> {
   const rows = await sql`SELECT * FROM hunter_leads ORDER BY created_at DESC`;
   return rows as HunterLead[];
+}
+
+// Same ordering as listHunterLeads, but selects only the columns a Hunter
+// freelancer's read-only view is allowed to see — see HunterLeadPublicView
+// above. Powers GET /api/hunter/leads.
+export async function listHunterLeadsPublicView(): Promise<HunterLeadPublicView[]> {
+  const rows = await sql`
+    SELECT id, clinic_name, province, source_link, status, result_url, created_at
+    FROM hunter_leads
+    ORDER BY created_at DESC
+  `;
+  return rows as HunterLeadPublicView[];
 }
 
 // Bulk-insert straight from the Excel-import preview (HunterImport.tsx) —
