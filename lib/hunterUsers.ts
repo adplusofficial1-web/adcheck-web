@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { isValidUuid } from "@/lib/validation";
 
 // Data-access layer for the Hunter Freelancer Page whitelist — see
 // migrations/012_hunter_users.sql for the schema and the project doc
@@ -40,6 +41,23 @@ export async function getActiveHunterUserByEmail(email: string): Promise<HunterU
 export async function isHunterUserEmail(email: string): Promise<boolean> {
   const [row] = await sql`SELECT 1 FROM hunter_users WHERE email = ${email} LIMIT 1`;
   return !!row;
+}
+
+// Validates a referral link's hunter_user_id (/login?hunterRef=<id>, see
+// app/login/page.tsx's "hunter_ref" cookie and lib/currentBusiness.ts,
+// which is the only caller) before it's ever permanently attributed to a
+// new business row for Hunter Commission purposes — see
+// migrations/013_hunter_commissions.sql. Mirrors
+// lib/salesLeads.ts:getActiveSalesUserById exactly: same active=true
+// requirement (a deactivated freelancer's old referral links should stop
+// attributing brand-new signups; businesses already attributed keep that
+// attribution forever regardless — see lib/db.ts:createBusinessForEmail),
+// same uuid-shape guard against a malformed/forged cookie value reaching
+// Postgres as a raw type error.
+export async function getActiveHunterUserById(id: string): Promise<HunterUser | null> {
+  if (!isValidUuid(id)) return null;
+  const [row] = await sql`SELECT * FROM hunter_users WHERE id = ${id} AND active = true LIMIT 1`;
+  return (row as HunterUser) ?? null;
 }
 
 // Adding a Hunter freelancer from the admin management form. ON CONFLICT
