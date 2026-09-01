@@ -44,6 +44,18 @@ import { NextResponse } from "next/server";
 // per-route convention as /sales and /admin. This is a NEW top-level area,
 // separate from /admin/marketing/hunter (which stays under /admin/:path*
 // above, platform-admin-only) — see app/hunter/page.tsx.
+//
+// ADDED (Hunter Referral Commission, 2569-09-01): "/login" added to the
+// matcher (previously not matched at all) purely so this handler can see
+// the `ref` query param on a Hunter's referral link
+// (https://adcheck.pro/login?ref=<hunter_user_id>) and stash it in a
+// short-lived cookie BEFORE the Google OAuth round trip — the query param
+// itself doesn't survive that redirect, and a business row isn't actually
+// created until the clinic's first protected-page load after sign-in (see
+// lib/currentBusiness.ts:getCurrentBusiness(), which is where the cookie
+// is later read and validated). This still isn't real gating — /login
+// renders exactly as before for every request, this only ever adds a
+// cookie, never blocks or redirects.
 export default auth((req) => {
   // FIX (bug audit round 2, low): app/admin/layout.tsx used to hardcode
   // every signed-out redirect's callbackUrl to /admin/knowledge-base
@@ -55,6 +67,28 @@ export default auth((req) => {
   // a shared layout) lets that layout build the correct destination.
   const res = NextResponse.next();
   res.headers.set("x-pathname", req.nextUrl.pathname + req.nextUrl.search);
+
+  // Hunter Referral Commission (2569-09-01): capture ?ref=<hunter_user_id>
+  // on /login into a cookie. Validated for real (is it an actual, active
+  // hunter_users row?) only later in lib/currentBusiness.ts, right before
+  // it would be written to businesses.referred_by_hunter_user_id — this
+  // middleware runs on the edge auth bundle and deliberately avoids
+  // reaching into lib/db.ts's Neon client here (same reasoning auth.ts's
+  // own comment gives for keeping that client out of this bundle). 30-day
+  // expiry is generous slack for "clinic opens the link today, actually
+  // signs in a few days later" without living forever.
+  if (req.nextUrl.pathname === "/login") {
+    const ref = req.nextUrl.searchParams.get("ref");
+    if (ref) {
+      res.cookies.set("hunter_ref", ref, {
+        maxAge: 60 * 60 * 24 * 30,
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+      });
+    }
+  }
+
   return res;
 });
 
@@ -80,5 +114,6 @@ export const config = {
           "/api/sales/:path*",
           "/hunter/:path*",
           "/api/hunter/:path*",
+          "/login",
         ],
 };
