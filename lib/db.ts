@@ -79,10 +79,25 @@ export async function getBusinessByEmail(email: string) {
 // contact_email make this safe under concurrent calls (e.g. two tabs
 // loading a protected page at once right after first sign-in) — at most
 // one row (and one bonus) is ever created per email.
-export async function createBusinessForEmail(email: string, name?: string | null) {
+//
+// CHANGE (Hunter Referral Commission, 2569-09-01): added the optional
+// referredByHunterUserId param — set ONCE, here, at the exact moment a
+// business row is born, and never touched again afterward (no later
+// UPDATE anywhere sets this column). The caller
+// (lib/currentBusiness.ts:getCurrentBusiness()) already validated it
+// against an active hunter_users row before passing it in — this
+// function just writes whatever it's given. ON CONFLICT DO NOTHING means
+// this only ever takes effect on the row's original INSERT, matching
+// referred_by_hunter_user_id's "set once, permanently" contract in
+// migrations/014_hunter_referral_commissions.sql.
+export async function createBusinessForEmail(
+    email: string,
+    name?: string | null,
+    referredByHunterUserId?: string | null
+) {
     await sql`
-        INSERT INTO businesses (name, type, contact_email)
-        VALUES (${name?.trim() || "คลินิกของฉัน"}, 'clinic', ${email})
+        INSERT INTO businesses (name, type, contact_email, referred_by_hunter_user_id)
+        VALUES (${name?.trim() || "คลินิกของฉัน"}, 'clinic', ${email}, ${referredByHunterUserId ?? null})
         ON CONFLICT (contact_email) DO NOTHING
     `;
     return getBusinessByEmail(email);
