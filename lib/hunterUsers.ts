@@ -29,6 +29,9 @@ export type HunterUser = {
   payout_bank_name: string | null;
   payout_bank_account_no: string | null;
   payout_bank_account_name: string | null;
+  // Hunter profile picture (2569-09-01) — see migrations/015_hunter_avatar.sql.
+  // Same "data: URL stored inline" convention as businesses.avatar_url.
+  avatar_url: string | null;
 };
 
 export async function listHunterUsers(): Promise<HunterUser[]> {
@@ -106,7 +109,14 @@ export async function setHunterUserActive(id: string, active: boolean): Promise<
 
 export async function updateHunterProfile(
   id: string,
-  fields: { name?: string; phone?: string; lineId?: string; taxId?: string; taxAddress?: string }
+  fields: {
+    name?: string;
+    phone?: string;
+    lineId?: string;
+    taxId?: string;
+    taxAddress?: string;
+    avatarUrl?: string;
+  }
 ): Promise<HunterUser | null> {
   const [row] = await sql`
     UPDATE hunter_users SET
@@ -114,7 +124,8 @@ export async function updateHunterProfile(
       phone = COALESCE(${fields.phone ?? null}, phone),
       line_id = COALESCE(${fields.lineId ?? null}, line_id),
       tax_id = COALESCE(${fields.taxId ?? null}, tax_id),
-      tax_address = COALESCE(${fields.taxAddress ?? null}, tax_address)
+      tax_address = COALESCE(${fields.taxAddress ?? null}, tax_address),
+      avatar_url = COALESCE(${fields.avatarUrl ?? null}, avatar_url)
     WHERE id = ${id}
     RETURNING *
   `;
