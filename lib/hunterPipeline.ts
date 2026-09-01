@@ -1,4 +1,4 @@
-—ส่ง—เพิ่มปุ่มที่สามารถเพิ่มคลินิกที่หามาเองได้ลงใน———————————รวมของ———ภาพรวมและค่าคอมมิชชั่นปิดได้——import { sql } from "@/lib/db";
+import { sql } from "@/lib/db";
 import type { HunterLeadReviewStatus } from "@/lib/hunterLeads";
 
 // A Hunter's own PRIVATE working status + notes per clinic — see
@@ -168,6 +168,41 @@ export async function upsertHunterLeadPipeline(
     RETURNING status, notes
   `) as { status: HunterPipelineStatus; notes: string }[];
   return row ?? null;
+}
+
+// Powers the "Pipeline รวม ของ Hunter" admin section — a single combined
+// count per pipeline_status across EVERY Hunter's leads (both the shared
+// admin-sent queue via hunter_lead_pipeline, and each Hunter's own
+// self-sourced clinics via hunter_self_leads). Deliberately NOT built the
+// same way listHunterLeadsForHunter is: that function COALESCEs a missing
+// hunter_lead_pipeline row to 'new' per-Hunter, which is correct for "what
+// does this one Hunter see" but would double/multiply-count the same
+// untouched shared lead once per active Hunter if summed across all of
+// them. Both source tables already default their status column to 'new' at
+// INSERT time (see migrations 014 and 016), so a plain GROUP BY over the
+// rows that actually exist is the honest total — no COALESCE needed here.
+export type HunterPipelineOverview = Record<HunterPipelineStatus, number>;
+
+export async function getHunterPipelineOverview(): Promise<HunterPipelineOverview> {
+  const rows = (await sql`
+    SELECT status, count(*)::int AS count FROM (
+      SELECT status FROM hunter_lead_pipeline
+      UNION ALL
+      SELECT pipeline_status AS status FROM hunter_self_leads
+    ) combined
+    GROUP BY status
+  `) as { status: HunterPipelineStatus; count: number }[];
+
+  const overview: HunterPipelineOverview = {
+    new: 0,
+    contacted: 0,
+    interested: 0,
+    closed_won: 0,
+    closed_lost: 0,
+    no_response: 0,
+  };
+  for (const r of rows) overview[r.status] = r.count;
+  return overview;
 }
 
 // Powers the "Hunter — ภาพรวมและค่าคอมมิชชั่น" admin table's ปิดได้ column —
