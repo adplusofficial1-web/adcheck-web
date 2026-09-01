@@ -15,6 +15,7 @@ import { sql } from "../lib/db";
 import { isOmiseConfigured, chargeCustomer } from "../lib/omise";
 import { nextInvoiceNumber } from "../lib/invoiceNumber";
 import { calculateOmiseCardFeeThb, recordSalesCommissionIfApplicable } from "../lib/salesCommission";
+import { recordHunterCommissionIfApplicable } from "../lib/hunterCommission";
 
 const MAX_RETRIES = 3;
 
@@ -85,6 +86,10 @@ async function main() {
         // This is exactly the recurring-renewal path the "5% every payment
         // after the first, unlimited" trailing rate is designed for.
         await recordSalesCommissionIfApplicable(transaction.id, biz.id, amountThb);
+        // Hunter Commission (2026-09-01): same mechanism, independent
+        // no-op check, for a Hunter freelancer's referral link — see
+        // lib/hunterCommission.ts.
+        await recordHunterCommissionIfApplicable(transaction.id, biz.id, amountThb);
 
         await sql`
           INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)
