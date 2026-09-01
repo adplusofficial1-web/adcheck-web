@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { isOmiseConfigured, retrieveCharge } from "@/lib/omise";
 import { nextInvoiceNumber } from "@/lib/invoiceNumber";
+import { recordHunterCommissionIfApplicable } from "@/lib/hunterCommission";
 
 // Configure this URL (https://adcheck.pro/api/webhooks/omise) in the Omise
 // dashboard once the account exists — Webhooks & Notifications settings.
@@ -79,6 +80,13 @@ export async function POST(req: Request) {
   if (!transaction) {
     return NextResponse.json({ ok: true });
   }
+
+  // Hunter Referral Commission (2569-09-01): this is the async 3-D Secure
+  // confirmation path for a charge app/api/billing/card/route.ts already
+  // started — the ON CONFLICT/existing-transaction guards above already
+  // ensure this webhook only ever reaches here once per real charge, so
+  // this call can't double-record alongside the synchronous request.
+  await recordHunterCommissionIfApplicable(businessId, transaction.id, Number(plan.price_thb));
 
   await sql`
     INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)
