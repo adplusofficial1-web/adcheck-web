@@ -6,9 +6,21 @@ import { isHunterUserEmail, isActiveHunterUserId } from "@/lib/hunterUsers";
 
 // The single place every authenticated page/API route goes to find "whose
 // data is this". Reads the signed-in Google account's email off the
-// session and looks up (or, as a safety net, lazily creates) its business
-// row — see auth.ts's signIn callback for the normal, eager creation path,
-// and lib/db.ts:createBusinessForEmail for why calling both is safe.
+// session and looks up (or lazily creates, on the very first call for a
+// new email) its business row.
+//
+// FIX (bug audit, 2569-09-01): this comment used to say auth.ts's signIn
+// callback "normally" creates the row eagerly, before this fallback path
+// ever runs — that's inaccurate. auth.ts (see that file) only defines a
+// `session` callback, no `signIn` callback, and grepping the repo confirms
+// lib/db.ts:createBusinessForEmail is called from nowhere else. This
+// function's own lazy-create branch below (which validates and applies
+// hunter_ref, see that block) is the ONE AND ONLY place a business row is
+// ever created — not a rare-case fallback. Correcting this here matters
+// specifically because a reader who believed the old comment could
+// reasonably conclude the Hunter Referral Commission attribution logic
+// below rarely runs — it isn't a fallback path at all, it runs on every
+// single first sign-in.
 //
 // Returns null when there's no signed-in session at all — callers decide
 // what to do with that (redirect to /login from a page, 401 from an API
@@ -50,8 +62,7 @@ export async function getCurrentBusiness() {
   const referredByHunterUserId =
     refCookie && (await isActiveHunterUserId(refCookie)) ? refCookie : null;
 
-  // First time we've seen this email — normally auth.ts's signIn callback
-  // already created the row before the session existed at all, so this is
-  // just a fallback for the rare case that step didn't run.
+  // First time we've seen this email — this call is what actually creates
+  // the business row (see the corrected comment at the top of this file).
   return createBusinessForEmail(email, session?.user?.name, referredByHunterUserId);
 }
