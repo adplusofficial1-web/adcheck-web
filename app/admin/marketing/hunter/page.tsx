@@ -1,13 +1,7 @@
 import { HunterImport } from "@/components/admin/HunterImport";
 import { MarketingSubNav } from "@/components/admin/MarketingSubNav";
-// TEMP (2026-09-01): components/admin/SalesOverview.tsx was never
-// actually committed alongside this import — the last few "sales lead
-// distribution" commits on main (migration, lib/salesLeads.ts, cron
-// scripts, this page) reference it, but the component file itself is
-// missing, which breaks `next build` for the whole app. Commented out
-// here (not deleted) so main is deployable again; re-add the import and
-// the <SalesOverview /> usage below once that file is pushed.
-// import { SalesOverview } from "@/components/admin/SalesOverview";
+import { SalesOverview } from "@/components/admin/SalesOverview";
+import { HunterUsersManager } from "@/components/admin/HunterUsersManager";
 
 // Admin > Marketing > Hunter — see components/admin/HunterImport.tsx for
 // the full writeup. Kept as a route sibling of /admin/marketing (not a
@@ -19,6 +13,16 @@ import { MarketingSubNav } from "@/components/admin/MarketingSubNav";
 // Kept on this same page (not a new route) per the design doc, so an admin
 // watching Hunter's queue and watching sales activity is one page, not two
 // tabs to flip between.
+//
+// ADDED (Hunter Freelancer Page, 2026-09-01): this admin page (full
+// editing controls: Excel import, image URLs, run/delete, plus the Sales
+// section above) stays platform-admin-only — per explicit user request,
+// the external Hunter freelancers now get their OWN separate, read-only
+// page at /hunter instead of ever touching this one. HunterUsersManager
+// below is just the admin-side whitelist control for who can sign into
+// that separate page — it does not render any of /hunter's own content
+// here. See app/hunter/page.tsx and the project doc "Hunter Freelancer
+// Page - Design.md".
 export default function MarketingHunterPage() {
   return (
     <div className="max-w-5xl mx-auto">
@@ -38,7 +42,9 @@ export default function MarketingHunterPage() {
         <HunterImport />
       </div>
 
-      {/* <SalesOverview /> — see the TEMP comment on the import above */}
+      <SalesOverview />
+
+      <HunterUsersManager />
     </div>
   );
 }
