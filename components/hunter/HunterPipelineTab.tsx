@@ -229,19 +229,27 @@ export function HunterPipelineTab() {
       <p className="text-sm text-secondary max-w-2xl">
         คลินิกที่แอดมินส่งมาให้ — กดสถานะเพื่อย้ายขั้นตอน และจดโน้ตการติดต่อไว้ที่การ์ดแต่ละใบ (เห็นเฉพาะคุณ)
       </p>
-      <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+      {/* CHANGE (2569-09-01, per user request "ขยายการแสดงผลให้กว้างขึ้น ให้
+          ดูสวยงาม" after the page's max-width grew from max-w-4xl to
+          max-w-6xl — see components/hunter/HunterShell.tsx): the extra
+          room goes to a wider gap between columns and a touch more
+          padding inside each one, so the board reads as spacious instead
+          of the tight, edge-to-edge look it had at the old narrower
+          width. Column count/breakpoints unchanged — still all 6 visible
+          with no scrollbar from the lg breakpoint up. */}
+      <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
         {STAGES.map((stage) => {
           const stageLeads = leads.filter((l) => l.pipeline_status === stage.key);
           return (
-            <div key={stage.key} className="min-w-0 rounded-lg bg-page/60 border border-border p-2">
-              <div className="flex items-center gap-1.5 px-0.5 pb-2">
+            <div key={stage.key} className="min-w-0 rounded-lg bg-page/60 border border-border p-2.5">
+              <div className="flex items-center gap-1.5 px-0.5 pb-2.5">
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${stage.dot}`} />
                 <span className={`text-[13px] font-medium truncate ${stage.text}`}>{stage.label}</span>
                 <span className="ml-auto shrink-0 rounded-pill bg-surface border border-border px-1.5 py-0.5 text-[10px] font-medium text-tertiary">
                   {stageLeads.length}
                 </span>
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2.5">
                 {stageLeads.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border px-2 py-3 text-center">
                     <span className="text-[11px] text-tertiary">ไม่มีคลินิก</span>
