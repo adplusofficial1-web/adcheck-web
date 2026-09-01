@@ -3,7 +3,7 @@ import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
 import { getHunterPipelineTotals, listHunterPipelineOverview } from "@/lib/hunterPipeline";
 
 // GET /api/admin/hunter-pipeline-overview — powers the "ภาพรวมสถานะ Pipeline
-// ของ Hunter ทีกคน" section on /admin/marketing/hunter: combined totals across
+// ของ Hunter ทุกคน" section on /admin/marketing/hunter: combined totals across
 // every Hunter plus the per-Hunter breakdown, in one response (same bundling
 // reasoning as GET /api/admin/sales-overview / GET /api/admin/hunter-commissions).
 export async function GET() {
