@@ -51,6 +51,15 @@ export type CheckAdBatchResult = {
   submissionId: string;
   resultUrl: string;
   images: CheckAdBatchImageResult[];
+  // NOTE (Sales Lead Distribution, 2026-09-01): the worst-of-all-images
+  // outcome and total flag count across the whole batch — same values the
+  // function already derived internally to decide the submission's final
+  // status, just surfaced here too. Added so callers (the Hunter run route
+  // and the Hunter auto-fill cron) can persist them onto
+  // hunter_leads.review_status/flag_count via markHunterLeadDone without
+  // recomputing the same reduction themselves. See lib/hunterLeads.ts.
+  overallStatus: "passed" | "caution" | "violation";
+  flagCount: number;
 };
 
 export class CheckAdError extends Error {
@@ -382,6 +391,7 @@ export async function checkAdImageUrls(
     : images.some((i) => i.status === "caution")
     ? "caution"
     : "passed";
+  const flagCount = images.reduce((sum, i) => sum + i.flags.length, 0);
 
   const finalStatus = overallStatus === "passed" ? "passed" : "needs_review";
   try {
@@ -401,5 +411,7 @@ export async function checkAdImageUrls(
     submissionId: submission.id,
     resultUrl: `https://adcheck.pro/share/${submission.share_token}`,
     images,
+    overallStatus,
+    flagCount,
   };
 }

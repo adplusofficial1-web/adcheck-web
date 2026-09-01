@@ -4,9 +4,13 @@ import { sql } from "@/lib/db";
 // migrations/009_hunter_queue.sql for the full table design writeup and
 // why this is a separate table from `submissions`/`submission_images`
 // rather than reusing them, and migrations/010_hunter_leads_single_result_url.sql
-// for why result_url is a single column, not an array.
+// for why result_url is a single column, not an array. See
+// migrations/011_sales_leads.sql for review_status/flag_count, added so the
+// Sales Lead Distribution pool (lib/salesLeads.ts) can filter to only
+// leads whose AI review actually found a problem.
 
 export type HunterLeadStatus = "awaiting_images" | "ready" | "running" | "done" | "failed";
+export type HunterLeadReviewStatus = "passed" | "caution" | "violation";
 
 export type HunterLead = {
   id: string;
@@ -20,6 +24,8 @@ export type HunterLead = {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+  review_status: HunterLeadReviewStatus | null;
+  flag_count: number | null;
 };
 
 const ALLOWED_STATUS: HunterLeadStatus[] = ["awaiting_images", "ready", "running", "done", "failed"];
@@ -114,11 +120,16 @@ export async function updateHunterLeadImages(
     clearResult = true;
   }
 
+  // Clearing result_url (via clearResult below) means this lead is no
+  // longer a finished, reviewed lead — also clear review_status/flag_count
+  // so it drops out of the Sales Lead Distribution pool query (which
+  // filters on review_status) exactly as it drops out of "done" leads
+  // generally, instead of leaving stale review data behind.
   const [row] = clearResult
     ? await sql`
         UPDATE hunter_leads
         SET image_urls = ${imageUrls}, note = COALESCE(${note ?? null}, note), status = ${nextStatus},
-            result_url = NULL, last_error = NULL, updated_at = now()
+            result_url = NULL, last_error = NULL, review_status = NULL, flag_count = NULL, updated_at = now()
         WHERE id = ${id}
         RETURNING *
       `
@@ -132,27 +143,41 @@ export async function updateHunterLeadImages(
 }
 
 // --- Automation run bookkeeping -----------------------------------------
-// Called by app/api/admin/hunter/[id]/run/route.ts around each phase of a
-// run. Kept as small, obviously-named functions rather than one generic
-// "updateStatus" so each call site at the route reads as exactly what's
-// happening.
+// Called by app/api/admin/hunter/[id]/run/route.ts (and
+// scripts/hunterAutoFillJob.ts) around each phase of a run. Kept as small,
+// obviously-named functions rather than one generic "updateStatus" so each
+// call site reads as exactly what's happening.
 //
 // CHANGE (2026-08-31): a lead's images are now reviewed together as ONE
 // batch (lib/automationCheckAd.ts:checkAdImageUrls) producing ONE
 // result_url, rather than one-result-per-image appended as the run
 // progresses — so there's no more partial "2 of 3 appended so far" state
 // to persist mid-run. The run route now calls markHunterLeadRunning, then
-// either markHunterLeadDone(id, resultUrl) or markHunterLeadFailed once,
-// after the whole batch settles.
+// either markHunterLeadDone(id, resultUrl, reviewStatus, flagCount) or
+// markHunterLeadFailed once, after the whole batch settles.
 
 export async function markHunterLeadRunning(id: string): Promise<void> {
   await sql`UPDATE hunter_leads SET status = 'running', last_error = NULL, updated_at = now() WHERE id = ${id}`;
 }
 
-export async function markHunterLeadDone(id: string, resultUrl: string): Promise<void> {
+// CHANGE (Sales Lead Distribution, 2026-09-01): now also takes the batch's
+// overall review outcome and total flag count (both come straight off
+// CheckAdBatchResult — see lib/automationCheckAd.ts) and persists them onto
+// review_status/flag_count. This is what lets the sales distribution pool
+// query (lib/salesLeads.ts) tell "done and clean" apart from "done and
+// found a problem" without re-deriving it from submissions/review_flags —
+// every existing caller was already holding these values, they just
+// weren't being saved anywhere before this.
+export async function markHunterLeadDone(
+  id: string,
+  resultUrl: string,
+  reviewStatus: HunterLeadReviewStatus,
+  flagCount: number
+): Promise<void> {
   await sql`
     UPDATE hunter_leads
-    SET status = 'done', result_url = ${resultUrl}, last_error = NULL, updated_at = now()
+    SET status = 'done', result_url = ${resultUrl}, last_error = NULL,
+        review_status = ${reviewStatus}, flag_count = ${flagCount}, updated_at = now()
     WHERE id = ${id}
   `;
 }
@@ -172,6 +197,13 @@ export async function getHunterLead(id: string): Promise<HunterLead | null> {
 // real submission. Deleting a lead does NOT touch the `submissions` row(s)
 // its automation runs already created (those stay, same as any other
 // automation-business submission) — only removes it from this queue.
+//
+// NOTE (Sales Lead Distribution): if this lead was already assigned to a
+// sales rep (sales_lead_assignments.hunter_lead_id references this id),
+// the FOREIGN KEY has no ON DELETE clause, so deleting an assigned lead
+// will fail with a DB error instead of silently orphaning the assignment —
+// intentional: a lead a sales rep is actively working should not be
+// deletable out from under them via the Hunter queue's "ลบ" button.
 // Returns true if a row was actually deleted.
 export async function deleteHunterLead(id: string): Promise<boolean> {
   const rows = await sql`DELETE FROM hunter_leads WHERE id = ${id} RETURNING id`;

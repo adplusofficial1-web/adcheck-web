@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { getBusinessByEmail, createBusinessForEmail } from "@/lib/db";
+import { isSalesUserEmail } from "@/lib/salesLeads";
 
 // The single place every authenticated page/API route goes to find "whose
 // data is this". Reads the signed-in Google account's email off the
@@ -18,6 +19,15 @@ export async function getCurrentBusiness() {
 
   const existing = await getBusinessByEmail(email);
   if (existing) return existing;
+
+  // Sales Lead Distribution (2026-09-01): a sales rep's Google account
+  // must never get lazily turned into a customer/business row just
+  // because they (or a link they clicked) landed on a clinic-facing page
+  // while signed in — see lib/currentSalesUser.ts, the real "whose data
+  // is this" lookup for the separate /sales area. Checked here (not only
+  // in currentSalesUser.ts) so the guard holds no matter which page
+  // triggers the very first lookup for that email.
+  if (await isSalesUserEmail(email)) return null;
 
   // First time we've seen this email — normally auth.ts's signIn callback
   // already created the row before the session existed at all, so this is
