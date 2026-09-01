@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentHunterUser } from "@/lib/currentHunterUser";
 import { updateHunterProfile, updateHunterPayout, type HunterPayoutMethod } from "@/lib/hunterUsers";
 import { stripNulBytes } from "@/lib/validation";
+import { validateAvatarDataUrl } from "@/lib/uploadLimits";
 
 // GET/PATCH /api/hunter/settings — the /hunter page's "ตั้งค่า" tab: a
 // Hunter's own personal details (name/phone/LINE ID, tax info) and payout
@@ -34,14 +35,29 @@ export async function PATCH(req: Request) {
     // ข้อมูลสำหรับออกเอกสารภาษี vs ช่องทางรับเงิน) — the request only ever
     // carries whichever one the user just saved, so each block below is a
     // no-op when its fields are entirely absent from the body.
-    const hasProfileFields = ["name", "phone", "lineId", "taxId", "taxAddress"].some((k) => body[k] !== undefined);
+    const hasProfileFields = ["name", "phone", "lineId", "taxId", "taxAddress", "avatarBase64"].some(
+      (k) => body[k] !== undefined
+    );
     if (hasProfileFields) {
+      // Profile picture (2569-09-01): same data: URL convention + limits as
+      // the clinic account's avatar (app/api/settings/profile/route.ts) —
+      // reusing validateAvatarDataUrl rather than inventing separate rules.
+      let avatarUrl: string | undefined;
+      if (typeof body.avatarBase64 === "string" && body.avatarBase64.startsWith("data:")) {
+        const avatarError = validateAvatarDataUrl(body.avatarBase64);
+        if (avatarError) {
+          return NextResponse.json({ error: avatarError }, { status: 400 });
+        }
+        avatarUrl = body.avatarBase64;
+      }
+
       await updateHunterProfile(hunterUser.id, {
         name: typeof body.name === "string" ? stripNulBytes(body.name) : undefined,
         phone: typeof body.phone === "string" ? stripNulBytes(body.phone) : undefined,
         lineId: typeof body.lineId === "string" ? stripNulBytes(body.lineId) : undefined,
         taxId: typeof body.taxId === "string" ? stripNulBytes(body.taxId) : undefined,
         taxAddress: typeof body.taxAddress === "string" ? stripNulBytes(body.taxAddress) : undefined,
+        avatarUrl,
       });
     }
 
