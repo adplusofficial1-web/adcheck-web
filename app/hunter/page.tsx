@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCurrentHunterUser } from "@/lib/currentHunterUser";
-import { HunterFreelancerList } from "@/components/hunter/HunterFreelancerList";
+import { HunterTabs } from "@/components/hunter/HunterTabs";
 
 // Hunter Freelancer Page — a completely separate area from
 // /admin/marketing/hunter, built 2026-09-01 at the user's explicit request
@@ -13,6 +13,12 @@ import { HunterFreelancerList } from "@/components/hunter/HunterFreelancerList";
 // pattern as app/sales/page.tsx — a Hunter freelancer is neither a
 // platform admin nor a clinic/business account, so this never touches
 // app/admin/layout.tsx or getCurrentBusiness()).
+//
+// CHANGE (Hunter Referral Commission, 2569-09-01): replaced the old
+// single-table HunterFreelancerList with the 4-tab HunterTabs switcher
+// (see components/hunter/HunterTabs.tsx) — a Hunter now has an overview,
+// a private working Pipeline, referral commission + payout settings, and
+// personal/tax details, not just a read-only clinic list.
 export default async function HunterFreelancerPage() {
   const session = await auth();
   if (!session?.user?.email) {
@@ -52,13 +58,13 @@ export default async function HunterFreelancerPage() {
       </header>
       <main className="px-6 md:px-14 py-10 max-w-4xl mx-auto">
         <div>
-          <h1 className="text-2xl font-medium text-primary">รายชื่อคลินิก</h1>
+          <h1 className="text-2xl font-medium text-primary">พื้นที่ Hunter</h1>
           <p className="mt-2 text-sm text-secondary max-w-2xl">
-            กดชื่อคลินิกเพื่อเปิดลิงก์เพจ และกด &quot;ผลตรวจสอบ&quot; เพื่อคัดลอกลิงก์ผลตรวจสอบที่พร้อมใช้งานทันที
+            ภาพรวม, Pipeline ของคุณเอง, ค่าคอมมิชชั่น และการตั้งค่าบัญชี
           </p>
         </div>
         <div className="mt-6">
-          <HunterFreelancerList />
+          <HunterTabs />
         </div>
       </main>
     </div>
