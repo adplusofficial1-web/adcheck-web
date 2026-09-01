@@ -14,6 +14,7 @@
 import { sql } from "../lib/db";
 import { isOmiseConfigured, chargeCustomer } from "../lib/omise";
 import { nextInvoiceNumber } from "../lib/invoiceNumber";
+import { calculateOmiseCardFeeThb, recordSalesCommissionIfApplicable } from "../lib/salesCommission";
 
 const MAX_RETRIES = 3;
 
@@ -68,14 +69,23 @@ async function main() {
 
     if (result.success) {
       const invoiceNumber = await nextInvoiceNumber();
+      const amountThb = Number(biz.price_thb);
+      const feeThb = calculateOmiseCardFeeThb(amountThb);
+      const netThb = Math.round((amountThb - feeThb) * 100) / 100;
       const [transaction] = (await sql`
         INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number, omise_charge_id)
-        VALUES (${biz.id}, ${biz.plan_id}, ${biz.price_thb}, 0, ${biz.price_thb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${result.chargeId})
+        VALUES (${biz.id}, ${biz.plan_id}, ${amountThb}, ${feeThb}, ${netThb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${result.chargeId})
         ON CONFLICT (omise_charge_id) DO NOTHING
         RETURNING id
       `) as any[];
 
       if (transaction) {
+        // Sales Commission (2026-09-01): no-op unless this business signed
+        // up through a sales rep's referral link — see lib/salesCommission.ts.
+        // This is exactly the recurring-renewal path the "5% every payment
+        // after the first, unlimited" trailing rate is designed for.
+        await recordSalesCommissionIfApplicable(transaction.id, biz.id, amountThb);
+
         await sql`
           INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)
           VALUES (${biz.id}, ${biz.plan_id}, ${transaction.id}, ${biz.monthly_image_credits}, ${biz.monthly_image_credits}, now(), now() + interval '30 days')
