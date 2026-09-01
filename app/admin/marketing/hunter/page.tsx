@@ -3,6 +3,7 @@ import { MarketingSubNav } from "@/components/admin/MarketingSubNav";
 import { SalesOverview } from "@/components/admin/SalesOverview";
 import { HunterUsersManager } from "@/components/admin/HunterUsersManager";
 import { HunterCommissionOverview } from "@/components/admin/HunterCommissionOverview";
+import { HunterPipelineOverview } from "@/components/admin/HunterPipelineOverview";
 
 // Admin > Marketing > Hunter — see components/admin/HunterImport.tsx for
 // the full writeup. Kept as a route sibling of /admin/marketing (not a
@@ -35,6 +36,15 @@ import { HunterCommissionOverview } from "@/components/admin/HunterCommissionOve
 // right below HunterUsersManager, same reasoning as the ordering above:
 // an admin managing who's whitelisted and who's owed money shouldn't have
 // to scroll past the clinic import queue to reach either.
+//
+// ADDED (Pipeline รวม, 2569-09-01, per user request): HunterPipelineOverview
+// — a combined total of the 6 pipeline statuses across every Hunter (see
+// lib/hunterPipeline.ts's getHunterPipelineOverview). Scoped by the user to
+// just this summary row, not a per-Hunter table or a merged Kanban board —
+// those stay private to each Hunter on /hunter. Placed after
+// HunterCommissionOverview and before HunterImport: it's read-only glance
+// info, same tier as the commission overview above it, and shouldn't sit
+// below the long clinic import table.
 export default function MarketingHunterPage() {
   return (
     <div className="max-w-5xl mx-auto">
@@ -55,6 +65,8 @@ export default function MarketingHunterPage() {
       <HunterUsersManager />
 
       <HunterCommissionOverview />
+
+      <HunterPipelineOverview />
 
       <div className="mt-10">
         <HunterImport />
