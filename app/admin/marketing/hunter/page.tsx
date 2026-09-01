@@ -9,20 +9,25 @@ import { HunterUsersManager } from "@/components/admin/HunterUsersManager";
 // stays untouched.
 //
 // ADDED (Sales Lead Distribution, 2026-09-01): the "เซลล์ & การกระจาย Lead"
-// section below HunterImport — see components/admin/SalesOverview.tsx.
-// Kept on this same page (not a new route) per the design doc, so an admin
-// watching Hunter's queue and watching sales activity is one page, not two
-// tabs to flip between.
+// section — see components/admin/SalesOverview.tsx. Kept on this same page
+// (not a new route) per the design doc, so an admin watching Hunter's queue
+// and watching sales activity is one page, not two tabs to flip between.
 //
 // ADDED (Hunter Freelancer Page, 2026-09-01): this admin page (full
 // editing controls: Excel import, image URLs, run/delete, plus the Sales
-// section above) stays platform-admin-only — per explicit user request,
-// the external Hunter freelancers now get their OWN separate, read-only
-// page at /hunter instead of ever touching this one. HunterUsersManager
-// below is just the admin-side whitelist control for who can sign into
-// that separate page — it does not render any of /hunter's own content
-// here. See app/hunter/page.tsx and the project doc "Hunter Freelancer
-// Page - Design.md".
+// section) stays platform-admin-only — per explicit user request, the
+// external Hunter freelancers now get their OWN separate, read-only page at
+// /hunter instead of ever touching this one. HunterUsersManager is just the
+// admin-side whitelist control for who can sign into that separate page —
+// it does not render any of /hunter's own content here. See
+// app/hunter/page.tsx and the project doc "Hunter Freelancer Page -
+// Design.md".
+//
+// CHANGE (2026-09-01, per user request): SalesOverview + HunterUsersManager
+// moved ABOVE HunterImport (which has a long, scrollable per-clinic table —
+// 50+ rows in practice) — an admin adding/disabling a sales rep or Hunter
+// freelancer used to have to scroll past the entire clinic queue to reach
+// those forms every time.
 export default function MarketingHunterPage() {
   return (
     <div className="max-w-5xl mx-auto">
@@ -38,13 +43,13 @@ export default function MarketingHunterPage() {
         <MarketingSubNav />
       </div>
 
-      <div className="mt-2">
-        <HunterImport />
-      </div>
-
       <SalesOverview />
 
       <HunterUsersManager />
+
+      <div className="mt-10">
+        <HunterImport />
+      </div>
     </div>
   );
 }
