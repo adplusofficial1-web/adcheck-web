@@ -1,6 +1,7 @@
+import { cookies } from "next/headers";
 import { auth } from "@/auth";
 import { getBusinessByEmail, createBusinessForEmail } from "@/lib/db";
-import { isSalesUserEmail } from "@/lib/salesLeads";
+import { isSalesUserEmail, getActiveSalesUserById } from "@/lib/salesLeads";
 import { isHunterUserEmail } from "@/lib/hunterUsers";
 
 // The single place every authenticated page/API route goes to find "whose
@@ -36,8 +37,20 @@ export async function getCurrentBusiness() {
   // business either.
   if (await isHunterUserEmail(email)) return null;
 
+  // Sales Commission (2026-09-01): a signup that arrived via a sales rep's
+  // referral link (/login?ref=<sales_user_id>, see app/login/page.tsx)
+  // carries a short-lived "sales_ref" cookie set right before the Google
+  // OAuth round trip. Read it here — the one moment a business row is
+  // actually created — and validate it against active sales_users so an
+  // expired/forged/deactivated id never gets attributed. See
+  // lib/db.ts:createBusinessForEmail and migrations/012_sales_commissions.sql
+  // for what this attribution is used for. Never re-checked after this —
+  // attribution is permanent from the moment of signup.
+  const salesRefId = cookies().get("sales_ref")?.value;
+  const referredBy = salesRefId ? await getActiveSalesUserById(salesRefId) : null;
+
   // First time we've seen this email — normally auth.ts's signIn callback
   // already created the row before the session existed at all, so this is
   // just a fallback for the rare case that step didn't run.
-  return createBusinessForEmail(email, session?.user?.name);
+  return createBusinessForEmail(email, session?.user?.name, referredBy?.id ?? null);
 }
