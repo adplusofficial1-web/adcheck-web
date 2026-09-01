@@ -8,20 +8,32 @@ import type { HunterLeadReviewStatus } from "@/lib/hunterLeads";
 // own status/notes, and only whichever one's referral link the clinic
 // actually signs up through gets paid — see lib/hunterCommission.ts, which
 // is entirely independent of this table).
+//
+// CHANGE (2569-09-01, Automatic Hunter Lead Assignment): the comment above
+// is now only half true — see listHunterLeadsForHunter below.
+// hunter_lead_pipeline is still each Hunter's own private status/notes
+// table, but a given admin-sent lead is no longer shared with every active
+// Hunter at once; migrations/017_hunter_lead_assignment.sql added
+// hunter_leads.assigned_hunter_user_id so a "ส่ง" lead now belongs to
+// exactly one Hunter. This table is unaffected by that change (it's
+// keyed by hunter_user_id + hunter_lead_id regardless of who the lead is
+// assigned to) — it's only ever read here to compute a Hunter's OPEN
+// load for the assignment picker (lib/hunterLeads.ts:
+// pickHunterForAssignment), never written to by that picker.
 
 export type HunterPipelineStatus = "new" | "contacted" | "interested" | "closed_won" | "closed_lost" | "no_response";
 
 const ALLOWED_STATUS: HunterPipelineStatus[] = [
-  "new",
-  "contacted",
-  "interested",
-  "closed_won",
-  "closed_lost",
-  "no_response",
+"new",
+"contacted",
+"interested",
+"closed_won",
+"closed_lost",
+"no_response",
 ];
 
 export function isHunterPipelineStatus(v: unknown): v is HunterPipelineStatus {
-  return typeof v === "string" && (ALLOWED_STATUS as string[]).includes(v);
+return typeof v === "string" && (ALLOWED_STATUS as string[]).includes(v);
 }
 
 // CHANGE (2569-09-01, per user request "เพิ่มปุ่ม ที่สามารถเพิ่มคลินิกที่
@@ -34,83 +46,97 @@ export function isHunterPipelineStatus(v: unknown): v is HunterPipelineStatus {
 // a self-sourced lead has no AI check at all, so keeping it around here
 // only invited confusion between two different "status" concepts.
 export type HunterPipelineLead = {
-  id: string;
-  clinic_name: string;
-  province: string | null;
-  source_link: string | null;
-  created_at: string;
-  result_url: string | null;
-  review_status: HunterLeadReviewStatus | null;
-  flag_count: number | null;
-  pipeline_status: HunterPipelineStatus;
-  notes: string;
-  source: "admin" | "self";
+id: string;
+clinic_name: string;
+province: string | null;
+source_link: string | null;
+created_at: string;
+result_url: string | null;
+review_status: HunterLeadReviewStatus | null;
+flag_count: number | null;
+pipeline_status: HunterPipelineStatus;
+notes: string;
+source: "admin" | "self";
 };
 
-// Powers GET /api/hunter/leads: every lead this Hunter has been sent (same
-// "sent" WHERE clause as the old listHunterLeadsPublicView), LEFT JOINed
-// against this Hunter's own hunter_lead_pipeline row if one exists yet, PLUS
-// every clinic this Hunter has added themselves (hunter_self_leads — see
-// migrations/016_hunter_self_leads.sql). A sent lead with no
-// hunter_lead_pipeline row yet reads as the default 'new' state with empty
-// notes — matches the convention sales_lead_assignments.sales_status uses
-// (every freshly assigned lead starts 'new' without a separate "have you
-// touched this yet" flag). Also includes review_status/flag_count for admin
-// leads (always null for self-sourced ones, since those never go through an
-// AI check) so the Pipeline tab can show the same severity badge sales reps
-// already see on their own leads. The two queries are combined in JS rather
-// than a SQL UNION since they read from unrelated tables with a genuinely
-// different shape (self leads own their pipeline_status/notes directly;
-// admin leads get theirs via the LEFT JOIN) — simpler than forcing both
-// through one UNION-compatible column list.
+// Powers GET /api/hunter/leads: every lead this Hunter has been sent, LEFT
+// JOINed against this Hunter's own hunter_lead_pipeline row if one exists
+// yet, PLUS every clinic this Hunter has added themselves (hunter_self_leads
+// — see migrations/016_hunter_self_leads.sql).
+//
+// CHANGE (2569-09-01, Automatic Hunter Lead Assignment — fixes a real bug
+// reported by the site owner: the same admin-sent clinics were showing up
+// for every active Hunter at once): the admin-lead half of this query used
+// to be just `WHERE hl.hunter_sent_at IS NOT NULL` — a single shared
+// broadcast flag with NO per-Hunter scoping, so every active Hunter saw
+// the exact same list and could independently contact the same clinic.
+// Added `AND hl.assigned_hunter_user_id = ${hunterUserId}` so a Hunter
+// only ever sees the ONE clinic lead lib/hunterLeads.ts:
+// pickHunterForAssignment actually assigned to them — see
+// migrations/017_hunter_lead_assignment.sql. Does NOT touch the self-leads
+// half below at all (hunter_self_leads was already private-by-construction
+// via its own hunter_user_id column, and was never part of this bug).
+//
+// A sent lead with no hunter_lead_pipeline row yet reads as the default
+// 'new' state with empty notes — matches the convention
+// sales_lead_assignments.sales_status uses (every freshly assigned lead
+// starts 'new' without a separate "have you touched this yet" flag). Also
+// includes review_status/flag_count for admin leads (always null for
+// self-sourced ones, since those never go through an AI check) so the
+// Pipeline tab can show the same severity badge sales reps already see on
+// their own leads. The two queries are combined in JS rather than a SQL
+// UNION since they read from unrelated tables with a genuinely different
+// shape (self leads own their pipeline_status/notes directly; admin leads
+// get theirs via the LEFT JOIN) — simpler than forcing both through one
+// UNION-compatible column list.
 export async function listHunterLeadsForHunter(hunterUserId: string): Promise<HunterPipelineLead[]> {
-  const adminRows = (await sql`
-    SELECT
-      hl.id, hl.clinic_name, hl.province, hl.source_link, hl.result_url, hl.created_at,
-      hl.review_status, hl.flag_count,
-      COALESCE(hlp.status, 'new') AS pipeline_status,
-      COALESCE(hlp.notes, '') AS notes,
-      'admin' AS source
-    FROM hunter_leads hl
-    LEFT JOIN hunter_lead_pipeline hlp
-      ON hlp.hunter_lead_id = hl.id AND hlp.hunter_user_id = ${hunterUserId}
-    WHERE hl.hunter_sent_at IS NOT NULL
-  `) as HunterPipelineLead[];
+const adminRows = (await sql`
+SELECT
+hl.id, hl.clinic_name, hl.province, hl.source_link, hl.result_url, hl.created_at,
+hl.review_status, hl.flag_count,
+COALESCE(hlp.status, 'new') AS pipeline_status,
+COALESCE(hlp.notes, '') AS notes,
+'admin' AS source
+FROM hunter_leads hl
+LEFT JOIN hunter_lead_pipeline hlp
+ON hlp.hunter_lead_id = hl.id AND hlp.hunter_user_id = ${hunterUserId}
+WHERE hl.hunter_sent_at IS NOT NULL AND hl.assigned_hunter_user_id = ${hunterUserId}
+`) as HunterPipelineLead[];
 
-  const selfRows = (await sql`
-    SELECT
-      id, clinic_name, province, source_link, created_at,
-      NULL::text AS result_url, NULL::text AS review_status, NULL::int AS flag_count,
-      pipeline_status, notes,
-      'self' AS source
-    FROM hunter_self_leads
-    WHERE hunter_user_id = ${hunterUserId}
-  `) as HunterPipelineLead[];
+const selfRows = (await sql`
+SELECT
+id, clinic_name, province, source_link, created_at,
+NULL::text AS result_url, NULL::text AS review_status, NULL::int AS flag_count,
+pipeline_status, notes,
+'self' AS source
+FROM hunter_self_leads
+WHERE hunter_user_id = ${hunterUserId}
+`) as HunterPipelineLead[];
 
-  return [...adminRows, ...selfRows].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
+return [...adminRows, ...selfRows].sort(
+(a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+);
 }
 
 // Creates a self-sourced lead — powers POST /api/hunter/leads. Returns the
 // same shape listHunterLeadsForHunter does so the Pipeline tab can just
 // prepend it to its local state without a full reload.
 export async function createHunterSelfLead(
-  hunterUserId: string,
-  fields: { clinicName: string; province?: string; sourceLink?: string }
+hunterUserId: string,
+fields: { clinicName: string; province?: string; sourceLink?: string }
 ): Promise<HunterPipelineLead> {
-  const [row] = (await sql`
-    INSERT INTO hunter_self_leads (hunter_user_id, clinic_name, province, source_link)
-    VALUES (${hunterUserId}, ${fields.clinicName}, ${fields.province ?? null}, ${fields.sourceLink ?? null})
-    RETURNING id, clinic_name, province, source_link, created_at, pipeline_status, notes
-  `) as any[];
-  return {
-    ...row,
-    result_url: null,
-    review_status: null,
-    flag_count: null,
-    source: "self",
-  } as HunterPipelineLead;
+const [row] = (await sql`
+INSERT INTO hunter_self_leads (hunter_user_id, clinic_name, province, source_link)
+VALUES (${hunterUserId}, ${fields.clinicName}, ${fields.province ?? null}, ${fields.sourceLink ?? null})
+RETURNING id, clinic_name, province, source_link, created_at, pipeline_status, notes
+`) as any[];
+return {
+...row,
+result_url: null,
+review_status: null,
+flag_count: null,
+source: "self",
+} as HunterPipelineLead;
 }
 
 // Upserts-by-update this Hunter's OWN self-sourced lead — powers
@@ -120,29 +146,29 @@ export async function createHunterSelfLead(
 // its id (unlike admin leads, which every active Hunter can see and
 // privately work — self leads are exclusive to whoever added them).
 export async function updateHunterSelfLead(
-  hunterUserId: string,
-  id: string,
-  update: { status?: HunterPipelineStatus; notes?: string }
+hunterUserId: string,
+id: string,
+update: { status?: HunterPipelineStatus; notes?: string }
 ): Promise<{ status: HunterPipelineStatus; notes: string } | null> {
-  const [row] = (await sql`
-    UPDATE hunter_self_leads SET
-      pipeline_status = COALESCE(${update.status ?? null}, pipeline_status),
-      notes = COALESCE(${update.notes ?? null}, notes),
-      updated_at = now()
-    WHERE id = ${id} AND hunter_user_id = ${hunterUserId}
-    RETURNING pipeline_status AS status, notes
-  `) as { status: HunterPipelineStatus; notes: string }[];
-  return row ?? null;
+const [row] = (await sql`
+UPDATE hunter_self_leads SET
+pipeline_status = COALESCE(${update.status ?? null}, pipeline_status),
+notes = COALESCE(${update.notes ?? null}, notes),
+updated_at = now()
+WHERE id = ${id} AND hunter_user_id = ${hunterUserId}
+RETURNING pipeline_status AS status, notes
+`) as { status: HunterPipelineStatus; notes: string }[];
+return row ?? null;
 }
 
 // Powers DELETE /api/hunter/leads/[id]?source=self — removing a
 // self-added clinic entirely. Never touches hunter_leads (admin-sent
 // leads aren't deletable from the Hunter side at all).
 export async function deleteHunterSelfLead(hunterUserId: string, id: string): Promise<boolean> {
-  const rows = await sql`
-    DELETE FROM hunter_self_leads WHERE id = ${id} AND hunter_user_id = ${hunterUserId} RETURNING id
-  `;
-  return rows.length > 0;
+const rows = await sql`
+DELETE FROM hunter_self_leads WHERE id = ${id} AND hunter_user_id = ${hunterUserId} RETURNING id
+`;
+return rows.length > 0;
 }
 
 // Upserts this Hunter's private status/notes for one lead — powers
@@ -154,55 +180,20 @@ export async function deleteHunterSelfLead(hunterUserId: string, id: string): Pr
 // the same reason (the UI saves status and notes independently, on
 // different interactions).
 export async function upsertHunterLeadPipeline(
-  hunterUserId: string,
-  hunterLeadId: string,
-  update: { status?: HunterPipelineStatus; notes?: string }
+hunterUserId: string,
+hunterLeadId: string,
+update: { status?: HunterPipelineStatus; notes?: string }
 ): Promise<{ status: HunterPipelineStatus; notes: string } | null> {
-  const [row] = (await sql`
-    INSERT INTO hunter_lead_pipeline (hunter_user_id, hunter_lead_id, status, notes)
-    VALUES (${hunterUserId}, ${hunterLeadId}, ${update.status ?? "new"}, ${update.notes ?? ""})
-    ON CONFLICT (hunter_user_id, hunter_lead_id) DO UPDATE SET
-      status = COALESCE(${update.status ?? null}, hunter_lead_pipeline.status),
-      notes = COALESCE(${update.notes ?? null}, hunter_lead_pipeline.notes),
-      updated_at = now()
-    RETURNING status, notes
-  `) as { status: HunterPipelineStatus; notes: string }[];
-  return row ?? null;
-}
-
-// Powers the "Pipeline รวม ของ Hunter" admin section — a single combined
-// count per pipeline_status across EVERY Hunter's leads (both the shared
-// admin-sent queue via hunter_lead_pipeline, and each Hunter's own
-// self-sourced clinics via hunter_self_leads). Deliberately NOT built the
-// same way listHunterLeadsForHunter is: that function COALESCEs a missing
-// hunter_lead_pipeline row to 'new' per-Hunter, which is correct for "what
-// does this one Hunter see" but would double/multiply-count the same
-// untouched shared lead once per active Hunter if summed across all of
-// them. Both source tables already default their status column to 'new' at
-// INSERT time (see migrations 014 and 016), so a plain GROUP BY over the
-// rows that actually exist is the honest total — no COALESCE needed here.
-export type HunterPipelineOverview = Record<HunterPipelineStatus, number>;
-
-export async function getHunterPipelineOverview(): Promise<HunterPipelineOverview> {
-  const rows = (await sql`
-    SELECT status, count(*)::int AS count FROM (
-      SELECT status FROM hunter_lead_pipeline
-      UNION ALL
-      SELECT pipeline_status AS status FROM hunter_self_leads
-    ) combined
-    GROUP BY status
-  `) as { status: HunterPipelineStatus; count: number }[];
-
-  const overview: HunterPipelineOverview = {
-    new: 0,
-    contacted: 0,
-    interested: 0,
-    closed_won: 0,
-    closed_lost: 0,
-    no_response: 0,
-  };
-  for (const r of rows) overview[r.status] = r.count;
-  return overview;
+const [row] = (await sql`
+INSERT INTO hunter_lead_pipeline (hunter_user_id, hunter_lead_id, status, notes)
+VALUES (${hunterUserId}, ${hunterLeadId}, ${update.status ?? "new"}, ${update.notes ?? ""})
+ON CONFLICT (hunter_user_id, hunter_lead_id) DO UPDATE SET
+status = COALESCE(${update.status ?? null}, hunter_lead_pipeline.status),
+notes = COALESCE(${update.notes ?? null}, hunter_lead_pipeline.notes),
+updated_at = now()
+RETURNING status, notes
+`) as { status: HunterPipelineStatus; notes: string }[];
+return row ?? null;
 }
 
 // Powers the "Hunter — ภาพรวมและค่าคอมมิชชั่น" admin table's ปิดได้ column —
@@ -213,10 +204,10 @@ export async function getHunterPipelineOverview(): Promise<HunterPipelineOvervie
 // here without ever actually being the one whose referral link the clinic
 // used, or vice versa.
 export async function countClosedWonByHunter(hunterUserId: string): Promise<number> {
-  const [{ count }] = (await sql`
-    SELECT count(*)::int AS count
-    FROM hunter_lead_pipeline
-    WHERE hunter_user_id = ${hunterUserId} AND status = 'closed_won'
-  `) as { count: number }[];
-  return count;
+const [{ count }] = (await sql`
+SELECT count(*)::int AS count
+FROM hunter_lead_pipeline
+WHERE hunter_user_id = ${hunterUserId} AND status = 'closed_won'
+`) as { count: number }[];
+return count;
 }
