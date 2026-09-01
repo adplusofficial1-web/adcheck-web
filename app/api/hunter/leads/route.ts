@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentHunterUser } from "@/lib/currentHunterUser";
-import { listHunterLeadsForHunter } from "@/lib/hunterPipeline";
+import { listHunterLeadsForHunter, createHunterSelfLead } from "@/lib/hunterPipeline";
+import { stripNulBytes } from "@/lib/validation";
 
 // GET /api/hunter/leads — the read-only feed for the Hunter Freelancer
 // Page's Pipeline tab (/hunter, components/hunter/HunterPipelineTab.tsx).
@@ -31,5 +32,35 @@ export async function GET() {
   } catch (e) {
     console.error("GET /api/hunter/leads failed:", e);
     return NextResponse.json({ error: "โหลดข้อมูลไม่สำเร็จ" }, { status: 500 });
+  }
+}
+
+// POST /api/hunter/leads — a Hunter adding a clinic they found on their
+// own into their private Pipeline (per user request, 2569-09-01, "เพิ่มปุ่ม
+// ที่สามารถเพิ่มคลินิกที่หามาเองได้ ลงใน pipeline"). Deliberately separate
+// from the admin's Excel-import flow (lib/hunterLeads.ts:importHunterLeads)
+// — this never touches hunter_leads at all, only this Hunter's own
+// hunter_self_leads row (see migrations/016_hunter_self_leads.sql and
+// lib/hunterPipeline.ts:createHunterSelfLead for why).
+export async function POST(req: Request) {
+  const hunterUser = await getCurrentHunterUser();
+  if (!hunterUser) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  const body = await req.json().catch(() => null as any);
+  const clinicName = typeof body?.clinicName === "string" ? stripNulBytes(body.clinicName).trim() : "";
+  if (!clinicName) {
+    return NextResponse.json({ error: "กรุณาระบุชื่อคลินิก" }, { status: 400 });
+  }
+  const province =
+    typeof body?.province === "string" ? stripNulBytes(body.province).trim() || undefined : undefined;
+  const sourceLink =
+    typeof body?.sourceLink === "string" ? stripNulBytes(body.sourceLink).trim() || undefined : undefined;
+
+  try {
+    const lead = await createHunterSelfLead(hunterUser.id, { clinicName, province, sourceLink });
+    return NextResponse.json({ lead });
+  } catch (e) {
+    console.error("POST /api/hunter/leads failed:", e);
+    return NextResponse.json({ error: "เพิ่มคลินิกไม่สำเร็จ" }, { status: 500 });
   }
 }
