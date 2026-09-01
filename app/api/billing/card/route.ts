@@ -3,6 +3,7 @@ import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { isOmiseConfigured, createCustomerWithCard, chargeCustomer } from "@/lib/omise";
 import { nextInvoiceNumber } from "@/lib/invoiceNumber";
+import { calculateOmiseCardFeeThb, recordSalesCommissionIfApplicable } from "@/lib/salesCommission";
 
 // Binds a card via Omise (create Customer + Card from a one-time Omise.js
 // token) and immediately charges it for the selected plan — this is the
@@ -155,9 +156,12 @@ export async function POST(req: Request) {
     // already billed but this INSERT (and every step after it, including
     // granting credits) throws instead of completing.
     const invoiceNumber = await nextInvoiceNumber();
+    const amountThb = Number(plan.price_thb);
+    const feeThb = calculateOmiseCardFeeThb(amountThb);
+    const netThb = Math.round((amountThb - feeThb) * 100) / 100;
     const [transaction] = (await sql`
       INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number, omise_charge_id)
-      VALUES (${business.id}, ${plan.id}, ${plan.price_thb}, 0, ${plan.price_thb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${chargeResult.chargeId})
+      VALUES (${business.id}, ${plan.id}, ${amountThb}, ${feeThb}, ${netThb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${chargeResult.chargeId})
       ON CONFLICT (omise_charge_id) DO NOTHING
       RETURNING id
     `) as any[];
@@ -168,6 +172,10 @@ export async function POST(req: Request) {
     if (!transaction) {
       return NextResponse.json({ ok: true, invoiceNumber });
     }
+
+    // Sales Commission (2026-09-01): no-op unless this business signed up
+    // through a sales rep's referral link — see lib/salesCommission.ts.
+    await recordSalesCommissionIfApplicable(transaction.id, business.id, amountThb);
 
     await sql`
       INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)

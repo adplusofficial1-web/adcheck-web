@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { isValidUuid } from "@/lib/validation";
 
 // Data-access layer for the Sales Lead Distribution feature — see
 // claude/Sales Lead Distribution - Design.md (project docs) for the full
@@ -79,6 +80,23 @@ export async function getActiveSalesUserByEmail(email: string): Promise<SalesUse
 export async function isSalesUserEmail(email: string): Promise<boolean> {
   const [row] = await sql`SELECT 1 FROM sales_users WHERE email = ${email} LIMIT 1`;
   return !!row;
+}
+
+// Validates a referral link's sales_user_id (/login?ref=<id>, see
+// app/login/page.tsx's "sales_ref" cookie and lib/currentBusiness.ts, which
+// is the only caller) before it's ever permanently attributed to a new
+// business row for Sales Commission purposes — see
+// claude/Sales Lead Distribution - Design.md ("ค่าคอมมิชชั่นเซลล์") and
+// migrations/012_sales_commissions.sql. Same active=true requirement as
+// getActiveSalesUserByEmail: a deactivated rep's old referral links should
+// stop attributing brand-new signups (businesses already attributed to them
+// keep that attribution forever regardless — see lib/db.ts:createBusinessForEmail).
+// Guards the uuid shape itself rather than letting a malformed/forged cookie
+// value reach Postgres as a raw type error.
+export async function getActiveSalesUserById(id: string): Promise<SalesUser | null> {
+  if (!isValidUuid(id)) return null;
+  const [row] = await sql`SELECT * FROM sales_users WHERE id = ${id} AND active = true LIMIT 1`;
+  return (row as SalesUser) ?? null;
 }
 
 // Adding a sales rep from the Hunter page's "เพิ่มเซลล์" form

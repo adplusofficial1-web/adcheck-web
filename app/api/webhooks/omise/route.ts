@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { isOmiseConfigured, retrieveCharge } from "@/lib/omise";
 import { nextInvoiceNumber } from "@/lib/invoiceNumber";
+import { calculateOmiseCardFeeThb, recordSalesCommissionIfApplicable } from "@/lib/salesCommission";
 
 // Configure this URL (https://adcheck.pro/api/webhooks/omise) in the Omise
 // dashboard once the account exists — Webhooks & Notifications settings.
@@ -70,15 +71,22 @@ export async function POST(req: Request) {
   // risk at this business's transaction volume, right after a real charge
   // has already succeeded.
   const invoiceNumber = await nextInvoiceNumber();
+  const amountThb = Number(plan.price_thb);
+  const feeThb = calculateOmiseCardFeeThb(amountThb);
+  const netThb = Math.round((amountThb - feeThb) * 100) / 100;
   const [transaction] = (await sql`
     INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number, omise_charge_id)
-    VALUES (${businessId}, ${planId}, ${plan.price_thb}, 0, ${plan.price_thb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${charge.id})
+    VALUES (${businessId}, ${planId}, ${amountThb}, ${feeThb}, ${netThb}, 'บัตรเครดิต/เดบิต', 'สำเร็จ', ${invoiceNumber}, ${charge.id})
     ON CONFLICT (omise_charge_id) DO NOTHING
     RETURNING id
   `) as any[];
   if (!transaction) {
     return NextResponse.json({ ok: true });
   }
+
+  // Sales Commission (2026-09-01): no-op unless this business signed up
+  // through a sales rep's referral link — see lib/salesCommission.ts.
+  await recordSalesCommissionIfApplicable(transaction.id, businessId, amountThb);
 
   await sql`
     INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)

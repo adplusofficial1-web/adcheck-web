@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { auth, signIn } from "@/auth";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 
@@ -27,6 +28,17 @@ export default async function LoginPage({
 }) {
   const errorCode =
     typeof searchParams?.error === "string" ? searchParams.error : undefined;
+
+  // Sales Commission (2026-09-01): a sales rep's referral link is
+  // /login?ref=<sales_user_id> (see components/admin/SalesOverview.tsx /
+  // app/sales/page.tsx for where that link is copied from). Stashed in a
+  // short-lived cookie here, at the point of clicking "sign in", rather than
+  // trying to carry it through the Google OAuth round trip itself — read
+  // back once, at the moment a business row is actually created, by
+  // lib/currentBusiness.ts. Deliberately NOT validated against sales_users
+  // here — that check happens once, where it matters (currentBusiness.ts),
+  // so this page doesn't need DB access at all.
+  const ref = typeof searchParams?.ref === "string" ? searchParams.ref : undefined;
 
   // The login flow intermittently races two callback requests to Google
   // (root cause not yet fixed — see Google Login Setup doc), so the request
@@ -69,6 +81,17 @@ export default async function LoginPage({
         <form
           action={async () => {
             "use server";
+            if (ref) {
+              // 1 hour is plenty for a normal Google OAuth round trip while
+              // keeping a stale/reused referral link from attributing a
+              // signup that happens days later.
+              cookies().set("sales_ref", ref, {
+                httpOnly: true,
+                maxAge: 60 * 60,
+                path: "/",
+                sameSite: "lax",
+              });
+            }
             await signIn("google", { redirectTo: "/dashboard" });
           }}
         >

@@ -79,10 +79,23 @@ export async function getBusinessByEmail(email: string) {
 // contact_email make this safe under concurrent calls (e.g. two tabs
 // loading a protected page at once right after first sign-in) — at most
 // one row (and one bonus) is ever created per email.
-export async function createBusinessForEmail(email: string, name?: string | null) {
+// `referredBySalesUserId` (Sales Commission, 2026-09-01 — see
+// claude/Sales Lead Distribution - Design.md and
+// migrations/012_sales_commissions.sql): only ever takes effect on the
+// INSERT that actually creates the row. ON CONFLICT DO NOTHING means a
+// second call for an email that already has a business (e.g. this ran once
+// already) silently ignores whatever referral id is passed this time —
+// attribution is a one-time, permanent decision made at signup, never
+// overwritten later even if a different referral cookie shows up on a
+// later login.
+export async function createBusinessForEmail(
+    email: string,
+    name?: string | null,
+    referredBySalesUserId?: string | null
+) {
     await sql`
-        INSERT INTO businesses (name, type, contact_email)
-        VALUES (${name?.trim() || "คลินิกของฉัน"}, 'clinic', ${email})
+        INSERT INTO businesses (name, type, contact_email, referred_by_sales_user_id)
+        VALUES (${name?.trim() || "คลินิกของฉัน"}, 'clinic', ${email}, ${referredBySalesUserId ?? null})
         ON CONFLICT (contact_email) DO NOTHING
     `;
     return getBusinessByEmail(email);
