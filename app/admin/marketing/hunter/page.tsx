@@ -1,6 +1,13 @@
 import { HunterImport } from "@/components/admin/HunterImport";
 import { MarketingSubNav } from "@/components/admin/MarketingSubNav";
-import { SalesOverview } from "@/components/admin/SalesOverview";
+// TEMP (2026-09-01): components/admin/SalesOverview.tsx was never
+// actually committed alongside this import — the last few "sales lead
+// distribution" commits on main (migration, lib/salesLeads.ts, cron
+// scripts, this page) reference it, but the component file itself is
+// missing, which breaks `next build` for the whole app. Commented out
+// here (not deleted) so main is deployable again; re-add the import and
+// the <SalesOverview /> usage below once that file is pushed.
+// import { SalesOverview } from "@/components/admin/SalesOverview";
 
 // Admin > Marketing > Hunter — see components/admin/HunterImport.tsx for
 // the full writeup. Kept as a route sibling of /admin/marketing (not a
@@ -31,7 +38,7 @@ export default function MarketingHunterPage() {
         <HunterImport />
       </div>
 
-      <SalesOverview />
+      {/* <SalesOverview /> — see the TEMP comment on the import above */}
     </div>
   );
 }
