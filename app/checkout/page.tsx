@@ -4,6 +4,7 @@ import { getPlans } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { isOmiseConfigured } from "@/lib/omise";
 import { Nav } from "@/components/Nav";
+import { DisclaimerBox } from "@/components/DisclaimerBox";
 import { CheckoutForm } from "./CheckoutForm";
 
 // There is no per-clinic checkout any more — every purchase here (whether
@@ -73,6 +74,15 @@ export default async function CheckoutPage({
             ระบบชำระเงินออนไลน์ยังไม่เปิดให้บริการในขณะนี้ กรุณาติดต่อทีมงานเพื่อเติมเครดิตด้วยตนเองก่อน
           </div>
         )}
+        {/* Shown at the payment decision point (not just on /pricing, see
+            components/pricing/PricingContent.tsx) so the user reads the full
+            terms right before the moment that legally matters, rather than a
+            page they may never have visited before buying. CheckoutForm.tsx
+            renders the "I have read and accept" checkbox right below this and
+            blocks submission (both client- and server-side, see
+            app/api/billing/card/route.ts and app/api/checkout/route.ts) until
+            it's checked. */}
+        <DisclaimerBox className="mb-6" />
         <CheckoutForm
           planCode={plan.code}
           amount={Number(plan.price_thb)}
