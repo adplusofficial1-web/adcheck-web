@@ -40,6 +40,17 @@ export default async function LoginPage({
   // so this page doesn't need DB access at all.
   const ref = typeof searchParams?.ref === "string" ? searchParams.ref : undefined;
 
+  // Hunter Commission (2026-09-01): same mechanism as the sales `ref`
+  // param above, just for a Hunter freelancer's referral link
+  // (/login?hunterRef=<hunter_user_id>, copied from the /hunter page — see
+  // components/ReferralLinkCard.tsx). Kept as a separate query param (not
+  // reusing `ref`) since a sales_user_id and a hunter_user_id are different
+  // id spaces looked up against different tables — there is no shared
+  // "referrer" concept to collapse them into. Same "not validated here"
+  // reasoning: lib/currentBusiness.ts is the one place that matters.
+  const hunterRef =
+    typeof searchParams?.hunterRef === "string" ? searchParams.hunterRef : undefined;
+
   // The login flow intermittently races two callback requests to Google
   // (root cause not yet fixed — see Google Login Setup doc), so the request
   // that "loses" can land here with an error even after the other one
@@ -86,6 +97,16 @@ export default async function LoginPage({
               // keeping a stale/reused referral link from attributing a
               // signup that happens days later.
               cookies().set("sales_ref", ref, {
+                httpOnly: true,
+                maxAge: 60 * 60,
+                path: "/",
+                sameSite: "lax",
+              });
+            }
+            if (hunterRef) {
+              // Same short-lived-cookie treatment as sales_ref above, for
+              // the Hunter Commission referral link.
+              cookies().set("hunter_ref", hunterRef, {
                 httpOnly: true,
                 maxAge: 60 * 60,
                 path: "/",
