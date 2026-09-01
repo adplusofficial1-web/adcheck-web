@@ -7,6 +7,16 @@ import { useCallback, useEffect, useState } from "react";
 // since it's saved alongside that tab's own "บันทึกช่องทางรับเงิน" button;
 // both PATCH the same /api/hunter/settings endpoint, which merges whichever
 // fields are present in the request (see that route).
+//
+// Profile picture (2569-09-01, per user request "หน้าตั้งค่าให้เพิ่มรูป
+// ประจำตัวได้"): reuses the exact same client-side pattern as the clinic
+// account's own avatar upload (components/settings/SettingsClient.tsx's
+// ProfileModal) — read the file as a data: URL with FileReader, preview it
+// immediately, and only send it to the server (as avatarBase64) once
+// "บันทึกการตั้งค่า" is pressed. See migrations/015_hunter_avatar.sql and
+// app/api/hunter/settings/route.ts for the column + validation this feeds.
+// onAvatarChange lets the parent (HunterShell) update the small avatar it
+// shows in the header the moment a save succeeds, without a full reload.
 
 type Settings = {
   name: string;
@@ -15,9 +25,19 @@ type Settings = {
   line_id: string | null;
   tax_id: string | null;
   tax_address: string | null;
+  avatar_url: string | null;
 };
 
-export function HunterSettingsTab() {
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export function HunterSettingsTab({ onAvatarChange }: { onAvatarChange?: (url: string | null) => void }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -25,6 +45,9 @@ export function HunterSettingsTab() {
   const [lineId, setLineId] = useState("");
   const [taxId, setTaxId] = useState("");
   const [taxAddress, setTaxAddress] = useState("");
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarChanged, setAvatarChanged] = useState(false);
+  const [avatarLoading, setAvatarLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -39,6 +62,7 @@ export function HunterSettingsTab() {
       setLineId(data.settings?.line_id ?? "");
       setTaxId(data.settings?.tax_id ?? "");
       setTaxAddress(data.settings?.tax_address ?? "");
+      setAvatarPreview(data.settings?.avatar_url ?? null);
       setError(null);
     } catch (e: any) {
       setError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -49,6 +73,20 @@ export function HunterSettingsTab() {
     load();
   }, [load]);
 
+  const onAvatarFile = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    setAvatarLoading(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setAvatarPreview(dataUrl);
+      setAvatarChanged(true);
+      setSaved(false);
+    } finally {
+      setAvatarLoading(false);
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     setSaved(false);
@@ -56,7 +94,14 @@ export function HunterSettingsTab() {
       const res = await fetch("/api/hunter/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone, lineId, taxId, taxAddress }),
+        body: JSON.stringify({
+          name,
+          phone,
+          lineId,
+          taxId,
+          taxAddress,
+          ...(avatarChanged && avatarPreview ? { avatarBase64: avatarPreview } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -64,6 +109,9 @@ export function HunterSettingsTab() {
         return;
       }
       setSettings(data.settings);
+      setAvatarPreview(data.settings?.avatar_url ?? null);
+      setAvatarChanged(false);
+      onAvatarChange?.(data.settings?.avatar_url ?? null);
       setSaved(true);
     } finally {
       setSaving(false);
@@ -79,6 +127,20 @@ export function HunterSettingsTab() {
 
       <div className="mt-5 rounded-lg border border-border bg-surface p-4" style={{ maxWidth: 480 }}>
         <span className="text-sm font-medium text-primary">ข้อมูลส่วนตัว</span>
+        <div className="mt-3.5 flex items-center gap-4">
+          {avatarPreview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={avatarPreview} alt="" className="w-16 h-16 rounded-full object-cover shrink-0" />
+          ) : (
+            <div className="w-16 h-16 rounded-full bg-accentSoft text-accent flex items-center justify-center text-lg font-medium shrink-0">
+              {(name || settings.name || "?").trim()[0]?.toUpperCase() || "?"}
+            </div>
+          )}
+          <label className="text-xs font-medium border border-border rounded-md px-3 py-2 cursor-pointer hover:bg-page whitespace-nowrap">
+            {avatarLoading ? "กำลังโหลด…" : "เปลี่ยนรูปประจำตัว"}
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => onAvatarFile(e.target.files)} />
+          </label>
+        </div>
         <div className="mt-3.5 flex flex-col gap-3">
           <div>
             <label className="block text-xs text-secondary mb-1.5">ชื่อ-นามสกุล</label>
