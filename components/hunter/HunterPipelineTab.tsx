@@ -10,8 +10,17 @@ import { useCallback, useEffect, useState } from "react";
 // (multiple Hunters can see and work the same clinic independently).
 // Replaces the old flat table (components/hunter/HunterFreelancerList.tsx),
 // which is no longer used by app/hunter/page.tsx.
+//
+// CHANGE (2569-09-01, per user request "เพิ่มปุ่ม ที่สามารถเพิ่มคลินิกที่หา
+// มาเองได้ ลงใน pipeline"): a lead on this board can now come from either
+// admin's shared queue OR this Hunter's own hunter_self_leads table (see
+// migrations/016_hunter_self_leads.sql, lib/hunterPipeline.ts) — added via
+// the new "+ เพิ่มคลินิกที่หาเอง" button below. Every card now carries
+// `source` so status/notes updates and deletes route to the right table
+// (see onUpdate/onDelete and app/api/hunter/leads/[id]/route.ts).
 
 type PipelineStatus = "new" | "contacted" | "interested" | "closed_won" | "closed_lost" | "no_response";
+type LeadSource = "admin" | "self";
 
 type PipelineLead = {
   id: string;
@@ -23,6 +32,7 @@ type PipelineLead = {
   flag_count: number | null;
   pipeline_status: PipelineStatus;
   notes: string;
+  source: LeadSource;
 };
 
 // FIX (bug audit, 2569-09-01): STAGES used to list only 5 of the 6 valid
@@ -61,11 +71,20 @@ const REVIEW_BADGE: Record<string, { label: string; className: string }> = {
   caution: { label: "ควรระวัง", className: "bg-warningSoft text-warning border border-warningSoft" },
 };
 
-function LeadCard({ lead, onUpdate }: { lead: PipelineLead; onUpdate: (id: string, updates: { status?: PipelineStatus; notes?: string }) => Promise<void> }) {
+function LeadCard({
+  lead,
+  onUpdate,
+  onDelete,
+}: {
+  lead: PipelineLead;
+  onUpdate: (id: string, updates: { status?: PipelineStatus; notes?: string }, source: LeadSource) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
   const [copied, setCopied] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
   const [notesDraft, setNotesDraft] = useState(lead.notes);
   const [savingNotes, setSavingNotes] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setNotesDraft(lead.notes);
@@ -98,7 +117,7 @@ function LeadCard({ lead, onUpdate }: { lead: PipelineLead; onUpdate: (id: strin
     if (status === lead.pipeline_status || savingStatus) return;
     setSavingStatus(true);
     try {
-      await onUpdate(lead.id, { status });
+      await onUpdate(lead.id, { status }, lead.source);
     } finally {
       setSavingStatus(false);
     }
@@ -108,9 +127,20 @@ function LeadCard({ lead, onUpdate }: { lead: PipelineLead; onUpdate: (id: strin
     if (notesDraft === lead.notes) return;
     setSavingNotes(true);
     try {
-      await onUpdate(lead.id, { notes: notesDraft });
+      await onUpdate(lead.id, { notes: notesDraft }, lead.source);
     } finally {
       setSavingNotes(false);
+    }
+  };
+
+  const removeSelf = async () => {
+    if (deleting) return;
+    if (!window.confirm(`ลบ "${lead.clinic_name}" ออกจาก Pipeline ของคุณ?`)) return;
+    setDeleting(true);
+    try {
+      await onDelete(lead.id);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -131,12 +161,23 @@ function LeadCard({ lead, onUpdate }: { lead: PipelineLead; onUpdate: (id: strin
         )}
       </div>
       {lead.province && <div className="text-[11px] text-tertiary mt-0.5">{lead.province}</div>}
-      {badge && (
-        <span className={`mt-1.5 inline-block rounded-pill px-2 py-0.5 text-[10px] font-medium ${badge.className}`}>
-          {badge.label}
-          {typeof lead.flag_count === "number" ? ` · ${lead.flag_count} จุด` : ""}
-        </span>
-      )}
+      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+        {/* Self-sourced leads never go through the AI check, so there's
+            never a review badge for them — this pill just says where the
+            lead came from, so the two kinds are easy to tell apart on a
+            board that now mixes both. */}
+        {lead.source === "self" && (
+          <span className="inline-block rounded-pill px-2 py-0.5 text-[10px] font-medium bg-accentSoft text-accent border border-accentSoft">
+            หาเอง
+          </span>
+        )}
+        {badge && (
+          <span className={`inline-block rounded-pill px-2 py-0.5 text-[10px] font-medium ${badge.className}`}>
+            {badge.label}
+            {typeof lead.flag_count === "number" ? ` · ${lead.flag_count} จุด` : ""}
+          </span>
+        )}
+      </div>
       {lead.source_link && (
         <a href={lead.source_link} target="_blank" rel="noopener noreferrer" className="mt-1.5 block text-[11px] text-accent underline break-all">
           ลิงก์เพจต้นทาง
@@ -150,24 +191,97 @@ function LeadCard({ lead, onUpdate }: { lead: PipelineLead; onUpdate: (id: strin
         rows={2}
         className="mt-2 w-full rounded-md border border-border bg-page px-2 py-1.5 text-[11px] text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30 resize-none"
       />
-      <div className="mt-2 flex flex-wrap gap-1">
+      {/* CHANGE (2569-09-01, per user request "ช่องดูเบียดไปปรับให้เป็น
+          ระเบียบ" / "สถานะปรับเป็น DROPDOWN"): the 6 status pill buttons
+          used to wrap across 2-3 crowded rows on a narrow card — replaced
+          with a single <select> that shows only the current stage until
+          opened, so the card stays a fixed, tidy height regardless of
+          label length. Same STAGES list, same changeStatus handler. */}
+      <select
+        value={lead.pipeline_status}
+        disabled={savingStatus}
+        onChange={(e) => changeStatus(e.target.value as PipelineStatus)}
+        className="mt-2 w-full rounded-md border border-border bg-page px-2 py-1.5 text-[11px] text-primary disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-accent/30"
+      >
         {STAGES.map((s) => (
-          <button
-            key={s.key}
-            type="button"
-            disabled={savingStatus}
-            onClick={() => changeStatus(s.key)}
-            className={`rounded-pill px-1.5 py-0.5 text-[10px] font-medium border disabled:opacity-40 ${
-              s.key === lead.pipeline_status
-                ? "bg-inverse text-onInverse border-inverse"
-                : "bg-surface text-secondary border-border hover:bg-page"
-            }`}
-          >
+          <option key={s.key} value={s.key}>
             {s.label}
-          </button>
+          </option>
         ))}
+      </select>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        {savingNotes ? <div className="text-[10px] text-tertiary">กำลังบันทึกโน้ต…</div> : <span />}
+        {lead.source === "self" && (
+          <button
+            type="button"
+            onClick={removeSelf}
+            disabled={deleting}
+            className="text-[10px] text-danger hover:underline disabled:opacity-50 shrink-0"
+          >
+            {deleting ? "กำลังลบ…" : "ลบ"}
+          </button>
+        )}
       </div>
-      {savingNotes && <div className="mt-1 text-[10px] text-tertiary">กำลังบันทึกโน้ต…</div>}
+    </div>
+  );
+}
+
+// New (2569-09-01, per user request "เพิ่มปุ่ม ที่สามารถเพิ่มคลินิกที่หามาเอง
+// ได้ ลงใน pipeline"): a small inline form, toggled by the "+ เพิ่มคลินิกที่
+// หาเอง" button — only clinic_name is required, matching how little the
+// admin's own Excel-import row needs (clinic/province/link, all free text).
+function AddSelfLeadForm({ onAdd, onClose }: { onAdd: (fields: { clinicName: string; province: string; sourceLink: string }) => Promise<boolean>; onClose: () => void }) {
+  const [clinicName, setClinicName] = useState("");
+  const [province, setProvince] = useState("");
+  const [sourceLink, setSourceLink] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!clinicName.trim() || saving) return;
+    setSaving(true);
+    try {
+      const ok = await onAdd({ clinicName: clinicName.trim(), province: province.trim(), sourceLink: sourceLink.trim() });
+      if (ok) onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-surface p-3 max-w-md">
+      <div className="flex flex-col gap-2">
+        <input
+          value={clinicName}
+          onChange={(e) => setClinicName(e.target.value)}
+          placeholder="ชื่อคลินิก *"
+          className="w-full rounded-md border border-border bg-page px-2.5 py-1.5 text-sm text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30"
+        />
+        <input
+          value={province}
+          onChange={(e) => setProvince(e.target.value)}
+          placeholder="จังหวัด (ไม่บังคับ)"
+          className="w-full rounded-md border border-border bg-page px-2.5 py-1.5 text-sm text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30"
+        />
+        <input
+          value={sourceLink}
+          onChange={(e) => setSourceLink(e.target.value)}
+          placeholder="ลิงก์เพจต้นทาง (ไม่บังคับ)"
+          className="w-full rounded-md border border-border bg-page px-2.5 py-1.5 text-sm text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30"
+        />
+      </div>
+      <div className="mt-2.5 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!clinicName.trim() || saving}
+          className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+        >
+          {saving ? "กำลังเพิ่ม…" : "เพิ่มลง Pipeline"}
+        </button>
+        <button type="button" onClick={onClose} className="text-xs text-secondary hover:underline">
+          ยกเลิก
+        </button>
+      </div>
     </div>
   );
 }
@@ -175,6 +289,7 @@ function LeadCard({ lead, onUpdate }: { lead: PipelineLead; onUpdate: (id: strin
 export function HunterPipelineTab() {
   const [leads, setLeads] = useState<PipelineLead[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -192,76 +307,122 @@ export function HunterPipelineTab() {
     load();
   }, [load]);
 
-  const onUpdate = useCallback(async (id: string, updates: { status?: PipelineStatus; notes?: string }) => {
-    const res = await fetch(`/api/hunter/leads/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    });
+  const onUpdate = useCallback(
+    async (id: string, updates: { status?: PipelineStatus; notes?: string }, source: LeadSource) => {
+      const res = await fetch(`/api/hunter/leads/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...updates, source }),
+      });
+      const data = await res.json().catch(() => null as any);
+      if (!res.ok) {
+        window.alert(data?.error || "อัปเดตไม่สำเร็จ");
+        return;
+      }
+      setLeads((prev) =>
+        prev
+          ? prev.map((l) =>
+              l.id === id
+                ? { ...l, pipeline_status: data.pipelineStatus ?? l.pipeline_status, notes: data.notes ?? l.notes }
+                : l
+            )
+          : prev
+      );
+    },
+    []
+  );
+
+  const onAdd = useCallback(
+    async (fields: { clinicName: string; province: string; sourceLink: string }) => {
+      const res = await fetch("/api/hunter/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clinicName: fields.clinicName,
+          province: fields.province || undefined,
+          sourceLink: fields.sourceLink || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => null as any);
+      if (!res.ok) {
+        window.alert(data?.error || "เพิ่มคลินิกไม่สำเร็จ");
+        return false;
+      }
+      setLeads((prev) => (prev ? [data.lead, ...prev] : [data.lead]));
+      return true;
+    },
+    []
+  );
+
+  const onDelete = useCallback(async (id: string) => {
+    const res = await fetch(`/api/hunter/leads/${id}?source=self`, { method: "DELETE" });
     const data = await res.json().catch(() => null as any);
     if (!res.ok) {
-      window.alert(data?.error || "อัปเดตไม่สำเร็จ");
+      window.alert(data?.error || "ลบไม่สำเร็จ");
       return;
     }
-    setLeads((prev) =>
-      prev
-        ? prev.map((l) =>
-            l.id === id
-              ? { ...l, pipeline_status: data.pipelineStatus ?? l.pipeline_status, notes: data.notes ?? l.notes }
-              : l
-          )
-        : prev
-    );
+    setLeads((prev) => (prev ? prev.filter((l) => l.id !== id) : prev));
   }, []);
 
   if (error) return <p className="text-sm text-danger">{error}</p>;
   if (!leads) return <p className="text-sm text-secondary">กำลังโหลด…</p>;
-  if (leads.length === 0) {
-    return (
-      <p className="text-sm text-secondary">
-        ยังไม่มีคลินิกที่ถูกส่งมาให้คุณ — แอดมินจะกด &quot;ส่ง&quot; เมื่อตรวจสอบเสร็จแล้ว
-      </p>
-    );
-  }
 
   return (
     <div>
-      <p className="text-sm text-secondary max-w-2xl">
-        คลินิกที่แอดมินส่งมาให้ — กดสถานะเพื่อย้ายขั้นตอน และจดโน้ตการติดต่อไว้ที่การ์ดแต่ละใบ (เห็นเฉพาะคุณ)
-      </p>
-      {/* CHANGE (2569-09-01, per user request "ขยายการแสดงผลให้กว้างขึ้น ให้
-          ดูสวยงาม" after the page's max-width grew from max-w-4xl to
-          max-w-6xl — see components/hunter/HunterShell.tsx): the extra
-          room goes to a wider gap between columns and a touch more
-          padding inside each one, so the board reads as spacious instead
-          of the tight, edge-to-edge look it had at the old narrower
-          width. Column count/breakpoints unchanged — still all 6 visible
-          with no scrollbar from the lg breakpoint up. */}
-      <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-        {STAGES.map((stage) => {
-          const stageLeads = leads.filter((l) => l.pipeline_status === stage.key);
-          return (
-            <div key={stage.key} className="min-w-0 rounded-lg bg-page/60 border border-border p-2.5">
-              <div className="flex items-center gap-1.5 px-0.5 pb-2.5">
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${stage.dot}`} />
-                <span className={`text-[13px] font-medium truncate ${stage.text}`}>{stage.label}</span>
-                <span className="ml-auto shrink-0 rounded-pill bg-surface border border-border px-1.5 py-0.5 text-[10px] font-medium text-tertiary">
-                  {stageLeads.length}
-                </span>
-              </div>
-              <div className="flex flex-col gap-2.5">
-                {stageLeads.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border px-2 py-3 text-center">
-                    <span className="text-[11px] text-tertiary">ไม่มีคลินิก</span>
-                  </div>
-                ) : (
-                  stageLeads.map((lead) => <LeadCard key={lead.id} lead={lead} onUpdate={onUpdate} />)
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <p className="text-sm text-secondary max-w-2xl">
+          คลินิกที่แอดมินส่งมาให้ และคลินิกที่คุณหามาเอง — เลือกสถานะเพื่อย้ายขั้นตอน และจดโน้ตการติดต่อไว้ที่การ์ดแต่ละใบ (เห็นเฉพาะคุณ)
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowAddForm((v) => !v)}
+          className="shrink-0 rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium whitespace-nowrap"
+        >
+          {showAddForm ? "ปิดฟอร์ม" : "+ เพิ่มคลินิกที่หาเอง"}
+        </button>
       </div>
+      {showAddForm && <AddSelfLeadForm onAdd={onAdd} onClose={() => setShowAddForm(false)} />}
+      {leads.length === 0 ? (
+        <p className="mt-5 text-sm text-secondary">
+          ยังไม่มีคลินิกใน Pipeline — รอแอดมินส่งมาให้ หรือกด &quot;+ เพิ่มคลินิกที่หาเอง&quot; ด้านบนเพื่อเพิ่มเอง
+        </p>
+      ) : (
+        // CHANGE (2569-09-01, per user request "ขยายการแสดงผลให้กว้างขึ้น ให้
+        // ดูสวยงาม" after the page's max-width grew from max-w-4xl to
+        // max-w-6xl — see components/hunter/HunterShell.tsx): the extra
+        // room goes to a wider gap between columns and a touch more
+        // padding inside each one, so the board reads as spacious instead
+        // of the tight, edge-to-edge look it had at the old narrower
+        // width. Column count/breakpoints unchanged — still all 6 visible
+        // with no scrollbar from the lg breakpoint up.
+        <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+          {STAGES.map((stage) => {
+            const stageLeads = leads.filter((l) => l.pipeline_status === stage.key);
+            return (
+              <div key={stage.key} className="min-w-0 rounded-lg bg-page/60 border border-border p-2.5">
+                <div className="flex items-center gap-1.5 px-0.5 pb-2.5">
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${stage.dot}`} />
+                  <span className={`text-[13px] font-medium truncate ${stage.text}`}>{stage.label}</span>
+                  <span className="ml-auto shrink-0 rounded-pill bg-surface border border-border px-1.5 py-0.5 text-[10px] font-medium text-tertiary">
+                    {stageLeads.length}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2.5">
+                  {stageLeads.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border px-2 py-3 text-center">
+                      <span className="text-[11px] text-tertiary">ไม่มีคลินิก</span>
+                    </div>
+                  ) : (
+                    stageLeads.map((lead) => (
+                      <LeadCard key={lead.id} lead={lead} onUpdate={onUpdate} onDelete={onDelete} />
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
