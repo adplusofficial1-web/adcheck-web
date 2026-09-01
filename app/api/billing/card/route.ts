@@ -32,10 +32,24 @@ export async function POST(req: Request) {
     );
   }
 
-  const { token, consent, planCode } = await req.json();
+  const { token, consent, planCode, termsAccepted } = await req.json();
 
   if (!token || typeof token !== "string") {
     return NextResponse.json({ error: "ไม่พบข้อมูลบัตร กรุณาลองใหม่อีกครั้ง" }, { status: 400 });
+  }
+  // Same reasoning as the `consent` check right below — CheckoutForm.tsx's
+  // checkbox disabling the pay button is only a UI nicety, a direct POST
+  // past the UI could skip it entirely. Checked separately from `consent`
+  // because it covers different ground: `consent` is specifically the
+  // recurring-auto-billing authorization (card-network MIT rules), while
+  // this is acceptance of the general service disclaimer/liability terms
+  // (components/DisclaimerBox.tsx, rendered on app/checkout/page.tsx) that
+  // every purchase — card or otherwise — requires.
+  if (termsAccepted !== true) {
+    return NextResponse.json(
+      { error: "กรุณายอมรับข้อกำหนดและข้อจำกัดความรับผิดชอบก่อนดำเนินการชำระเงิน" },
+      { status: 400 }
+    );
   }
   // Consent is enforced server-side, not just a disabled button in the UI —
   // required for card-network MIT rules and Thai consumer-protection rules
