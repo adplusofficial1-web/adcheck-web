@@ -304,7 +304,11 @@ function LeadRow({
                 key={i}
                 value={u}
                 placeholder={`รูป ${i + 1}`}
-                className={`${smallInputClass} w-28`}
+                // CHANGE (2026-09-01, per user request): narrowed to w-14
+                // (half of the previous w-28) to free up horizontal room so
+                // the 3 action buttons on the right fit on one line — see
+                // the actions <div> below.
+                className={`${smallInputClass} w-14`}
                 onChange={(e) => handleUrlChange(i, e.target.value)}
               />
             ))}
@@ -333,7 +337,13 @@ function LeadRow({
         <StatusBadge status={displayStatus(lead)} />
       </td>
       <td className={tdClass}>
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* CHANGE (2026-09-01, per user request): no more flex-wrap — all 3
+            buttons (view/run, ส่ง/ยกเลิกส่ง, ลบ) now stay on one row. The
+            table's own overflow-x-auto wrapper (see the parent return
+            below) scrolls horizontally if a row ever needs more space than
+            the viewport, rather than the buttons wrapping to a second
+            line. */}
+        <div className="flex items-center gap-1.5 flex-nowrap">
           {/* CHANGE (2026-08-31): the separate "ผลตรวจสอบ" column was
               removed per user request — once a lead has a result_url, this
               slot now shows a "ดูผลตรวจสอบ" button in place of the
@@ -351,7 +361,7 @@ function LeadRow({
             <button
               type="button"
               onClick={copyResultLink}
-              className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium whitespace-nowrap"
+              className="rounded-md bg-inverse text-onInverse px-2.5 py-1.5 text-xs font-medium whitespace-nowrap"
             >
               {copied ? "คัดลอกแล้ว ✓" : "ดูผลตรวจสอบ"}
             </button>
@@ -359,7 +369,7 @@ function LeadRow({
             <button
               onClick={run}
               disabled={!canRun || running}
-              className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+              className="rounded-md bg-inverse text-onInverse px-2.5 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
             >
               {running || lead.status === "running" ? "กำลังตรวจสอบ…" : "ตรวจสอบอัตโนมัติ"}
             </button>
@@ -370,7 +380,7 @@ function LeadRow({
                 type="button"
                 onClick={unsend}
                 disabled={sending || disableActions}
-                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-secondary disabled:opacity-40 whitespace-nowrap"
+                className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-secondary disabled:opacity-40 whitespace-nowrap"
               >
                 {sending ? "กำลังยกเลิก…" : "ยกเลิกส่ง"}
               </button>
@@ -379,7 +389,7 @@ function LeadRow({
                 type="button"
                 onClick={send}
                 disabled={sending || disableActions}
-                className="rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+                className="rounded-md border border-accent text-accent px-2.5 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
               >
                 {sending ? "กำลังส่ง…" : "ส่ง"}
               </button>
@@ -387,7 +397,7 @@ function LeadRow({
           <button
             onClick={del}
             disabled={deleting || lead.status === "running" || disableActions}
-            className="rounded-md border border-danger text-danger px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+            className="rounded-md border border-danger text-danger px-2.5 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
           >
             {deleting ? "กำลังลบ…" : "ลบ"}
           </button>
@@ -587,10 +597,37 @@ export function HunterImport() {
   const readyCount = leads.filter((l) => l.status === "ready").length;
 
   // Counts for the 3-state สถานะ summary next to "คิว Hunter" — see
-  // displayStatus() at the top of this file.
+  // displayStatus() at the top of this file. Always computed off the FULL
+  // leads array (not the filtered view below) so the tab counts don't
+  // shrink to 0 once you've clicked into a filter.
   const awaitingReviewCount = leads.filter((l) => displayStatus(l) === "awaiting_review").length;
   const queuedCount = leads.filter((l) => displayStatus(l) === "queued").length;
   const sentCount = leads.filter((l) => displayStatus(l) === "sent").length;
+
+  // "ส่งทั้งหมด" (2026-09-01) — mirrors runAllReady above but for the send
+  // step: sends every currently-"รอคิว" (queued = checked, not yet sent)
+  // lead in one go. Unlike runAllReady this fires all requests in
+  // parallel — each send is just a single lightweight UPDATE (no AI /
+  // credit cost like a review run), so there's no shared resource to
+  // contend over by going one at a time.
+  const [sendingAll, setSendingAll] = useState(false);
+
+  const sendAllQueued = async () => {
+    const targets = leads.filter((l) => displayStatus(l) === "queued").map((l) => l.id);
+    if (targets.length === 0) return;
+    setSendingAll(true);
+    try {
+      await Promise.all(targets.map((id) => sendLead(id)));
+    } finally {
+      setSendingAll(false);
+    }
+  };
+
+  // Clickable status filter tabs (2026-09-01, replacing the old plain-text
+  // summary line) — click a tab to show only leads in that สถานะ; click the
+  // active tab again to clear the filter. null = show everything.
+  const [statusFilter, setStatusFilter] = useState<DisplayStatus | null>(null);
+  const visibleLeads = statusFilter ? leads.filter((l) => displayStatus(l) === statusFilter) : leads;
 
   return (
     <div>
@@ -690,14 +727,53 @@ export function HunterImport() {
             >
               {runningAll ? "กำลังตรวจสอบทั้งหมด…" : `ตรวจสอบอัตโนมัติทั้งหมด (${readyCount} รายการพร้อมตรวจ)`}
             </button>
+            <button
+              onClick={sendAllQueued}
+              disabled={sendingAll || queuedCount === 0}
+              className="rounded-md bg-accent text-onInverse px-4 py-2 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+            >
+              {sendingAll ? "กำลังส่งทั้งหมด…" : `ส่งทั้งหมด (${queuedCount} รายการรอคิว)`}
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-3 mb-3 text-xs text-secondary flex-wrap">
-          <span>รอตรวจสอบ {awaitingReviewCount}</span>
-          <span>·</span>
-          <span>รอคิว {queuedCount}</span>
-          <span>·</span>
-          <span>ส่งสำเร็จ {sentCount}</span>
+        {/* Clickable status filter tabs (2026-09-01) — replaces the old
+            plain-text "รอตรวจสอบ N · รอคิว N · ส่งสำเร็จ N" summary.
+            Clicking a tab filters the table below to only that สถานะ;
+            clicking the already-active tab clears the filter. Counts always
+            reflect the full unfiltered queue, not the filtered view. */}
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          {(
+            [
+              ["awaiting_review", awaitingReviewCount],
+              ["queued", queuedCount],
+              ["sent", sentCount],
+            ] as [DisplayStatus, number][]
+          ).map(([status, count]) => {
+            const active = statusFilter === status;
+            return (
+              <button
+                key={status}
+                type="button"
+                onClick={() => setStatusFilter(active ? null : status)}
+                className={`rounded-pill px-3 py-1 text-xs font-medium whitespace-nowrap border transition-colors ${
+                  active
+                    ? "bg-inverse text-onInverse border-inverse"
+                    : "bg-surface text-secondary border-border hover:border-accent/50"
+                }`}
+              >
+                {DISPLAY_STATUS_LABEL[status]} {count}
+              </button>
+            );
+          })}
+          {statusFilter && (
+            <button
+              type="button"
+              onClick={() => setStatusFilter(null)}
+              className="text-xs text-tertiary underline whitespace-nowrap"
+            >
+              ล้างตัวกรอง
+            </button>
+          )}
         </div>
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-xs">
@@ -723,13 +799,19 @@ export function HunterImport() {
                     ยังไม่มีรายการ
                   </td>
                 </tr>
+              ) : visibleLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-center text-tertiary py-6">
+                    ไม่มีรายการในสถานะนี้
+                  </td>
+                </tr>
               ) : (
-                leads.map((lead, i) => (
+                visibleLeads.map((lead, i) => (
                   <LeadRow
                     key={lead.id}
                     lead={lead}
                     index={i}
-                    disableActions={runningAll}
+                    disableActions={runningAll || sendingAll}
                     onSaved={(updated) => setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))}
                     onRun={runAutomation}
                     onDelete={deleteLead}
