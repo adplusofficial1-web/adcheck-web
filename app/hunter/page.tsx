@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCurrentHunterUser } from "@/lib/currentHunterUser";
-import { HunterTabs } from "@/components/hunter/HunterTabs";
+import { HunterShell } from "@/components/hunter/HunterShell";
 
 // Hunter Freelancer Page — a completely separate area from
 // /admin/marketing/hunter, built 2026-09-01 at the user's explicit request
@@ -15,10 +15,17 @@ import { HunterTabs } from "@/components/hunter/HunterTabs";
 // app/admin/layout.tsx or getCurrentBusiness()).
 //
 // CHANGE (Hunter Referral Commission, 2569-09-01): replaced the old
-// single-table HunterFreelancerList with the 4-tab HunterTabs switcher
-// (see components/hunter/HunterTabs.tsx) — a Hunter now has an overview,
-// a private working Pipeline, referral commission + payout settings, and
-// personal/tax details, not just a read-only clinic list.
+// single-table HunterFreelancerList with a multi-tab switcher — a Hunter
+// now has a dashboard, a private working Pipeline, referral commission +
+// payout settings, personal/tax details, and a help page, not just a
+// read-only clinic list.
+//
+// CHANGE (2569-09-01, per user request "ปรับไปอยู่ด้านบน ไว้ตรง NAV"): the
+// header + tab switcher (previously this file's own <header> plus a
+// separate components/hunter/HunterTabs.tsx strip further down the page)
+// are now one client component, components/hunter/HunterShell.tsx — see
+// that file for why. This page stays a thin server component: check auth,
+// look up the Hunter, hand the header info to HunterShell.
 export default async function HunterFreelancerPage() {
   const session = await auth();
   if (!session?.user?.email) {
@@ -44,29 +51,8 @@ export default async function HunterFreelancerPage() {
   }
 
   return (
-    <div className="min-h-screen bg-page">
-      <header className="bg-inverse text-onInverse px-6 md:px-14 py-5">
-        <div className="flex items-center justify-between gap-6 flex-wrap">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl font-medium">ADCheck</span>
-            <span className="rounded-pill bg-white/10 border border-onInverse/30 px-3 py-1 text-xs">Hunter</span>
-          </div>
-          <span className="text-sm text-onInverse/70">
-            {hunterUser.name} · {hunterUser.email}
-          </span>
-        </div>
-      </header>
-      <main className="px-6 md:px-14 py-10 max-w-4xl mx-auto">
-        <div>
-          <h1 className="text-2xl font-medium text-primary">พื้นที่ Hunter</h1>
-          <p className="mt-2 text-sm text-secondary max-w-2xl">
-            ภาพรวม, Pipeline ของคุณเอง, ค่าคอมมิชชั่น และการตั้งค่าบัญชี
-          </p>
-        </div>
-        <div className="mt-6">
-          <HunterTabs />
-        </div>
-      </main>
-    </div>
+    <HunterShell
+      hunterUser={{ name: hunterUser.name, email: hunterUser.email, avatarUrl: hunterUser.avatar_url ?? null }}
+    />
   );
 }
