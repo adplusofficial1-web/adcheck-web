@@ -66,7 +66,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     // See lib/automationCheckAd.ts's top-of-file note for the comparison
     // that justified this; the customer-facing endpoint is unaffected.
     const result = await checkAdImageUrls(lead.image_urls, { caption: lead.clinic_name, model: "claude-haiku-4-5" });
-    await markHunterLeadDone(params.id, result.resultUrl);
+    // Sales Lead Distribution (2026-09-01): persist the overall
+    // review_status/flag_count alongside result_url, so this lead is
+    // immediately eligible for (or excluded from) the sales pool query —
+    // see lib/salesLeads.ts.
+    await markHunterLeadDone(params.id, result.resultUrl, result.overallStatus, result.flagCount);
     const updated = await getHunterLead(params.id);
     return NextResponse.json({ lead: updated });
   } catch (e) {
