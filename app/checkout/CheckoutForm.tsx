@@ -64,6 +64,13 @@ export function CheckoutForm({
   const [expYear, setExpYear] = useState("");
   const [cvv, setCvv] = useState("");
   const [consent, setConsent] = useState(false);
+  // Acceptance of components/DisclaimerBox.tsx, rendered directly above this
+  // form on app/checkout/page.tsx. Required for EVERY channel (unlike
+  // `consent`, which is only the recurring-auto-billing authorization and
+  // only applies to the card channel) — enforced here for the button state
+  // and again server-side in both app/api/billing/card/route.ts and
+  // app/api/checkout/route.ts, since a disabled button is only a UI nicety.
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const isCardChannel = channel === CHANNELS[0];
   // Only the card channel is wired to a real gateway in this pass — QR
@@ -99,6 +106,10 @@ export function CheckoutForm({
   }
 
   async function payWithCard() {
+    if (!termsAccepted) {
+      setError("กรุณายอมรับข้อกำหนดและข้อจำกัดความรับผิดชอบก่อนดำเนินการชำระเงิน");
+      return;
+    }
     if (!consent) {
       setError("กรุณายืนยันความยินยอมให้ตัดเงินอัตโนมัติก่อนดำเนินการ");
       return;
@@ -110,7 +121,7 @@ export function CheckoutForm({
       const res = await fetch("/api/billing/card", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, consent: true, planCode }),
+        body: JSON.stringify({ token, consent: true, planCode, termsAccepted: true }),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
@@ -134,12 +145,16 @@ export function CheckoutForm({
   }
 
   async function payOther() {
+    if (!termsAccepted) {
+      setError("กรุณายอมรับข้อกำหนดและข้อจำกัดความรับผิดชอบก่อนดำเนินการชำระเงิน");
+      return;
+    }
     setLoading(true);
     setError(null);
     const res = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ planCode, channel }),
+      body: JSON.stringify({ planCode, channel, termsAccepted: true }),
     });
     const data = await res.json();
     setLoading(false);
@@ -247,12 +262,28 @@ export function CheckoutForm({
         </div>
       )}
 
+      {/* Required for every channel, not just the card one — see the
+          termsAccepted comment near its useState above. Rendered right at
+          the payment decision point, directly below components/DisclaimerBox.tsx
+          on app/checkout/page.tsx, so acceptance and the terms it refers to
+          are on screen together. */}
+      <label className="flex items-start gap-2 text-xs text-secondary pt-1 pb-3">
+        <input
+          type="checkbox"
+          checked={termsAccepted}
+          onChange={(e) => setTermsAccepted(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>ฉันได้อ่านและยอมรับข้อกำหนดและข้อจำกัดความรับผิดชอบข้างต้นแล้ว</span>
+      </label>
+
       {error && <div className="text-sm text-danger mb-4 mt-3">{error}</div>}
 
       <button
         onClick={isCardChannel ? payWithCard : payOther}
         disabled={
           loading ||
+          !termsAccepted ||
           (isCardChannel ? !cardChannelEnabled || !omiseReady : !paymentEnabled)
         }
         className="w-full rounded-md bg-inverse text-onInverse py-3 text-sm font-medium disabled:opacity-50 mt-4"
