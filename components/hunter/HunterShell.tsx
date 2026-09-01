@@ -118,13 +118,11 @@ export function HunterShell({ hunterUser }: { hunterUser: HunterHeaderInfo }) {
       </header>
 
       <main className="px-6 md:px-14 py-10 max-w-6xl mx-auto">
+        {/* CHANGE (2569-09-01, per user request "ลบคำนี้ออก" — the page
+            heading "พื้นที่ Hunter" and its subtitle line were removed
+            entirely; the header's tab links already say where you are,
+            so this block was redundant. */}
         <div>
-          <h1 className="text-2xl font-medium text-primary">พื้นที่ Hunter</h1>
-          <p className="mt-2 text-sm text-secondary max-w-2xl">
-            ภาพรวม, Pipeline ของคุณเอง, ค่าคอมมิชชั่น และการตั้งค่าบัญชี
-          </p>
-        </div>
-        <div className="mt-6">
           {tab === "overview" && <HunterOverviewTab />}
           {tab === "pipeline" && <HunterPipelineTab />}
           {tab === "commission" && <HunterCommissionTab />}
