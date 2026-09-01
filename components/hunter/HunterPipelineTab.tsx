@@ -25,12 +25,24 @@ type PipelineLead = {
   notes: string;
 };
 
+// FIX (bug audit, 2569-09-01): STAGES used to list only 5 of the 6 valid
+// PipelineStatus values — "no_response" was missing entirely, even though
+// it's a real status in the type above, the hunter_lead_pipeline CHECK
+// constraint (migrations/014_hunter_referral_commissions.sql), and the
+// Sales-side equivalent this component was deliberately modeled after
+// (components/sales/SalesLeadList.tsx's STATUS_OPTIONS has all 6). Without
+// this column, a lead somehow set to "no_response" would have no button to
+// reach that status and would render in NONE of the Kanban columns if it
+// ever got there (leads.filter(l => l.pipeline_status === stage.key) would
+// match no stage) — silently disappearing from the board. Added for parity
+// with Sales and to close that gap before anything ever sets it.
 const STAGES: { key: PipelineStatus; label: string }[] = [
   { key: "new", label: "ส่งมาแล้ว" },
   { key: "contacted", label: "ติดต่อแล้ว" },
   { key: "interested", label: "สนใจ" },
   { key: "closed_won", label: "ปิดได้" },
   { key: "closed_lost", label: "ปิดไม่ได้" },
+  { key: "no_response", label: "ไม่ตอบรับ" },
 ];
 
 const REVIEW_BADGE: Record<string, { label: string; className: string }> = {
