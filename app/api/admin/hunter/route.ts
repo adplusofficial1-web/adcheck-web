@@ -24,6 +24,13 @@ export async function GET() {
 // POST /api/admin/hunter — bulk-import parsed Excel rows (the "นำเข้า
 // ทั้งหมดเข้าคิว" button in HunterImport.tsx). Replaces the old client-only
 // localStorage.setItem("hunter_queue", ...) write.
+//
+// CHANGE (2026-09-01, per user request: "ทุกครั้งที่เพิ่มคลินิก หรือ เพิ่มไฟล์
+// ให้ระบบลบชื่อที่ซ้ำกับที่ในระบบมีก่อนทุกครั้ง"): importHunterLeads now also
+// dedupes by clinic name (see lib/hunterLeads.ts) and returns how many rows
+// were skipped as duplicates alongside how many were actually inserted, so
+// the response — and the success message in HunterImport.tsx — can report
+// both numbers.
 export async function POST(req: Request) {
   const adminEmail = await getCurrentPlatformAdminEmail();
   if (!adminEmail) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -50,8 +57,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "ไม่พบข้อมูลที่นำเข้าได้" }, { status: 400 });
     }
 
-    const inserted = await importHunterLeads(cleaned);
-    return NextResponse.json({ inserted });
+    const { inserted, skippedDuplicate } = await importHunterLeads(cleaned);
+    return NextResponse.json({ inserted, skippedDuplicate });
   } catch (e) {
     console.error("POST /api/admin/hunter failed:", e);
     return NextResponse.json({ error: "นำเข้าไม่สำเร็จ" }, { status: 500 });

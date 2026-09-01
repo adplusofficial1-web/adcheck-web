@@ -80,27 +80,62 @@ export async function listHunterLeadsPublicView(): Promise<HunterLeadPublicView[
   return rows as HunterLeadPublicView[];
 }
 
+// Match key for clinic-name duplicate detection — trim + lowercase only.
+// Confirmed with user (2026-09-01): dedupe compares "ชื่อคลินิกอย่างเดียว"
+// (clinic name only, not name+province), case/whitespace-insensitive so
+// "ABC Clinic" / "abc clinic " / "  ABC Clinic" are all treated as the same
+// clinic. Exported so the import preview (HunterImport.tsx) can flag
+// likely duplicates client-side using the exact same rule the server
+// enforces authoritatively below.
+export function normalizeClinicName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 // Bulk-insert straight from the Excel-import preview (HunterImport.tsx) —
 // one row per parsed clinic, status always starts 'awaiting_images' since
-// none of them have image_urls yet at this point. Returns how many rows
-// were actually created.
+// none of them have image_urls yet at this point.
+//
+// CHANGE (2026-09-01, per user request: "ทุกครั้งที่เพิ่มคลินิก หรือ เพิ่มไฟล์
+// ให้ระบบลบชื่อที่ซ้ำกับที่ในระบบมีก่อนทุกครั้ง"): now dedupes against clinic
+// names already in `hunter_leads` (normalizeClinicName above), skipping any
+// row whose clinic name already exists — and also dedupes WITHIN this same
+// batch (a file can legitimately list the same clinic twice), keeping only
+// the first occurrence. Loads the full existing-name set once up front
+// rather than one EXISTS query per row — the leads table is small enough
+// (a marketing prospecting queue, not a transactional table) that this is
+// far cheaper than N extra round-trips. Returns both how many rows were
+// actually inserted and how many were skipped as duplicates so the caller
+// can show the admin both numbers.
 export async function importHunterLeads(
   rows: { clinic: string; province: string; link: string }[]
-): Promise<number> {
-  if (rows.length === 0) return 0;
+): Promise<{ inserted: number; skippedDuplicate: number }> {
+  if (rows.length === 0) return { inserted: 0, skippedDuplicate: 0 };
+
+  const existingRows = (await sql`SELECT clinic_name FROM hunter_leads`) as { clinic_name: string }[];
+  const existingNames = new Set(existingRows.map((r) => normalizeClinicName(r.clinic_name)));
+  const seenInBatch = new Set<string>();
+
   let inserted = 0;
+  let skippedDuplicate = 0;
+
   // Plain sequential inserts rather than a single multi-row INSERT — the
   // Excel import batch is at most a few hundred rows (typical Hunter
   // lead-list size), so this isn't a hot path worth the extra query-
   // building complexity of a bulk VALUES statement.
   for (const r of rows) {
+    const key = normalizeClinicName(r.clinic);
+    if (key && (existingNames.has(key) || seenInBatch.has(key))) {
+      skippedDuplicate++;
+      continue;
+    }
+    if (key) seenInBatch.add(key);
     await sql`
       INSERT INTO hunter_leads (clinic_name, province, source_link, status)
       VALUES (${r.clinic}, ${r.province || null}, ${r.link || null}, 'awaiting_images')
     `;
     inserted++;
   }
-  return inserted;
+  return { inserted, skippedDuplicate };
 }
 
 // Hunter filling in image URLs (and/or a note) for a lead they're
@@ -282,4 +317,37 @@ export async function getHunterLead(id: string): Promise<HunterLead | null> {
 export async function deleteHunterLead(id: string): Promise<boolean> {
   const rows = await sql`DELETE FROM hunter_leads WHERE id = ${id} RETURNING id`;
   return rows.length > 0;
+}
+
+// Checkbox-based bulk delete (2026-09-01, per user request: "มีปุ่มติ๊กที่
+// สามารถลบเป็นกลุ่มได้") — the multi-select "ลบที่เลือก" button in
+// HunterImport.tsx. Deletes each id with its OWN statement (not one
+// multi-row DELETE ... WHERE id = ANY(...)) specifically so one row hitting
+// the same FK constraint noted on deleteHunterLead above (already assigned
+// to a sales rep) fails on its own instead of rolling back every other
+// delete in the batch — the admin selecting 200 rows to clean up shouldn't
+// lose all 200 because 1 of them was already picked up by sales. Returns
+// which ids actually got deleted and which failed (with a reason) so the
+// caller can report both back to the admin.
+export async function bulkDeleteHunterLeads(
+  ids: string[]
+): Promise<{ deletedIds: string[]; failed: { id: string; error: string }[] }> {
+  const deletedIds: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+  for (const id of ids) {
+    try {
+      const rows = await sql`DELETE FROM hunter_leads WHERE id = ${id} RETURNING id`;
+      if (rows.length > 0) {
+        deletedIds.push(id);
+      } else {
+        failed.push({ id, error: "ไม่พบรายการนี้" });
+      }
+    } catch {
+      // Same FK situation as deleteHunterLead above (lead already assigned
+      // to a sales rep via sales_lead_assignments.hunter_lead_id) — surface
+      // a plain-language reason rather than the raw DB error.
+      failed.push({ id, error: "ลบไม่สำเร็จ (อาจถูกมอบหมายให้เซลล์แล้ว)" });
+    }
+  }
+  return { deletedIds, failed };
 }

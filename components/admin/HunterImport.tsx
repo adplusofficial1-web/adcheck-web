@@ -21,11 +21,36 @@ import type { HunterLead } from "@/lib/hunterLeads";
 //
 // สร้างเป็นแท็บย่อยของ /admin/marketing (ไม่ใช่ /admin/hunter ตามที่ไฟล์ต้นฉบับ
 // แนะนำ) ตามคำขอผู้ใช้ — ดู components/admin/MarketingSubNav.tsx
+//
+// ADDED (2026-09-01, per user request: "ทุกครั้งที่เพิ่มคลินิก หรือ เพิ่มไฟล์
+// ให้ระบบลบชื่อที่ซ้ำกับที่ในระบบมีก่อนทุกครั้ง ถ้าเพิ่ม 1000 รายการ ให้มี
+// ตัวเลื่อนหน้า ให้ดูง่ายขึ้น แล้วมีปุ่มติ๊กที่สามารถลบเป็นกลุ่มได้"): three
+// additions, all scoped to this file (+ the small server changes noted
+// where they apply):
+//   1. Dedupe by clinic name (confirmed with user: name only, not
+//      name+province) — the authoritative skip happens server-side in
+//      lib/hunterLeads.ts:importHunterLeads; this file just previews it
+//      (dupInFile / dupInSystem badges below) before the admin even clicks
+//      "นำเข้าทั้งหมดเข้าคิว", and shows how many were actually skipped once
+//      the import response comes back.
+//   2. Pagination on "คิว Hunter" (PAGE_SIZE below) — status-filter tabs
+//      and pagination compose: the filter narrows visibleLeads, pagination
+//      then pages through whatever that filter left.
+//   3. Checkbox column + "ลบที่เลือก" bulk delete, calling the new
+//      DELETE /api/admin/hunter/bulk endpoint (lib/hunterLeads.ts:
+//      bulkDeleteHunterLeads) — reports partial failures (a lead already
+//      assigned to a sales rep can't be deleted, see that function's
+//      comment) rather than silently losing track of them.
 
 type ParsedRow = {
   clinic: string;
   province: string;
   link: string;
+  // Preview-only hints, computed in handleFile — see normalizeClinicName
+  // below. Neither one blocks import; the server is the authority on what
+  // actually gets skipped (importHunterLeads in lib/hunterLeads.ts).
+  dupInFile?: boolean;
+  dupInSystem?: boolean;
 };
 
 const CLINIC_KEYS = ["ชื่อคลินิก", "คลินิก", "clinic", "clinic name", "name", "ชื่อ"];
@@ -39,6 +64,16 @@ function findKeyIndex(header: string[], keys: string[]): number {
     if (keys.some((k) => norm === k || norm.includes(k))) return i;
   }
   return -1;
+}
+
+// Mirrors lib/hunterLeads.ts:normalizeClinicName exactly (trim + lowercase,
+// clinic name only) — duplicated here as a small pure function rather than
+// imported, since this is a client component and lib/hunterLeads.ts pulls
+// in the server-only @/lib/db Neon client that has no business in the
+// browser bundle. Used only for the preview badges below; the server call
+// in lib/hunterLeads.ts is what's actually authoritative.
+function normalizeClinicName(name: string): string {
+  return name.trim().toLowerCase();
 }
 
 // NOTE: the old STATUS_META badge map (สถานะ column) was removed along
@@ -86,6 +121,11 @@ const tdClass = "px-3 py-2 border-b border-border text-left align-top";
 const smallInputClass =
   "w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30";
 
+// Pagination page size for "คิว Hunter" (2026-09-01, per user request: "ถ้า
+// เพิ่ม 1000 รายการ ให้มีตัวเลื่อนหน้า ให้ดูง่ายขึ้น"). Applies AFTER the
+// status-filter tabs narrow the list — see visibleLeads/pagedLeads below.
+const PAGE_SIZE = 50;
+
 // One lead row's inline "up to 3 image URL" editor + run/delete buttons —
 // split out so its own useState for the 3 url inputs doesn't have to live
 // in the parent's per-row map.
@@ -93,6 +133,8 @@ function LeadRow({
   lead,
   index,
   disableActions,
+  selected,
+  onToggleSelect,
   onSaved,
   onRun,
   onDelete,
@@ -102,6 +144,8 @@ function LeadRow({
   lead: HunterLead;
   index: number;
   disableActions: boolean;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
   onSaved: (l: HunterLead) => void;
   onRun: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -281,6 +325,15 @@ function LeadRow({
 
   return (
     <tr>
+      <td className={tdClass}>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect(lead.id)}
+          disabled={disableActions}
+          aria-label={`เลือก ${lead.clinic_name}`}
+        />
+      </td>
       <td className={tdClass}>{index + 1}</td>
       <td className={tdClass}>
         {lead.source_link ? (
@@ -432,65 +485,93 @@ export function HunterImport() {
     loadLeads();
   }, [loadLeads]);
 
-  const handleFile = useCallback((file: File) => {
-    setFileName(`ไฟล์: ${file.name}`);
-    setUploadMsg(null);
+  const handleFile = useCallback(
+    (file: File) => {
+      setFileName(`ไฟล์: ${file.name}`);
+      setUploadMsg(null);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-        if (!rows.length) throw new Error("ไฟล์ว่างเปล่า");
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const wb = XLSX.read(data, { type: "array" });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+          if (!rows.length) throw new Error("ไฟล์ว่างเปล่า");
 
-        const header = rows[0];
-        const clinicIdx = (() => {
-          const i = findKeyIndex(header, CLINIC_KEYS);
-          return i >= 0 ? i : 0;
-        })();
-        const provinceIdx = findKeyIndex(header, PROVINCE_KEYS);
-        // CHANGE (2026-08-31): ลิงก์เพจคลินิกตรึงไว้ที่คอลัมน์ D (index 3) ของ
-        // ไฟล์ Excel ตรงๆ ตามคำขอผู้ใช้ แทนที่จะเดาจากชื่อหัวตาราง (LINK_KEYS
-        // เดิม) — ไฟล์รายชื่อคลินิกจริงที่ Hunter ใช้มีคอลัมน์ลิงก์อยู่ตำแหน่ง D
-        // เสมอ ไม่ว่าหัวตารางจะเขียนว่าอะไร การเดาจากชื่อหัวตารางเคยพลาดเวลา
-        // หัวตารางเขียนไม่ตรงกับ LINK_KEYS ที่รู้จัก
-        const linkIdx = 3;
+          const header = rows[0];
+          const clinicIdx = (() => {
+            const i = findKeyIndex(header, CLINIC_KEYS);
+            return i >= 0 ? i : 0;
+          })();
+          const provinceIdx = findKeyIndex(header, PROVINCE_KEYS);
+          // CHANGE (2026-08-31): ลิงก์เพจคลินิกตรึงไว้ที่คอลัมน์ D (index 3) ของ
+          // ไฟล์ Excel ตรงๆ ตามคำขอผู้ใช้ แทนที่จะเดาจากชื่อหัวตาราง (LINK_KEYS
+          // เดิม) — ไฟล์รายชื่อคลินิกจริงที่ Hunter ใช้มีคอลัมน์ลิงก์อยู่ตำแหน่ง D
+          // เสมอ ไม่ว่าหัวตารางจะเขียนว่าอะไร การเดาจากชื่อหัวตารางเคยพลาดเวลา
+          // หัวตารางเขียนไม่ตรงกับ LINK_KEYS ที่รู้จัก
+          const linkIdx = 3;
 
-        setColMapMsg(
-          `ตรวจพบคอลัมน์: ชื่อคลินิก = "${header[clinicIdx] || "คอลัมน์ที่ 1"}"` +
-            (provinceIdx >= 0 ? `, จังหวัด = "${header[provinceIdx]}"` : ", จังหวัด = ไม่พบ (เว้นว่างได้)") +
-            `, ลิงก์ = คอลัมน์ D ("${header[linkIdx] || "ไม่มีหัวตาราง"}")`
-        );
+          setColMapMsg(
+            `ตรวจพบคอลัมน์: ชื่อคลินิก = "${header[clinicIdx] || "คอลัมน์ที่ 1"}"` +
+              (provinceIdx >= 0 ? `, จังหวัด = "${header[provinceIdx]}"` : ", จังหวัด = ไม่พบ (เว้นว่างได้)") +
+              `, ลิงก์ = คอลัมน์ D ("${header[linkIdx] || "ไม่มีหัวตาราง"}")`
+          );
 
-        const result: ParsedRow[] = [];
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          if (!row || row.every((v) => String(v).trim() === "")) continue;
-          const clinic = String(row[clinicIdx] || "").trim();
-          const province = provinceIdx >= 0 ? String(row[provinceIdx] || "").trim() : "";
-          const link = linkIdx >= 0 ? String(row[linkIdx] || "").trim() : "";
-          if (!clinic && !link) continue;
-          result.push({ clinic: clinic || "(ไม่ระบุชื่อ - ต้องเช็ค)", province, link });
-        }
+          const result: ParsedRow[] = [];
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.every((v) => String(v).trim() === "")) continue;
+            const clinic = String(row[clinicIdx] || "").trim();
+            const province = provinceIdx >= 0 ? String(row[provinceIdx] || "").trim() : "";
+            const link = linkIdx >= 0 ? String(row[linkIdx] || "").trim() : "";
+            if (!clinic && !link) continue;
+            result.push({ clinic: clinic || "(ไม่ระบุชื่อ - ต้องเช็ค)", province, link });
+          }
 
-        if (!result.length) {
-          setUploadMsg({ text: "อ่านไฟล์ไม่พบข้อมูลคลินิก กรุณาตรวจสอบหัวตาราง", ok: false });
+          if (!result.length) {
+            setUploadMsg({ text: "อ่านไฟล์ไม่พบข้อมูลคลินิก กรุณาตรวจสอบหัวตาราง", ok: false });
+            setParsedRows([]);
+            return;
+          }
+
+          // ADDED (2026-09-01, dedupe preview): flag rows whose clinic name
+          // (normalizeClinicName — trim + lowercase, name only) already
+          // appears earlier in THIS file (dupInFile), or already exists in
+          // the system from a previous import (dupInSystem, checked against
+          // whatever `leads` finished loading with — a preview hint only,
+          // the server re-checks authoritatively at import time regardless
+          // of whether `leads` has loaded yet). Neither flag removes the
+          // row from the preview or blocks import — see importRows below
+          // for what actually gets skipped.
+          const existingSystemNames = new Set(leads.map((l) => normalizeClinicName(l.clinic_name)));
+          const seenInFile = new Set<string>();
+          for (const r of result) {
+            const key = normalizeClinicName(r.clinic);
+            if (seenInFile.has(key)) r.dupInFile = true;
+            else seenInFile.add(key);
+            if (existingSystemNames.has(key)) r.dupInSystem = true;
+          }
+
+          const dupCount = result.filter((r) => r.dupInFile || r.dupInSystem).length;
+          setParsedRows(result);
+          setUploadMsg({
+            text:
+              `อ่านไฟล์สำเร็จ พบ ${result.length} รายการ` +
+              (dupCount > 0 ? ` (${dupCount} รายการซ้ำ — ระบบจะข้ามให้อัตโนมัติตอนนำเข้า)` : "") +
+              " — ตรวจสอบด้านล่างก่อนนำเข้า",
+            ok: true,
+          });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          setUploadMsg({ text: `อ่านไฟล์ไม่สำเร็จ: ${message}`, ok: false });
           setParsedRows([]);
-          return;
         }
-
-        setParsedRows(result);
-        setUploadMsg({ text: `อ่านไฟล์สำเร็จ พบ ${result.length} รายการ — ตรวจสอบด้านล่างก่อนนำเข้า`, ok: true });
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        setUploadMsg({ text: `อ่านไฟล์ไม่สำเร็จ: ${message}`, ok: false });
-        setParsedRows([]);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  }, []);
+      };
+      reader.readAsArrayBuffer(file);
+    },
+    [leads]
+  );
 
   const cancelPreview = () => {
     setParsedRows([]);
@@ -511,7 +592,12 @@ export function HunterImport() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "นำเข้าไม่สำเร็จ");
-      setImportMsg({ text: `นำเข้า ${data.inserted} รายการเข้าคิวแล้ว`, ok: true });
+      // CHANGE (2026-09-01, dedupe): the server now also reports
+      // skippedDuplicate (see app/api/admin/hunter/route.ts) — surfaced
+      // here so the admin sees both how many actually landed in the queue
+      // and how many were skipped as already-existing clinic names.
+      const skippedMsg = data.skippedDuplicate > 0 ? ` (ข้ามชื่อซ้ำ ${data.skippedDuplicate} รายการ)` : "";
+      setImportMsg({ text: `นำเข้า ${data.inserted} รายการเข้าคิวแล้ว${skippedMsg}`, ok: true });
       cancelPreview();
       await loadLeads();
     } catch (e: any) {
@@ -537,6 +623,12 @@ export function HunterImport() {
     const res = await fetch(`/api/admin/hunter/${id}`, { method: "DELETE" });
     if (res.ok) {
       setLeads((prev) => prev.filter((l) => l.id !== id));
+      setSelectedIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     } else {
       const data = await res.json().catch(() => null);
       window.alert(data?.error || "ลบไม่สำเร็จ");
@@ -629,6 +721,91 @@ export function HunterImport() {
   const [statusFilter, setStatusFilter] = useState<DisplayStatus | null>(null);
   const visibleLeads = statusFilter ? leads.filter((l) => displayStatus(l) === statusFilter) : leads;
 
+  // --- Pagination (2026-09-01) ---------------------------------------
+  // Pages through visibleLeads (i.e. AFTER the status filter above), so
+  // switching tabs and paging compose naturally instead of one resetting
+  // the other unexpectedly.
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(visibleLeads.length / PAGE_SIZE));
+  // Clamp rather than reset-on-every-render: deleting rows can shrink
+  // totalPages out from under whatever page the admin was on (e.g. bulk-
+  // deleting most of the last page), so this pulls them back to the new
+  // last page instead of showing an empty page silently.
+  const currentPage = Math.min(page, totalPages);
+  const pagedLeads = visibleLeads.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  // Switching status-filter tabs always goes back to page 1 — staying on
+  // e.g. page 4 after switching to a tab with only 1 page would just show
+  // an empty table until the clamp above kicks in on the next render.
+  const changeStatusFilter = (next: DisplayStatus | null) => {
+    setStatusFilter(next);
+    setPage(1);
+  };
+
+  // --- Checkbox multi-select + bulk delete (2026-09-01) ---------------
+  // selectedIds persists across page/filter changes (not scoped to the
+  // current page) so an admin can select rows across multiple pages before
+  // deleting them all in one "ลบที่เลือก" click.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteMsg, setBulkDeleteMsg] = useState<string | null>(null);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allOnPageSelected = pagedLeads.length > 0 && pagedLeads.every((l) => selectedIds.has(l.id));
+  const toggleSelectAllOnPage = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        pagedLeads.forEach((l) => next.delete(l.id));
+      } else {
+        pagedLeads.forEach((l) => next.add(l.id));
+      }
+      return next;
+    });
+  };
+
+  const bulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`ลบ ${ids.length} รายการที่เลือกออกจากคิว Hunter? การกระทำนี้ย้อนกลับไม่ได้`)) return;
+    setBulkDeleting(true);
+    setBulkDeleteMsg(null);
+    try {
+      const res = await fetch("/api/admin/hunter/bulk", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "ลบไม่สำเร็จ");
+      const deletedSet = new Set<string>(data.deletedIds || []);
+      setLeads((prev) => prev.filter((l) => !deletedSet.has(l.id)));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        deletedSet.forEach((id) => next.delete(id));
+        return next;
+      });
+      const failedCount = (data.failed || []).length;
+      setBulkDeleteMsg(
+        failedCount > 0
+          ? `ลบสำเร็จ ${deletedSet.size} รายการ, ล้มเหลว ${failedCount} รายการ (อาจถูกมอบหมายให้เซลล์แล้ว)`
+          : `ลบสำเร็จ ${deletedSet.size} รายการ`
+      );
+    } catch (e: any) {
+      setBulkDeleteMsg(e?.message || "ลบไม่สำเร็จ");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   return (
     <div>
       <div className="rounded-lg border border-warning bg-warningSoft px-4 py-3 text-xs text-warning leading-relaxed mb-6">
@@ -674,15 +851,29 @@ export function HunterImport() {
                     <th className={thClass}>ชื่อคลินิก</th>
                     <th className={thClass}>จังหวัด</th>
                     <th className={thClass}>ลิงก์</th>
+                    <th className={thClass}>หมายเหตุ</th>
                   </tr>
                 </thead>
                 <tbody>
                   {parsedRows.map((r, i) => (
-                    <tr key={i}>
+                    <tr key={i} className={r.dupInFile || r.dupInSystem ? "opacity-60" : undefined}>
                       <td className={tdClass}>{i + 1}</td>
                       <td className={tdClass}>{r.clinic}</td>
                       <td className={tdClass}>{r.province || "-"}</td>
                       <td className={`${tdClass} break-all`}>{r.link || "-"}</td>
+                      <td className={tdClass}>
+                        {r.dupInSystem ? (
+                          <span className="rounded-pill bg-dangerSoft text-danger px-2 py-0.5 text-[11px] font-medium whitespace-nowrap">
+                            มีอยู่แล้วในระบบ
+                          </span>
+                        ) : r.dupInFile ? (
+                          <span className="rounded-pill bg-warningSoft text-warning px-2 py-0.5 text-[11px] font-medium whitespace-nowrap">
+                            ซ้ำในไฟล์นี้
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -754,7 +945,7 @@ export function HunterImport() {
               <button
                 key={status}
                 type="button"
-                onClick={() => setStatusFilter(active ? null : status)}
+                onClick={() => changeStatusFilter(active ? null : status)}
                 className={`rounded-pill px-3 py-1 text-xs font-medium whitespace-nowrap border transition-colors ${
                   active
                     ? "bg-inverse text-onInverse border-inverse"
@@ -768,17 +959,52 @@ export function HunterImport() {
           {statusFilter && (
             <button
               type="button"
-              onClick={() => setStatusFilter(null)}
+              onClick={() => changeStatusFilter(null)}
               className="text-xs text-tertiary underline whitespace-nowrap"
             >
               ล้างตัวกรอง
             </button>
           )}
         </div>
+
+        {/* Bulk-delete action bar (2026-09-01) — only shown once at least one
+            row is checked, so it doesn't take up space during normal use. */}
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 mb-3 flex-wrap rounded-lg border border-danger/40 bg-dangerSoft px-3 py-2">
+            <span className="text-xs font-medium text-danger">เลือกแล้ว {selectedIds.size} รายการ</span>
+            <button
+              type="button"
+              onClick={bulkDelete}
+              disabled={bulkDeleting}
+              className="rounded-md bg-danger text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+            >
+              {bulkDeleting ? "กำลังลบ…" : `ลบที่เลือก (${selectedIds.size})`}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              disabled={bulkDeleting}
+              className="text-xs text-tertiary underline whitespace-nowrap"
+            >
+              ยกเลิกการเลือก
+            </button>
+            {bulkDeleteMsg && <span className="text-xs text-secondary">{bulkDeleteMsg}</span>}
+          </div>
+        )}
+
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-xs">
             <thead>
               <tr>
+                <th className={thClass}>
+                  <input
+                    type="checkbox"
+                    checked={allOnPageSelected}
+                    onChange={toggleSelectAllOnPage}
+                    disabled={pagedLeads.length === 0 || runningAll || sendingAll}
+                    aria-label="เลือกทั้งหมดในหน้านี้"
+                  />
+                </th>
                 <th className={thClass}>ลำดับ</th>
                 <th className={thClass}>คลินิก</th>
                 <th className={thClass}>ลิงก์รูป</th>
@@ -789,29 +1015,31 @@ export function HunterImport() {
             <tbody>
               {loadingLeads ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-tertiary py-6">
+                  <td colSpan={6} className="text-center text-tertiary py-6">
                     กำลังโหลด…
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-tertiary py-6">
+                  <td colSpan={6} className="text-center text-tertiary py-6">
                     ยังไม่มีรายการ
                   </td>
                 </tr>
               ) : visibleLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-tertiary py-6">
+                  <td colSpan={6} className="text-center text-tertiary py-6">
                     ไม่มีรายการในสถานะนี้
                   </td>
                 </tr>
               ) : (
-                visibleLeads.map((lead, i) => (
+                pagedLeads.map((lead, i) => (
                   <LeadRow
                     key={lead.id}
                     lead={lead}
-                    index={i}
+                    index={(currentPage - 1) * PAGE_SIZE + i}
                     disableActions={runningAll || sendingAll}
+                    selected={selectedIds.has(lead.id)}
+                    onToggleSelect={toggleSelect}
                     onSaved={(updated) => setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))}
                     onRun={runAutomation}
                     onDelete={deleteLead}
@@ -823,6 +1051,34 @@ export function HunterImport() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination controls (2026-09-01, per user request: "ถ้าเพิ่ม 1000
+            รายการ ให้มีตัวเลื่อนหน้า ให้ดูง่ายขึ้น") — only shown once there's
+            more than one page, so it doesn't clutter the common case of a
+            small queue. */}
+        {visibleLeads.length > PAGE_SIZE && (
+          <div className="flex items-center justify-center gap-3 mt-3">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-secondary disabled:opacity-40"
+            >
+              ‹ ก่อนหน้า
+            </button>
+            <span className="text-xs text-tertiary whitespace-nowrap">
+              หน้า {currentPage} จาก {totalPages} ({visibleLeads.length} รายการ)
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-secondary disabled:opacity-40"
+            >
+              ถัดไป ›
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
