@@ -346,7 +346,7 @@ export async function bulkDeleteHunterLeads(
       // Same FK situation as deleteHunterLead above (lead already assigned
       // to a sales rep via sales_lead_assignments.hunter_lead_id) — surface
       // a plain-language reason rather than the raw DB error.
-      failed.push({ id, error: "ลบไม่สำเร็จ (อาจถูกมอบหมายให้เซล෥์แล้ว)" });
+      failed.push({ id, error: "ลบไม่สำเร็จ (อาจถูกมอบหมายให้เซลล์แล้ว)" });
     }
   }
   return { deletedIds, failed };
