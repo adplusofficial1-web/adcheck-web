@@ -36,13 +36,24 @@ type PipelineLead = {
 // ever got there (leads.filter(l => l.pipeline_status === stage.key) would
 // match no stage) — silently disappearing from the board. Added for parity
 // with Sales and to close that gap before anything ever sets it.
-const STAGES: { key: PipelineStatus; label: string }[] = [
-  { key: "new", label: "ส่งมาแล้ว" },
-  { key: "contacted", label: "ติดต่อแล้ว" },
-  { key: "interested", label: "สนใจ" },
-  { key: "closed_won", label: "ปิดได้" },
-  { key: "closed_lost", label: "ปิดไม่ได้" },
-  { key: "no_response", label: "ไม่ตอบรับ" },
+//
+// CHANGE (layout, 2569-09-01, per user request): the board used to be a
+// fixed 260px-per-column flex row with overflow-x-auto — on the page's
+// actual max-w-4xl container that only ever showed 3 of the 6 columns at
+// once, so seeing "ปิดได้"/"ปิดไม่ได้"/"ไม่ตอบรับ" always meant scrolling
+// right. Switched to a responsive CSS grid (2 columns on mobile, 3 on
+// tablet, all 6 in one row from the lg breakpoint up, where the page's
+// container comfortably fits them) so every stage is visible without a
+// scrollbar, and gave each stage a small color dot (reusing the existing
+// accent/warning/danger/tertiary tokens — no new colors) purely so the
+// board scans at a glance instead of reading six identical gray headers.
+const STAGES: { key: PipelineStatus; label: string; dot: string; text: string }[] = [
+  { key: "new", label: "ส่งมาแล้ว", dot: "bg-tertiary", text: "text-secondary" },
+  { key: "contacted", label: "ติดต่อแล้ว", dot: "bg-secondary", text: "text-secondary" },
+  { key: "interested", label: "สนใจ", dot: "bg-warning", text: "text-warning" },
+  { key: "closed_won", label: "ปิดได้", dot: "bg-accent", text: "text-accent" },
+  { key: "closed_lost", label: "ปิดไม่ได้", dot: "bg-danger", text: "text-danger" },
+  { key: "no_response", label: "ไม่ตอบรับ", dot: "bg-tertiary", text: "text-tertiary" },
 ];
 
 const REVIEW_BADGE: Record<string, { label: string; className: string }> = {
@@ -106,14 +117,14 @@ function LeadCard({ lead, onUpdate }: { lead: PipelineLead; onUpdate: (id: strin
   const badge = lead.review_status ? REVIEW_BADGE[lead.review_status] : undefined;
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-3">
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-primary">{lead.clinic_name}</span>
+    <div className="rounded-lg border border-border bg-surface p-2.5 shadow-sm">
+      <div className="flex items-start justify-between gap-1.5 flex-wrap">
+        <span className="text-[13px] font-medium text-primary leading-snug break-words">{lead.clinic_name}</span>
         {lead.result_url && (
           <button
             type="button"
             onClick={copyResult}
-            className="rounded-md bg-inverse text-onInverse px-2 py-1 text-[10px] font-medium whitespace-nowrap shrink-0"
+            className="rounded-md bg-inverse text-onInverse px-1.5 py-1 text-[10px] font-medium whitespace-nowrap shrink-0"
           >
             {copied ? "คัดลอกแล้ว ✓" : "ผลตรวจสอบ"}
           </button>
@@ -146,7 +157,7 @@ function LeadCard({ lead, onUpdate }: { lead: PipelineLead; onUpdate: (id: strin
             type="button"
             disabled={savingStatus}
             onClick={() => changeStatus(s.key)}
-            className={`rounded-pill px-2 py-0.5 text-[10px] font-medium border disabled:opacity-40 ${
+            className={`rounded-pill px-1.5 py-0.5 text-[10px] font-medium border disabled:opacity-40 ${
               s.key === lead.pipeline_status
                 ? "bg-inverse text-onInverse border-inverse"
                 : "bg-surface text-secondary border-border hover:bg-page"
@@ -218,19 +229,22 @@ export function HunterPipelineTab() {
       <p className="text-sm text-secondary max-w-2xl">
         คลินิกที่แอดมินส่งมาให้ — กดสถานะเพื่อย้ายขั้นตอน และจดโน้ตการติดต่อไว้ที่การ์ดแต่ละใบ (เห็นเฉพาะคุณ)
       </p>
-      <div className="mt-5 flex gap-3.5 overflow-x-auto pb-2">
+      <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
         {STAGES.map((stage) => {
           const stageLeads = leads.filter((l) => l.pipeline_status === stage.key);
           return (
-            <div key={stage.key} style={{ minWidth: 260, maxWidth: 260 }} className="shrink-0">
-              <div className="flex items-center justify-between px-0.5 pb-2.5">
-                <span className="text-sm font-medium text-primary">{stage.label}</span>
-                <span className="text-xs text-tertiary">{stageLeads.length}</span>
+            <div key={stage.key} className="min-w-0 rounded-lg bg-page/60 border border-border p-2">
+              <div className="flex items-center gap-1.5 px-0.5 pb-2">
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${stage.dot}`} />
+                <span className={`text-[13px] font-medium truncate ${stage.text}`}>{stage.label}</span>
+                <span className="ml-auto shrink-0 rounded-pill bg-surface border border-border px-1.5 py-0.5 text-[10px] font-medium text-tertiary">
+                  {stageLeads.length}
+                </span>
               </div>
-              <div className="flex flex-col gap-2.5">
+              <div className="flex flex-col gap-2">
                 {stageLeads.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center">
-                    <span className="text-xs text-tertiary">ยังไม่มีคลินิกในขั้นนี้</span>
+                  <div className="rounded-lg border border-dashed border-border px-2 py-3 text-center">
+                    <span className="text-[11px] text-tertiary">ไม่มีคลินิก</span>
                   </div>
                 ) : (
                   stageLeads.map((lead) => <LeadCard key={lead.id} lead={lead} onUpdate={onUpdate} />)
