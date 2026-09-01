@@ -49,6 +49,55 @@ export async function getActiveHunterUserByEmail(email: string): Promise<HunterU
   return (row as HunterUser) ?? null;
 }
 
+// Existence check WITHOUT the active=true filter — returns the row itself
+// (not just a boolean like isHunterUserEmail below) so a caller can also
+// read `active`/`name`/etc. Used by the Hunter Self-Serve Signup Request
+// flow (requestHunterAccess below, and app/hunter/page.tsx) to look up
+// whatever row is already there — pending, approved, or deactivated —
+// after an INSERT ... ON CONFLICT DO NOTHING turns out to be a no-op.
+export async function getHunterUserByEmail(email: string): Promise<HunterUser | null> {
+  const [row] = await sql`
+    SELECT * FROM hunter_users WHERE email = ${email} LIMIT 1
+  `;
+  return (row as HunterUser) ?? null;
+}
+
+// Hunter Self-Serve Signup Request (2569-09-01): lets anyone who signs in
+// with Google at /hunter create their own pending hunter_users row,
+// instead of requiring a platform admin to type their email into the
+// whitelist form on /admin/marketing/hunter before they can get anything
+// but an access-denied message — see app/hunter/page.tsx, which calls
+// this whenever getCurrentHunterUser() comes back null for a signed-in
+// session. Inserts with active=false: the row then shows up in the
+// existing HunterUsersManager roster exactly like an admin-added one,
+// just already "ปิดใช้งาน" (inactive) until an admin flips it on with the
+// same toggle button that already exists — no admin UI/API changes
+// needed. ON CONFLICT (email) DO NOTHING is deliberate and load-bearing:
+// this must NEVER flip an existing row's `active` back to false, because
+// an admin may have already approved (or deliberately deactivated) this
+// email — a repeat visit to /hunter before approval must not undo either
+// outcome. When the INSERT is a no-op (row already existed), fall back to
+// getHunterUserByEmail to still return that existing row to the caller.
+export async function requestHunterAccess(email: string, name?: string | null): Promise<HunterUser> {
+  const safeName = name?.trim() || email;
+  const [row] = await sql`
+    INSERT INTO hunter_users (email, name, active)
+    VALUES (${email}, ${safeName}, false)
+    ON CONFLICT (email) DO NOTHING
+    RETURNING *
+  `;
+  if (row) return row as HunterUser;
+
+  const existing = await getHunterUserByEmail(email);
+  if (!existing) {
+    // Should be unreachable — ON CONFLICT firing means a row with this
+    // email already exists — but throw rather than fabricate a fake row
+    // if the table state is ever surprising.
+    throw new Error(`requestHunterAccess: insert conflicted but no existing row found for ${email}`);
+  }
+  return existing;
+}
+
 // Existence check WITHOUT the active=true filter — used only by
 // lib/currentBusiness.ts's guard against lazily provisioning a business
 // row for a Hunter freelancer's email, same reasoning as
