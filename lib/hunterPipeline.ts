@@ -1,4 +1,4 @@
-import { sql } from "@/lib/db";
+—ส่ง—เพิ่มปุ่มที่สามารถเพิ่มคลินิกที่หามาเองได้ลงใน———————————รวมของ———ภาพรวมและค่าคอมมิชชั่นปิดได้——import { sql } from "@/lib/db";
 import type { HunterLeadReviewStatus } from "@/lib/hunterLeads";
 
 // A Hunter's own PRIVATE working status + notes per clinic — see
