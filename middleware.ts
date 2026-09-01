@@ -24,6 +24,17 @@ import { NextResponse } from "next/server";
 // comment) — this middleware still performs no redirect/auth-gating of its
 // own (no `authorized` callback is configured in auth.ts), so this is
 // purely additive and doesn't change how any route is protected.
+//
+// ADDED (Sales Lead Distribution, 2026-09-01): /sales/:path* and
+// /api/sales/:path* — same belt-and-suspenders-only role as /admin above,
+// not real gating. /sales itself and every /api/sales/** route each check
+// lib/currentSalesUser.ts's getCurrentSalesUser() themselves and
+// redirect/401 on their own (fail-closed), following the exact same
+// per-route convention as the platform admin area rather than relying on
+// this middleware (there's still no `authorized` callback configured).
+// /sales/:path* also matches /sales/login itself, same as /admin/:path*
+// matches every /admin/* page — harmless, since this handler never
+// redirects or blocks anything, it only forwards x-pathname (see below).
 export default auth((req) => {
   // FIX (bug audit round 2, low): app/admin/layout.tsx used to hardcode
   // every signed-out redirect's callbackUrl to /admin/knowledge-base
@@ -56,5 +67,7 @@ export const config = {
           "/agency/processing/:path*",
           "/admin/:path*",
           "/api/admin/:path*",
+          "/sales/:path*",
+          "/api/sales/:path*",
         ],
 };
