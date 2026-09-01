@@ -4,6 +4,7 @@ import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { isOmiseConfigured, createCustomerWithCard, chargeCustomer } from "@/lib/omise";
 import { nextInvoiceNumber } from "@/lib/invoiceNumber";
 import { calculateOmiseCardFeeThb, recordSalesCommissionIfApplicable } from "@/lib/salesCommission";
+import { recordHunterCommissionIfApplicable } from "@/lib/hunterCommission";
 
 // Binds a card via Omise (create Customer + Card from a one-time Omise.js
 // token) and immediately charges it for the selected plan — this is the
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
   // around recurring billing (see the earlier conversation on this).
   if (consent !== true) {
     return NextResponse.json(
-      { error: "กรุณายืนยันความยินยอมให้ตัดเงินอัตโนมัติก่อนผูกบัตร" },
+      { error: "กรุณายืนยันความยินยอมให้ตัดเงินอัติก่อนผูกบัตร" },
       { status: 400 }
     );
   }
@@ -176,6 +177,10 @@ export async function POST(req: Request) {
     // Sales Commission (2026-09-01): no-op unless this business signed up
     // through a sales rep's referral link — see lib/salesCommission.ts.
     await recordSalesCommissionIfApplicable(transaction.id, business.id, amountThb);
+    // Hunter Commission (2026-09-01): same mechanism, independent no-op
+    // check, for a Hunter freelancer's referral link — see
+    // lib/hunterCommission.ts.
+    await recordHunterCommissionIfApplicable(transaction.id, business.id, amountThb);
 
     await sql`
       INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)
