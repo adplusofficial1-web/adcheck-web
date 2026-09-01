@@ -3,6 +3,7 @@ import { sql } from "@/lib/db";
 import { isOmiseConfigured, retrieveCharge } from "@/lib/omise";
 import { nextInvoiceNumber } from "@/lib/invoiceNumber";
 import { calculateOmiseCardFeeThb, recordSalesCommissionIfApplicable } from "@/lib/salesCommission";
+import { recordHunterCommissionIfApplicable } from "@/lib/hunterCommission";
 
 // Configure this URL (https://adcheck.pro/api/webhooks/omise) in the Omise
 // dashboard once the account exists — Webhooks & Notifications settings.
@@ -87,6 +88,10 @@ export async function POST(req: Request) {
   // Sales Commission (2026-09-01): no-op unless this business signed up
   // through a sales rep's referral link — see lib/salesCommission.ts.
   await recordSalesCommissionIfApplicable(transaction.id, businessId, amountThb);
+  // Hunter Commission (2026-09-01): same mechanism, independent no-op
+  // check, for a Hunter freelancer's referral link — see
+  // lib/hunterCommission.ts.
+  await recordHunterCommissionIfApplicable(transaction.id, businessId, amountThb);
 
   await sql`
     INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)
