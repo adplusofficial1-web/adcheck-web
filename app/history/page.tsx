@@ -22,9 +22,13 @@ export default async function HistoryPage({
   }
   const filter = searchParams.filter;
 
+  // Bug Audit 4 (2569-09-02): `si.*` used to drag every row's base64
+  // image_url (megabytes for 50 rows) out of Postgres on each visit and
+  // then never render it. Select only what the list shows; the thumbnail
+  // is loaded lazily from /api/images/[id] instead.
   const images = (filter
     ? await sql`
-        SELECT si.*, s.id AS submission_id, s.created_at
+        SELECT si.id, si.submission_id AS image_submission_id, si.caption, si.file_type, si.file_size_bytes, si.sort_order, si.filename, si.status, (si.image_url LIKE 'data:%') AS has_image, s.id AS submission_id, s.created_at
         FROM submission_images si
         JOIN submissions s ON s.id = si.submission_id
         WHERE s.business_id = ${business.id} AND si.status = ${filter}
@@ -32,7 +36,7 @@ export default async function HistoryPage({
         LIMIT 50
       `
     : await sql`
-        SELECT si.*, s.id AS submission_id, s.created_at
+        SELECT si.id, si.submission_id AS image_submission_id, si.caption, si.file_type, si.file_size_bytes, si.sort_order, si.filename, si.status, (si.image_url LIKE 'data:%') AS has_image, s.id AS submission_id, s.created_at
         FROM submission_images si
         JOIN submissions s ON s.id = si.submission_id
         WHERE s.business_id = ${business.id}
@@ -75,7 +79,17 @@ export default async function HistoryPage({
                 className="flex items-center justify-between border border-border rounded-lg p-4"
               >
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-md bg-accentSoft" />
+                  {img.has_image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`/api/images/${img.id}`}
+                      alt=""
+                      loading="lazy"
+                      className="h-10 w-10 rounded-md object-cover bg-accentSoft shrink-0"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-md bg-accentSoft shrink-0" />
+                  )}
                   <span className="text-sm font-medium">{img.filename}</span>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-secondary">
