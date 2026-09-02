@@ -51,7 +51,7 @@ export function ProcessingScreen({
   // /agency/upload requires a ?business=<id> the failure screen doesn't
   // have on hand (only submissionId), and 404s without it (see
   // app/agency/upload/page.tsx) — send Agency mode back to the dashboard
-  // instead, where every clinic's own "+ อัพโหลด" button is right there.
+  // instead, where every clinic's own "+ อัปโหลด" button is right there.
   const uploadHref = isAgency ? "/agency/dashboard" : "/upload";
   const startedAtRef = useRef<number>(Date.now());
 
@@ -144,13 +144,13 @@ export function ProcessingScreen({
           <div className="rounded-lg border border-border bg-dangerSoft px-6 py-8 text-center">
             <p className="text-danger font-medium mb-2">การตรวจสอบไม่สำเร็จ</p>
             <p className="text-sm text-secondary mb-5">
-              เกิดข้อผิดพลาดระหว่างประมวลผล เครดิตของคุณยังไม่ถูกหักในรอบนี้ ลองอัพโหลดใหม่อีกครั้ง
+              เกิดข้อผิดพลาดระหว่างประมวลผล เครดิตของคุณยังไม่ถูกหักในรอบนี้ ลองอัปโหลดใหม่อีกครั้ง
             </p>
             <a
               href={uploadHref}
               className="inline-block rounded-md bg-inverse text-onInverse px-6 py-3 text-sm font-medium"
             >
-              กลับไปหน้าอัพโหลด
+              กลับไปหน้าอัปโหลด
             </a>
           </div>
         ) : (
