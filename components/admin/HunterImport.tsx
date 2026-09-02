@@ -41,6 +41,15 @@ import type { HunterLead } from "@/lib/hunterLeads";
 //      bulkDeleteHunterLeads) — reports partial failures (a lead already
 //      assigned to a sales rep can't be deleted, see that function's
 //      comment) rather than silently losing track of them.
+//
+// CHANGE (2026-09-02, Hunter tab restructure, per user request): this
+// component is now rendered inside the "คิว Hunter" tab of
+// components/admin/HunterMarketingTabs.tsx instead of always being visible
+// at the bottom of the page — see that file and app/admin/marketing/hunter/page.tsx.
+// Also dropped the standing "ขั้นตอน: ..." instructions banner that used to
+// sit above the upload button (per explicit user request to remove it) —
+// the same walkthrough still lives in claude/Hunter Auto-Fill Automation.md
+// and this file's own top-of-file comment for anyone who needs it.
 
 type ParsedRow = {
   clinic: string;
@@ -818,13 +827,6 @@ export function HunterImport() {
 
   return (
     <div>
-      <div className="rounded-lg border border-warning bg-warningSoft px-4 py-3 text-xs text-warning leading-relaxed mb-6">
-        ขั้นตอน: อัปโหลดไฟล์ Excel รายชื่อคลินิก → ระบบนำเข้าคิว &quot;รอ Hunter ดึงรูป&quot; → Hunter กรอกลิงก์รูปที่ดึงมาได้
-        (สูงสุด 3 รูป) — กรอกครบ 3 ลิงก์แล้วระบบจะเริ่มตรวจสอบอัตโนมัติทันที ไม่ต้องกดปุ่ม (กรอกไม่ครบ 3 ให้กดปุ่ม
-        &quot;ตรวจสอบอัตโนมัติ&quot; เอง) → ระบบส่งแต่ละรูปเข้า AI ตรวจสอบผ่าน adcheck.pro จริงและได้ลิงก์ผลตรวจสอบ
-        กลับมาอัตโนมัติ (ไม่หักเครดิตจากคลินิกจริง — ใช้บัญชีภายในของ AD Plus)
-      </div>
-
       <div className="rounded-lg border border-border bg-surface p-4 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
           <button
