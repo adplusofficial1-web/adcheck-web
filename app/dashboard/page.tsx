@@ -56,7 +56,7 @@ export default async function DashboardPage() {
             href="/upload"
             className="text-2xl font-medium rounded-xl bg-inverse text-onInverse px-12 py-6"
           >
-            + อัพโหลด
+            + อัปโหลด
           </Link>
         </div>
 
