@@ -19,7 +19,19 @@ function formatThaiDate(iso: string) {
 // content either way, nothing to keep in sync by hand). basePath is used
 // to build the breadcrumb / back link and the "more articles" links so
 // browsing stays inside whichever mode the reader arrived from.
-export function ArticleDetailContent({ slug, basePath = "/articles" }: { slug: string; basePath?: string }) {
+//
+// Bug Audit 4 (2569-09-02): `credits` was never passed here (only the list
+// page got that fix in audit 3), so opening any article made the
+// "เครดิตคงเหลือ" badge vanish from the Nav until the reader left the page.
+export function ArticleDetailContent({
+  slug,
+  basePath = "/articles",
+  credits,
+}: {
+  slug: string;
+  basePath?: string;
+  credits?: number;
+}) {
   const article = getArticleBySlug(slug);
   if (!article) notFound();
 
@@ -27,7 +39,7 @@ export function ArticleDetailContent({ slug, basePath = "/articles" }: { slug: s
 
   return (
     <main>
-      <Nav />
+      <Nav credits={credits} />
 
       <article className="max-w-3xl mx-auto px-6 py-14">
         <p className="text-xs text-tertiary mb-3">
