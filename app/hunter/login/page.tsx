@@ -8,10 +8,16 @@ import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 // exactly. Same NextAuth Google provider, no second OAuth client needed
 // (see claude/Google Login Setup.md). Redirects to /hunter afterward.
 // Signing in here does NOT create a business row, even for a brand-new
-// email — see lib/currentBusiness.ts's hunter_users guard. Whether the
-// signed-in Google account is actually an authorized, active Hunter
-// freelancer is decided by /hunter itself (lib/currentHunterUser.ts), not
-// this page.
+// email — see lib/currentBusiness.ts's hunter_users guard. What happens to
+// the signed-in Google account is decided by /hunter itself, not this
+// page: a new email is self-registered as a Hunter on the spot
+// (lib/hunterUsers.ts:autoRegisterHunterUser — referral link, self-sourced
+// Pipeline and commission tabs work immediately; admin-sent clinic leads
+// start after an admin approves them), a deactivated one is refused, and
+// an admin/sales staff account is told to use a different Google account
+// (app/hunter/page.tsx). The copy below describes that flow — it used to
+// claim the page was admin-whitelisted, which stopped being true with the
+// self-serve change (see "Hunter Self-Serve Signup Request.md").
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthCallback:
     "เกิดข้อผิดพลาดชั่วคราวระหว่างเชื่อมต่อกับ Google กรุณาลองเข้าสู่ระบบอีกครั้ง",
@@ -56,7 +62,8 @@ export default async function HunterLoginPage({
       <div className="w-full max-w-sm border border-border rounded-lg p-8 text-center">
         <h1 className="text-xl font-medium mb-2">เข้าสู่ระบบ Hunter</h1>
         <p className="text-sm text-secondary mb-2">
-          เข้าสู่ระบบด้วยบัญชี Google ที่แอดมินลงทะเบียนไว้ให้ เพื่อดูรายชื่อคลินิกและผลตรวจสอบ
+          เข้าสู่ระบบด้วยบัญชี Google เพื่อเริ่มเป็น Hunter ได้ทันที — รับลิงก์ชวนสมัคร เพิ่มคลินิกที่หาเองลง Pipeline
+          และติดตามค่าคอมมิชชั่นของคุณ
         </p>
         <p className="text-xs text-tertiary mb-8">
           ใช้บัญชี Google ที่คุณมีอยู่แล้ว ไม่ต้องตั้งรหัสผ่านใหม่ ไม่มีการเก็บรหัสผ่านของคุณไว้ในระบบ
@@ -75,7 +82,7 @@ export default async function HunterLoginPage({
           <GoogleSignInButton />
         </form>
         <p className="text-xs text-tertiary mt-6">
-          ยังไม่ได้รับสิทธิ์เข้าใช้งาน? ติดต่อแอดมินเพื่อขอเพิ่มชื่อในระบบ
+          สมัครครั้งแรกไม่ต้องรออนุมัติ — เฉพาะการรับคลินิกที่แอดมินส่งให้ จะเริ่มหลังแอดมินอนุมัติบัญชีของคุณ
         </p>
       </div>
     </main>
