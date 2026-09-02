@@ -709,7 +709,17 @@ export function HunterImport() {
     if (targets.length === 0) return;
     setSendingAll(true);
     try {
-      await Promise.all(targets.map((id) => sendLead(id)));
+      const res = await fetch("/api/admin/hunter/send-all", { method: "POST" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        window.alert(data?.error || "ส่งไม่สำเร็จ");
+        return;
+      }
+      await loadLeads();
+      const failedCount = (data?.failed || []).length;
+      if (failedCount > 0) {
+        window.alert("ส่งไม่สำเร็จ " + failedCount + " รายการ: " + (data.failed[0]?.error || ""));
+      }
     } finally {
       setSendingAll(false);
     }
