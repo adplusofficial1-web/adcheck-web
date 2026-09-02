@@ -28,6 +28,11 @@ const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
  * submission's own findings is the full extent of what this route grants.
  */
 export default async function SharedResultsPage({ params }: { params: { token: string } }) {
+  // Bug Audit 4 (2569-09-02): share tokens are always 16 lowercase hex chars
+  // (encode(gen_random_bytes(8),'hex') — see the submissions table). Anything
+  // else can't match, so skip the query and 404 immediately.
+  if (!/^[0-9a-f]{16}$/i.test(params.token)) notFound();
+
   const [submission] = (await sql`
     SELECT s.*, b.name AS business_name, b.avatar_url AS business_avatar_url
     FROM submissions s
@@ -36,8 +41,12 @@ export default async function SharedResultsPage({ params }: { params: { token: s
   `) as any[];
   if (!submission) notFound();
 
+  // Bug Audit 4 (2569-09-02): the base64 picture itself is no longer read
+  // here — pages embed <img src="/api/images/<id>"> (see that route) so this
+  // HTML stays small; has_image just tells the template whether to render
+  // the <img> at all.
   const images = (await sql`
-    SELECT * FROM submission_images WHERE submission_id = ${submission.id} ORDER BY sort_order ASC
+    SELECT id, submission_id, caption, file_type, file_size_bytes, sort_order, filename, status, (image_url LIKE 'data:%') AS has_image FROM submission_images WHERE submission_id = ${submission.id} ORDER BY sort_order ASC
   `) as any[];
 
   const flags = (await sql`
@@ -177,10 +186,11 @@ export default async function SharedResultsPage({ params }: { params: { token: s
                 </div>
 
                 <div className="flex flex-col md:flex-row gap-4">
-                  {img.image_url && img.image_url.startsWith("data:") && (
+                  {img.has_image && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={img.image_url}
+                      src={`/api/images/${img.id}?share=${encodeURIComponent(params.token)}`}
+                      loading="lazy"
                       alt={img.filename}
                       className="w-1/2 md:w-1/5 md:shrink-0 max-h-48 object-contain rounded-md bg-page"
                     />
