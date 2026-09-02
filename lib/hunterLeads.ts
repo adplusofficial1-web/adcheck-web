@@ -120,6 +120,27 @@ return name.trim().toLowerCase();
 // far cheaper than N extra round-trips. Returns both how many rows were
 // actually inserted and how many were skipped as duplicates so the caller
 // can show the admin both numbers.
+// CHANGE (2569-09-02, per user request to make raising the import cap in
+// app/api/admin/hunter/route.ts's MAX_IMPORT_ROWS safe): switched the old
+// "await one INSERT per row, sequentially" loop below for a chunked
+// multi-row INSERT. The old version did N full network round-trips to
+// Neon for N rows — fine at a "few hundred rows" scale, but at a few
+// thousand rows that's a few thousand sequential round-trips inside ONE
+// HTTP request, which risks running long enough to hit Render's request
+// timeout mid-import (and since nothing was wrapped in a transaction, a
+// timeout partway through left whatever had already committed sitting in
+// the table — recoverable on a retry thanks to the dedupe above, but
+// confusing for whoever's importing). Chunking into IMPORT_CHUNK_SIZE-row
+// INSERT statements cuts the round-trip count by ~IMPORT_CHUNK_SIZE×
+// while keeping each statement's parameter count (3 per row) well under
+// Postgres's 65535-per-query ceiling. Built with the driver's
+// `sql(text, params)` call form (see node_modules/@neondatabase/serverless
+// — the tagged-template `sql\`...\`` form used everywhere else in this
+// file has no bulk-VALUES helper) rather than tagged-template interpolation,
+// since the VALUES clause itself (placeholder count) is only known at
+// runtime.
+const IMPORT_CHUNK_SIZE = 500;
+
 export async function importHunterLeads(
 rows: { clinic: string; province: string; link: string }[]
 ): Promise<{ inserted: number; skippedDuplicate: number }> {
@@ -129,13 +150,9 @@ const existingRows = (await sql`SELECT clinic_name FROM hunter_leads`) as { clin
 const existingNames = new Set(existingRows.map((r) => normalizeClinicName(r.clinic_name)));
 const seenInBatch = new Set<string>();
 
-let inserted = 0;
+const toInsert: { clinic: string; province: string; link: string }[] = [];
 let skippedDuplicate = 0;
 
-// Plain sequential inserts rather than a single multi-row INSERT — the
-// Excel import batch is at most a few hundred rows (typical Hunter
-// lead-list size), so this isn't a hot path worth the extra query-
-// building complexity of a bulk VALUES statement.
 for (const r of rows) {
 const key = normalizeClinicName(r.clinic);
 if (key && (existingNames.has(key) || seenInBatch.has(key))) {
@@ -143,13 +160,25 @@ skippedDuplicate++;
 continue;
 }
 if (key) seenInBatch.add(key);
-await sql`
-INSERT INTO hunter_leads (clinic_name, province, source_link, status)
-VALUES (${r.clinic}, ${r.province || null}, ${r.link || null}, 'awaiting_images')
-`;
-inserted++;
+toInsert.push(r);
 }
-return { inserted, skippedDuplicate };
+
+for (let i = 0; i < toInsert.length; i += IMPORT_CHUNK_SIZE) {
+const chunk = toInsert.slice(i, i + IMPORT_CHUNK_SIZE);
+const values: any[] = [];
+const placeholders: string[] = [];
+chunk.forEach((r, idx) => {
+const base = idx * 3;
+placeholders.push(`($${base + 1}, $${base + 2}, $${base + 3}, 'awaiting_images')`);
+values.push(r.clinic, r.province || null, r.link || null);
+});
+await sql(
+`INSERT INTO hunter_leads (clinic_name, province, source_link, status) VALUES ${placeholders.join(", ")}`,
+values
+);
+}
+
+return { inserted: toInsert.length, skippedDuplicate };
 }
 
 // Hunter filling in image URLs (and/or a note) for a lead they're
