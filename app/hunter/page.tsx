@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCurrentHunterUser } from "@/lib/currentHunterUser";
 import { autoRegisterHunterUser } from "@/lib/hunterUsers";
+import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
+import { isSalesUserEmail } from "@/lib/salesLeads";
 import { HunterShell } from "@/components/hunter/HunterShell";
 
 // Hunter Freelancer Page — a completely separate area from
@@ -48,6 +50,21 @@ import { HunterShell } from "@/components/hunter/HunterShell";
 // That must NOT be silently overridden, or admin deactivation would be
 // meaningless (a banned Hunter could just sign out and back in). This is
 // the only path left that still shows an access-denied-style message.
+//
+// CHANGE (Bug Audit 4, 2569-09-02): two refinements that keep the instant
+// self-serve decision above intact —
+//   1. A platform admin (ADMIN_EMAILS) or a sales rep (sales_users) who
+//      opens /hunter with no hunter_users row is NOT auto-registered.
+//      Before this, an admin merely visiting the page created a Hunter row
+//      for their own account, which then started receiving clinic leads
+//      from the automatic picker and became eligible for referral
+//      commission on their own staff account. They get a clear notice
+//      instead. An admin who genuinely wants a Hunter row for an email can
+//      still add it from /admin/marketing/hunter.
+//   2. A self-registered row is created with assignment_approved=false
+//      (lib/hunterUsers.ts:autoRegisterHunterUser) — access is still
+//      instant, but admin-"ส่ง" leads only start flowing after an admin
+//      approves them. HunterOverviewTab shows a notice until then.
 export default async function HunterFreelancerPage() {
   const session = await auth();
   if (!session?.user?.email) {
@@ -57,6 +74,22 @@ export default async function HunterFreelancerPage() {
   let hunterUser = await getCurrentHunterUser();
   if (!hunterUser) {
     const email = session.user.email.trim().toLowerCase();
+
+    const [adminEmail, isSales] = await Promise.all([getCurrentPlatformAdminEmail(), isSalesUserEmail(email)]);
+    if (adminEmail || isSales) {
+      return (
+        <div className="min-h-screen bg-page flex items-center justify-center px-6">
+          <div className="max-w-md text-center">
+            <p className="text-lg font-medium text-primary">บัญชีนี้ใช้เป็น Hunter ไม่ได้</p>
+            <p className="mt-2 text-sm text-secondary">
+              บัญชี {session.user.email} เป็นบัญชี{adminEmail ? "แอดมิน" : "เซลล์"}ของ AD Plus ไม่สามารถใช้เป็น Hunter ได้ —
+              หากต้องการทดลองใช้หน้า Hunter ให้ล็อกอินด้วยบัญชี Google อื่น
+            </p>
+          </div>
+        </div>
+      );
+    }
+
     const registered = await autoRegisterHunterUser(email, session.user.name);
 
     if (!registered.active) {
