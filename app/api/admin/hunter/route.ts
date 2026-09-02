@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
-import { listHunterLeads, importHunterLeads } from "@/lib/hunterLeads";
+import { listHunterLeads, importHunterLeads, recoverStaleRunningLeads } from "@/lib/hunterLeads";
 import { stripNulBytes } from "@/lib/validation";
 
 // CHANGE (2569-09-02): raised from 500 — safe now that importHunterLeads
@@ -18,6 +18,12 @@ export async function GET() {
   if (!adminEmail) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   try {
+    // Stuck-'running' watchdog (2569-09-02, Bug Audit 4): every queue load
+    // first flips any lead that's been 'running' too long (a run that died
+    // with the server restart) back to 'failed', so the admin sees a
+    // re-runnable row instead of a permanently greyed-out one. See
+    // lib/hunterLeads.ts:recoverStaleRunningLeads.
+    await recoverStaleRunningLeads();
     const leads = await listHunterLeads();
     return NextResponse.json({ leads });
   } catch (e) {
@@ -62,8 +68,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "ไม่พบข้อมูลที่นำเข้าได้" }, { status: 400 });
     }
 
-    const { inserted, skippedDuplicate } = await importHunterLeads(cleaned);
-    return NextResponse.json({ inserted, skippedDuplicate });
+    // CHANGE (2569-09-02, Bug Audit 4): importHunterLeads now inserts every
+    // chunk in one transaction (all-or-nothing) and returns
+    // { inserted, skippedDuplicates } — both reported back so the UI's
+    // success line can show them.
+    const { inserted, skippedDuplicates } = await importHunterLeads(cleaned);
+    return NextResponse.json({ inserted, skippedDuplicates });
   } catch (e) {
     console.error("POST /api/admin/hunter failed:", e);
     return NextResponse.json({ error: "นำเข้าไม่สำเร็จ" }, { status: 500 });
