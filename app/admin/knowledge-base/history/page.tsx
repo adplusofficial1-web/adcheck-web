@@ -54,7 +54,11 @@ export default async function KnowledgeBaseHistoryPage() {
                   <td className="px-4 py-3 text-primary max-w-xs truncate">{rule.title}</td>
                   <td className="px-4 py-3 text-secondary whitespace-nowrap">{rule.category || "—"}</td>
                   <td className="px-4 py-3 text-secondary whitespace-nowrap">
-                    {rule.source_type === "upload" ? `ไฟล์: ${rule.source_filename ?? ""}` : "พิมพ์เอง"}
+                    {rule.source_type === "upload"
+                      ? rule.source_filename
+                        ? `ไฟล์: ${rule.source_filename}`
+                        : "นำเข้าจากไฟล์"
+                      : "พิมพ์เอง"}
                   </td>
                   <td className="px-4 py-3 text-secondary whitespace-nowrap">{rule.created_by || "—"}</td>
                   <td className="px-4 py-3 text-secondary whitespace-nowrap">
