@@ -83,6 +83,11 @@ export function HunterOverviewTab() {
   const [chart, setChart] = useState<{ daily: ChartPoint[]; monthly: ChartPoint[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [referralLink, setReferralLink] = useState<string | null>(null);
+  // Bug Audit 4 (2569-09-02): a self-registered Hunter starts with
+  // assignment_approved=false (see migrations/020_hunter_assignment_approval.sql)
+  // — read off the same /api/hunter/settings response as the referral
+  // link. null = not loaded yet (show nothing rather than a false alarm).
+  const [assignmentApproved, setAssignmentApproved] = useState<boolean | null>(null);
   const [copyLabel, setCopyLabel] = useState("คัดลอกลิงก์");
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -110,11 +115,17 @@ export function HunterOverviewTab() {
         const data = await res.json();
         if (res.ok && data?.settings?.id) {
           setReferralLink(`${window.location.origin}/login?ref=${data.settings.id}`);
+          if (typeof data.settings.assignment_approved === "boolean") {
+            setAssignmentApproved(data.settings.assignment_approved);
+          }
         }
       } catch {
         // Non-fatal — the rest of the tab still works without the link.
       }
     })();
+    return () => {
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    };
   }, [load]);
 
   const copyReferralLink = async () => {
@@ -149,6 +160,12 @@ export function HunterOverviewTab() {
       <p className="text-sm text-secondary max-w-2xl">
         สรุปผลงานและค่าคอมมิชชั่นของคุณจากคลินิกที่สมัครผ่านลิงก์ชวนสมัครของคุณ
       </p>
+
+      {assignmentApproved === false && (
+        <div className="mt-4 rounded-lg bg-warningSoft border border-warningSoft px-4 py-3 text-xs text-warning max-w-2xl">
+          บัญชีของคุณจะเริ่มได้รับคลินิกจากแอดมินหลังแอดมินอนุมัติ — ระหว่างนี้ใช้ลิงก์ชวนสมัครและเพิ่มคลินิกที่หาเองได้ตามปกติ
+        </div>
+      )}
 
       <div className="mt-6 flex flex-wrap gap-3.5">
         <div className="rounded-lg border border-border bg-surface px-4 py-4 flex-1" style={{ minWidth: 160 }}>

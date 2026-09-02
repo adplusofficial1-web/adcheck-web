@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // /hunter's "Pipeline" tab — every clinic this Hunter has been sent
-// (admin's "ส่ง" queue, shared across every active Hunter), grouped into
+// (admin's "ส่ง" queue — since migrations/017 each sent lead is assigned to
+// exactly ONE Hunter, see lib/hunterPipeline.ts), grouped into
 // columns by THIS Hunter's own PRIVATE status — see
 // migrations/014_hunter_referral_commissions.sql for why status/notes here
 // are private per Hunter rather than a shared column on hunter_leads
@@ -49,7 +50,16 @@ function timeAgoLabel(iso: string): string {
   if (mins < 60) return `${mins} นาทีที่แล้ว`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours} ชั่วโมงที่แล้ว`;
-  return new Date(iso).toLocaleDateString("th-TH");
+  return new Date(iso).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" });
+}
+
+// Bug Audit 4 (2569-09-02): source_link is free text (typed by the admin's
+// Excel import or by the Hunter's own add form) — only render it as a
+// clickable link when it's an actual web URL, so a stray "javascript:" or
+// bare phone number can't become an <a href> that does something else.
+// Same rule in HunterFreelancerList.tsx and components/sales/SalesLeadList.tsx.
+function isWebUrl(v: string | null): v is string {
+  return typeof v === "string" && /^https?:\/\//i.test(v.trim());
 }
 
 // FIX (bug audit, 2569-09-01): STAGES used to list only 5 of the 6 valid
@@ -102,10 +112,19 @@ function LeadCard({
   const [notesDraft, setNotesDraft] = useState(lead.notes);
   const [savingNotes, setSavingNotes] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Cleared on unmount so a card removed (deleted / moved off-screen by a
+  // parent reload) within the 2s window doesn't setState on a dead component.
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setNotesDraft(lead.notes);
   }, [lead.notes]);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    };
+  }, []);
 
   const copyResult = async () => {
     if (!lead.result_url) return;
@@ -127,7 +146,8 @@ function LeadCard({
       document.body.removeChild(textarea);
     }
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    copyResetTimer.current = setTimeout(() => setCopied(false), 2000);
   };
 
   const changeStatus = async (status: PipelineStatus) => {
@@ -195,11 +215,14 @@ function LeadCard({
           </span>
         )}
       </div>
-      {lead.source_link && (
-        <a href={lead.source_link} target="_blank" rel="noopener noreferrer" className="mt-1.5 block text-[11px] text-accent underline break-all">
-          ลิงก์เพจต้นทาง
-        </a>
-      )}
+      {lead.source_link &&
+        (isWebUrl(lead.source_link) ? (
+          <a href={lead.source_link} target="_blank" rel="noopener noreferrer" className="mt-1.5 block text-[11px] text-accent underline break-all">
+            ลิงก์เพจต้นทาง
+          </a>
+        ) : (
+          <div className="mt-1.5 text-[11px] text-secondary break-all">ต้นทาง: {lead.source_link}</div>
+        ))}
       <textarea
         value={notesDraft}
         onChange={(e) => setNotesDraft(e.target.value)}
@@ -332,12 +355,22 @@ export function HunterPipelineTab() {
 
   const onUpdate = useCallback(
     async (id: string, updates: { status?: PipelineStatus; notes?: string }, source: LeadSource) => {
-      const res = await fetch(`/api/hunter/leads/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...updates, source }),
-      });
-      const data = await res.json().catch(() => null as any);
+      // Bug Audit 4 (2569-09-02): fetch itself can reject (offline, DNS)
+      // — previously that unhandled rejection left the card's saving
+      // spinner stuck with no message. Same guard on onAdd/onDelete.
+      let res: Response;
+      let data: any;
+      try {
+        res = await fetch(`/api/hunter/leads/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...updates, source }),
+        });
+        data = await res.json().catch(() => null as any);
+      } catch {
+        window.alert("อัปเดตไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง");
+        return;
+      }
       if (!res.ok) {
         window.alert(data?.error || "อัปเดตไม่สำเร็จ");
         return;
@@ -362,16 +395,23 @@ export function HunterPipelineTab() {
 
   const onAdd = useCallback(
     async (fields: { clinicName: string; province: string; sourceLink: string }) => {
-      const res = await fetch("/api/hunter/leads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clinicName: fields.clinicName,
-          province: fields.province || undefined,
-          sourceLink: fields.sourceLink || undefined,
-        }),
-      });
-      const data = await res.json().catch(() => null as any);
+      let res: Response;
+      let data: any;
+      try {
+        res = await fetch("/api/hunter/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clinicName: fields.clinicName,
+            province: fields.province || undefined,
+            sourceLink: fields.sourceLink || undefined,
+          }),
+        });
+        data = await res.json().catch(() => null as any);
+      } catch {
+        window.alert("เพิ่มคลินิกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง");
+        return false;
+      }
       if (!res.ok) {
         window.alert(data?.error || "เพิ่มคลินิกไม่สำเร็จ");
         return false;
@@ -383,8 +423,15 @@ export function HunterPipelineTab() {
   );
 
   const onDelete = useCallback(async (id: string) => {
-    const res = await fetch(`/api/hunter/leads/${id}?source=self`, { method: "DELETE" });
-    const data = await res.json().catch(() => null as any);
+    let res: Response;
+    let data: any;
+    try {
+      res = await fetch(`/api/hunter/leads/${id}?source=self`, { method: "DELETE" });
+      data = await res.json().catch(() => null as any);
+    } catch {
+      window.alert("ลบไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง");
+      return;
+    }
     if (!res.ok) {
       window.alert(data?.error || "ลบไม่สำเร็จ");
       return;

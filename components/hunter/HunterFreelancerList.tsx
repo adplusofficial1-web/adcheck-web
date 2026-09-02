@@ -18,6 +18,13 @@ import type { HunterLeadPublicView } from "@/lib/hunterLeads";
 const thClass = "bg-inverse text-onInverse text-xs font-medium px-3 py-2 text-left";
 const tdClass = "px-3 py-2 border-b border-border text-left align-top";
 
+// source_link is free text from the admin's Excel import — only render it
+// as an <a href> when it's an actual web URL (same rule as
+// HunterPipelineTab.tsx / components/sales/SalesLeadList.tsx).
+function isWebUrl(v: string | null): v is string {
+  return typeof v === "string" && /^https?:\/\//i.test(v.trim());
+}
+
 const STATUS_LABELS: Record<string, string> = {
   awaiting_images: "รอดึงรูป",
   ready: "รอตรวจสอบ",
@@ -154,7 +161,9 @@ export function HunterFreelancerList() {
                 <tr key={lead.id}>
                   <td className={tdClass}>{i + 1}</td>
                   <td className={tdClass}>
-                    {lead.source_link ? (
+                    {/* Bug Audit 4 (2569-09-02): only a real http(s) URL
+                        becomes a link — see isWebUrl above. */}
+                    {isWebUrl(lead.source_link) ? (
                       <a
                         href={lead.source_link}
                         target="_blank"

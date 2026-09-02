@@ -25,7 +25,9 @@ type LedgerRow = {
   payment_sequence: number;
   commission_rate: string;
   commission_thb: string;
-  payout_status: "pending" | "paid";
+  // 'void' (Bug Audit 4, 2569-09-02): cancelled by the admin — refunded
+  // payment or a mistaken row. Shown struck-through, never counted in totals.
+  payout_status: "pending" | "paid" | "void";
   created_at: string;
 };
 
@@ -93,6 +95,10 @@ export function HunterCommissionTab() {
       }
       setSettings(data.settings);
       setSaved(true);
+    } catch {
+      // Bug Audit 4 (2569-09-02): a rejected fetch (offline) used to escape
+      // as an unhandled rejection with no feedback at all.
+      window.alert("บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง");
     } finally {
       setSaving(false);
     }
@@ -217,7 +223,7 @@ export function HunterCommissionTab() {
               ledger.map((row) => (
                 <tr key={row.id}>
                   <td className="px-3 py-2 border-b border-border">
-                    {new Date(row.created_at).toLocaleDateString("th-TH")}
+                    {new Date(row.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}
                   </td>
                   <td className="px-3 py-2 border-b border-border">{row.clinic_name}</td>
                   <td className="px-3 py-2 border-b border-border">ครั้งที่ {row.payment_sequence}</td>
@@ -226,10 +232,14 @@ export function HunterCommissionTab() {
                   <td className="px-3 py-2 border-b border-border">
                     <span
                       className={`rounded-pill px-2 py-0.5 text-[11px] font-medium ${
-                        row.payout_status === "paid" ? "bg-accentSoft text-accent" : "bg-warningSoft text-warning"
+                        row.payout_status === "paid"
+                          ? "bg-accentSoft text-accent"
+                          : row.payout_status === "void"
+                            ? "bg-page text-tertiary border border-border line-through"
+                            : "bg-warningSoft text-warning"
                       }`}
                     >
-                      {row.payout_status === "paid" ? "โอนแล้ว" : "รอโอน"}
+                      {row.payout_status === "paid" ? "โอนแล้ว" : row.payout_status === "void" ? "ยกเลิกแล้ว" : "รอโอน"}
                     </span>
                   </td>
                 </tr>
