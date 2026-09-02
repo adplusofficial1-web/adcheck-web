@@ -56,7 +56,7 @@ function timeAgoLabel(iso: string): string {
   if (mins < 60) return `${mins} นาทีที่แล้ว`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours} ชั่วโมงที่แล้ว`;
-  return new Date(iso).toLocaleDateString("th-TH");
+  return new Date(iso).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" });
 }
 
 export function SalesOverview() {
@@ -87,9 +87,14 @@ export function SalesOverview() {
   useEffect(() => {
     mounted.current = true;
     load();
+    // Self-re-arming poll. tick() re-checks `mounted` AFTER the awaited
+    // load() resolves — without that, an unmount during the in-flight fetch
+    // would clear a timer that hasn't been created yet, and the next line
+    // would arm a fresh one that polls forever on a dead component.
     const tick = () => {
       pollTimer.current = setTimeout(async () => {
         await load();
+        if (!mounted.current) return;
         tick();
       }, POLL_MS);
     };

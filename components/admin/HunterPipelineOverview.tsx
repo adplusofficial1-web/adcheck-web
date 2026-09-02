@@ -57,9 +57,14 @@ export function HunterPipelineOverview() {
   useEffect(() => {
     mounted.current = true;
     load();
+    // Self-re-arming poll. tick() re-checks `mounted` AFTER the awaited
+    // load() resolves — without that, an unmount during the in-flight fetch
+    // would clear a timer that hasn't been created yet, and the next line
+    // would arm a fresh one that polls forever on a dead component.
     const tick = () => {
       pollTimer.current = setTimeout(async () => {
         await load();
+        if (!mounted.current) return;
         tick();
       }, POLL_MS);
     };

@@ -45,7 +45,7 @@ function timeAgoLabel(iso: string): string {
   if (mins < 60) return `${mins} นาทีที่แล้ว`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours} ชั่วโมงที่แล้ว`;
-  return new Date(iso).toLocaleDateString("th-TH");
+  return new Date(iso).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" });
 }
 
 export function HunterCommissionOverview() {
@@ -70,9 +70,14 @@ export function HunterCommissionOverview() {
   useEffect(() => {
     mounted.current = true;
     load();
+    // Self-re-arming poll. tick() re-checks `mounted` AFTER the awaited
+    // load() resolves — without that, an unmount during the in-flight fetch
+    // would clear a timer that hasn't been created yet, and the next line
+    // would arm a fresh one that polls forever on a dead component.
     const tick = () => {
       pollTimer.current = setTimeout(async () => {
         await load();
+        if (!mounted.current) return;
         tick();
       }, POLL_MS);
     };
@@ -88,7 +93,7 @@ export function HunterCommissionOverview() {
       <h2 className="text-lg font-medium text-primary">Commission</h2>
       <p className="mt-1 text-sm text-secondary max-w-2xl">
         ยอดนับจากคลินิกที่สมัครผ่านลิงก์ชวนสมัครของ Hunter แต่ละคน — ไม่เกี่ยวกับคิวคลินิกที่ &quot;ส่ง&quot; ในแท็บ
-        &quot;คิว Hunter&quot; เพราะ Hunter หลายคนอาจเห็นคลินิกเดียวกันได้ แต่ค่าคอมจะนับให้เจ้าของลิงก์ที่คลินิกใช้สมัครจริงเท่านั้น —
+        &quot;คิว Hunter&quot; — ค่าคอมนับให้เจ้าของลิงก์ที่คลินิกใช้สมัครจริงเท่านั้น (รายการที่ยกเลิก/refund ไม่ถูกนับรวม) —
         อัปเดตทุก {Math.round(POLL_MS / 1000)} วินาที
       </p>
 

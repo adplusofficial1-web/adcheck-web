@@ -22,6 +22,11 @@ const POLL_MS = 15000;
 const thClass = "bg-inverse text-onInverse text-xs font-medium px-3 py-2 text-left";
 const tdClass = "px-3 py-2 border-b border-border text-left align-top";
 
+// CHANGE (Bug Audit 4, 2569-09-02): mark-paid now asks for confirmation
+// (it's irreversible from the UI), and a second irreversible action,
+// "ยกเลิก (refund)" -> payout_status 'void', sits next to it for a refunded
+// or mistaken commission — see lib/hunterCommission.ts:voidHunterCommission.
+
 type PayoutRow = {
   id: string;
   hunter_name: string;
@@ -29,8 +34,9 @@ type PayoutRow = {
   payment_sequence: number;
   commission_rate: string;
   commission_thb: string;
-  payout_status: "pending" | "paid";
+  payout_status: "pending" | "paid" | "void";
   created_at: string;
+  void_reason: string | null;
   payout_method: "promptpay" | "bank" | null;
   payout_promptpay_id: string | null;
   payout_bank_name: string | null;
@@ -72,9 +78,14 @@ export function HunterCommissionPayoutQueue() {
   useEffect(() => {
     mounted.current = true;
     load();
+    // Self-re-arming poll. tick() re-checks `mounted` AFTER the awaited
+    // load() resolves — without that, an unmount during the in-flight fetch
+    // would clear a timer that hasn't been created yet, and the next line
+    // would arm a fresh one that polls forever on a dead component.
     const tick = () => {
       pollTimer.current = setTimeout(async () => {
         await load();
+        if (!mounted.current) return;
         tick();
       }, POLL_MS);
     };
@@ -85,19 +96,42 @@ export function HunterCommissionPayoutQueue() {
     };
   }, [load]);
 
-  const markPaid = async (id: string) => {
+  const patchRow = async (id: string, body: { action: "paid" } | { action: "void"; reason: string }) => {
     setMarkingId(id);
     try {
-      const res = await fetch(`/api/admin/hunter-commissions/${id}`, { method: "PATCH" });
+      const res = await fetch(`/api/admin/hunter-commissions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       const data = await res.json();
       if (!res.ok) {
         window.alert(data?.error || "อัปเดตไม่สำเร็จ");
         return;
       }
       await load();
+    } catch {
+      window.alert("อัปเดตไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
     } finally {
       setMarkingId(null);
     }
+  };
+
+  const markPaid = async (p: PayoutRow) => {
+    if (!window.confirm(`ยืนยันว่าโอนเงิน ฿${thb(p.commission_thb)} ให้ ${p.hunter_name} แล้ว? การกระทำนี้ย้อนกลับไม่ได้`)) return;
+    await patchRow(p.id, { action: "paid" });
+  };
+
+  const voidRow = async (p: PayoutRow) => {
+    if (
+      !window.confirm(
+        `ยกเลิกค่าคอม ฿${thb(p.commission_thb)} ของ ${p.hunter_name} (คลินิก ${p.clinic_name})? ใช้เมื่อคลินิกได้รับเงินคืน/บันทึกผิด — การกระทำนี้ย้อนกลับไม่ได้`
+      )
+    ) {
+      return;
+    }
+    const reason = window.prompt("เหตุผล (ไม่บังคับ) เช่น refund ให้คลินิกแล้ว", "refund") ?? "";
+    await patchRow(p.id, { action: "void", reason });
   };
 
   return (
@@ -147,26 +181,43 @@ export function HunterCommissionPayoutQueue() {
                   <td className={tdClass}>{Math.round(Number(p.commission_rate) * 100)}%</td>
                   <td className={tdClass}>฿{thb(p.commission_thb)}</td>
                   <td className={`${tdClass} text-secondary`}>{payoutChannelLabel(p)}</td>
-                  <td className={tdClass}>{new Date(p.created_at).toLocaleDateString("th-TH")}</td>
+                  <td className={tdClass}>
+                    {new Date(p.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}
+                  </td>
                   <td className={tdClass}>
                     <span
                       className={`rounded-pill px-2.5 py-1 text-[11px] font-medium ${
-                        p.payout_status === "paid" ? "bg-accentSoft text-accent" : "bg-warningSoft text-warning"
+                        p.payout_status === "paid"
+                          ? "bg-accentSoft text-accent"
+                          : p.payout_status === "void"
+                            ? "bg-page text-tertiary border border-border line-through"
+                            : "bg-warningSoft text-warning"
                       }`}
+                      title={p.payout_status === "void" && p.void_reason ? p.void_reason : undefined}
                     >
-                      {p.payout_status === "paid" ? "โอนแล้ว" : "รอโอน"}
+                      {p.payout_status === "paid" ? "โอนแล้ว" : p.payout_status === "void" ? "ยกเลิกแล้ว" : "รอโอน"}
                     </span>
                   </td>
                   <td className={tdClass}>
                     {p.payout_status === "pending" && (
-                      <button
-                        type="button"
-                        onClick={() => markPaid(p.id)}
-                        disabled={markingId === p.id}
-                        className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
-                      >
-                        {markingId === p.id ? "กำลังบันทึก…" : "ทำเครื่องหมายว่าจ่ายแล้ว"}
-                      </button>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => markPaid(p)}
+                          disabled={markingId === p.id}
+                          className="rounded-md bg-inverse text-onInverse px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+                        >
+                          {markingId === p.id ? "กำลังบันทึก…" : "ทำเครื่องหมายว่าจ่ายแล้ว"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => voidRow(p)}
+                          disabled={markingId === p.id}
+                          className="rounded-md border border-dangerSoft text-danger px-3 py-1.5 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+                        >
+                          ยกเลิก (refund)
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
