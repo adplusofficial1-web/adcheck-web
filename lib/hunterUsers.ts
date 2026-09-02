@@ -5,9 +5,11 @@ import { sql } from "@/lib/db";
 // "Hunter Freelancer Page - Design.md" for the full writeup. Deliberately
 // mirrors lib/salesLeads.ts's sales_users section function-for-function
 // (same shape of problem: an admin-managed whitelist of external people
-// who get their own small area of the app, gated by Gmail sign-in, with
-// no self-signup) rather than inventing a different pattern for what is
-// structurally the same feature.
+// who get their own small area of the app, gated by Gmail sign-in) rather
+// than inventing a different pattern for what is structurally the same
+// feature. Unlike sales_users, Hunters CAN self-register (see
+// autoRegisterHunterUser) — the admin's role is then approving them for
+// lead assignment (assignment_approved) rather than creating the row.
 
 // Hunter Referral Commission (2569-09-01): a Hunter's payout channel —
 // see migrations/014_hunter_referral_commissions.sql for the columns
@@ -32,6 +34,13 @@ export type HunterUser = {
   // Hunter profile picture (2569-09-01) — see migrations/015_hunter_avatar.sql.
   // Same "data: URL stored inline" convention as businesses.avatar_url.
   avatar_url: string | null;
+  // Bug Audit 4 (2569-09-02): whether an admin has cleared this Hunter to
+  // receive admin-"ส่ง" clinic leads — see
+  // migrations/020_hunter_assignment_approval.sql. false only for
+  // self-registered rows (autoRegisterHunterUser) until an admin flips it
+  // from /admin/marketing/hunter. Everything else on /hunter (referral
+  // link, self-sourced Pipeline, commission tabs) works regardless.
+  assignment_approved: boolean;
 };
 
 export async function listHunterUsers(): Promise<HunterUser[]> {
@@ -75,6 +84,17 @@ export async function getHunterUserByEmail(email: string): Promise<HunterUser | 
 // of this function, requestHunterAccess, did exactly that gated flow and
 // was deliberately replaced by this one).
 //
+// CHANGE (Bug Audit 4, 2569-09-02): still instant, still active=true, but
+// the row is inserted with assignment_approved=false — a self-registered
+// Hunter is NOT eligible for admin-"ส่ง" clinic leads
+// (lib/hunterLeads.ts:pickHunterForAssignment filters on it) until an
+// admin approves them from /admin/marketing/hunter. This does NOT gate
+// /hunter access itself (the site owner's decision above stands): the
+// referral link, self-sourced Pipeline and commission tabs all work from
+// the first sign-in. Admin-created rows (createHunterUser) keep the column
+// default of true — the admin adding them by hand IS the approval. See
+// migrations/020_hunter_assignment_approval.sql.
+//
 // Inserts with active=true on a brand-new email — but ON CONFLICT (email)
 // DO NOTHING is still deliberate and load-bearing: it only sets
 // active=true on the row's very FIRST insert. If a row already exists —
@@ -90,8 +110,8 @@ export async function getHunterUserByEmail(email: string): Promise<HunterUser | 
 export async function autoRegisterHunterUser(email: string, name?: string | null): Promise<HunterUser> {
   const safeName = name?.trim() || email;
   const [row] = await sql`
-    INSERT INTO hunter_users (email, name, active)
-    VALUES (${email}, ${safeName}, true)
+    INSERT INTO hunter_users (email, name, active, assignment_approved)
+    VALUES (${email}, ${safeName}, true, false)
     ON CONFLICT (email) DO NOTHING
     RETURNING *
   `;
@@ -117,6 +137,16 @@ export async function isHunterUserEmail(email: string): Promise<boolean> {
   return !!row;
 }
 
+// Bug Audit 4 (2569-09-02): the variant lib/currentBusiness.ts actually
+// uses to decide "must this email NOT become a customer business". Only an
+// ACTIVE Hunter is blocked — a deactivated (or never-approved-then-closed)
+// row must not lock a real prospect out of the product forever; see the
+// comment at that call site.
+export async function isActiveHunterUserEmail(email: string): Promise<boolean> {
+  const [row] = await sql`SELECT 1 FROM hunter_users WHERE email = ${email} AND active = true LIMIT 1`;
+  return !!row;
+}
+
 // Hunter Referral Commission (2569-09-01): validates the `ref` cookie
 // (see middleware.ts) at the moment a new business row is about to be
 // created — see lib/currentBusiness.ts:getCurrentBusiness(). Requires
@@ -132,24 +162,66 @@ export async function isActiveHunterUserId(id: string): Promise<boolean> {
 // Adding a Hunter freelancer from the admin management form. ON CONFLICT
 // reactivates + renames rather than erroring — same as
 // lib/salesLeads.ts:createSalesUser, so re-adding a previously-deactivated
-// email "just works".
+// email "just works". assignment_approved is set true explicitly on both
+// branches: an admin typing someone into this form IS the approval, and
+// that holds even when the row already existed as an unapproved self-serve
+// signup (see autoRegisterHunterUser).
 export async function createHunterUser(email: string, name: string): Promise<HunterUser> {
   const [row] = await sql`
-    INSERT INTO hunter_users (email, name, active)
-    VALUES (${email.trim().toLowerCase()}, ${name.trim()}, true)
-    ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, active = true
+    INSERT INTO hunter_users (email, name, active, assignment_approved)
+    VALUES (${email.trim().toLowerCase()}, ${name.trim()}, true, true)
+    ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, active = true, assignment_approved = true
     RETURNING *
   `;
   return row as HunterUser;
 }
 
-// Toggling active on/off — deactivating just blocks future /hunter access
-// (getCurrentHunterUser returns null), nothing else to clean up since a
-// Hunter freelancer's page is read-only (no owned records of theirs to
-// reassign, unlike a sales rep's lead assignments).
+// Toggling active on/off. Deactivating blocks future /hunter access
+// (getCurrentHunterUser returns null) AND — Bug Audit 4 (2569-09-02) —
+// un-sends every admin-assigned lead this Hunter hadn't closed yet. The
+// comment that used to live here ("nothing else to clean up, the page is
+// read-only") stopped being true once migrations/017 made every "ส่ง" lead
+// belong to exactly one Hunter: with the assignee locked out, their open
+// leads were visible to nobody and the admin had no way to re-send them
+// (the queue only offers "ส่ง" for hunter_sent_at IS NULL rows). Clearing
+// both assigned_hunter_user_id and hunter_sent_at drops those leads back to
+// "รอคิว" so "ส่ง"/"ส่งทั้งหมด" re-assigns them to someone active.
+// Leads this Hunter already marked closed_won/closed_lost in their own
+// hunter_lead_pipeline are left alone — those are finished outcomes, not
+// stranded work. The private hunter_lead_pipeline rows themselves are never
+// deleted (history for the admin overview). Reactivating does NOT
+// re-attach anything — the leads will have been redistributed by then.
 export async function setHunterUserActive(id: string, active: boolean): Promise<HunterUser | null> {
   const [row] = await sql`
     UPDATE hunter_users SET active = ${active} WHERE id = ${id} RETURNING *
+  `;
+  if (!row) return null;
+
+  if (!active) {
+    await sql`
+      UPDATE hunter_leads
+      SET assigned_hunter_user_id = NULL, hunter_sent_at = NULL, updated_at = now()
+      WHERE assigned_hunter_user_id = ${id}
+        AND NOT EXISTS (
+          SELECT 1 FROM hunter_lead_pipeline p
+          WHERE p.hunter_lead_id = hunter_leads.id
+            AND p.hunter_user_id = ${id}
+            AND p.status IN ('closed_won', 'closed_lost')
+        )
+    `;
+  }
+  return row as HunterUser;
+}
+
+// Bug Audit 4 (2569-09-02): the admin's "อนุมัติรับ lead" / "ระงับรับ lead"
+// toggle on components/admin/HunterUsersManager.tsx — see the
+// assignment_approved field comment on HunterUser above. Only affects
+// FUTURE picks by lib/hunterLeads.ts:pickHunterForAssignment; revoking
+// approval does not un-send leads already assigned (use deactivation for
+// that).
+export async function setHunterUserAssignmentApproved(id: string, approved: boolean): Promise<HunterUser | null> {
+  const [row] = await sql`
+    UPDATE hunter_users SET assignment_approved = ${approved} WHERE id = ${id} RETURNING *
   `;
   return (row as HunterUser) ?? null;
 }

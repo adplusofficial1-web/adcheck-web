@@ -60,6 +60,17 @@ export type CheckAdBatchResult = {
   // recomputing the same reduction themselves. See lib/hunterLeads.ts.
   overallStatus: "passed" | "caution" | "violation";
   flagCount: number;
+  // ADDED (2569-09-02, Bug Audit 4): true when EVERY image in the batch
+  // failed to fetch/review (expired CDN links, non-image URLs, …). Before
+  // this, such a batch still came back overallStatus "passed" (no
+  // reviewed image had any flags) and callers happily marked the lead
+  // 'done' with a share link to an empty page — a lead whose links were
+  // all dead looked exactly like a clean, fully-reviewed one. Callers must
+  // treat allFailed as a failed run (see the Hunter run route and
+  // scripts/hunterAutoFillJob.ts). failedUrls lists which links failed so
+  // the admin knows what to replace.
+  allFailed: boolean;
+  failedUrls: string[];
 };
 
 export class CheckAdError extends Error {
@@ -70,10 +81,92 @@ export class CheckAdError extends Error {
   }
 }
 
+// --- SSRF guard (2569-09-02, Bug Audit 4) --------------------------------
+// The image URLs this module fetches come from admins/Hunters (hunter_leads
+// .image_urls) and from external n8n callers (check-ad route) — i.e. from
+// outside the trust boundary of this server. Without this check a URL like
+// http://169.254.169.254/... or http://localhost:5432/ would be fetched
+// from INSIDE Render's network with this process's network position. Only
+// http(s) to a public-looking hostname passes; every private/loopback/
+// link-local/multicast literal IP range and the usual internal hostname
+// conventions are rejected. Hostnames without a dot are rejected too — a
+// bare "intranet"-style name has no business being an ad-image host.
+//
+// Deliberately a syntactic check (no DNS resolution): it closes the
+// obvious literal-IP / internal-name cases without adding a DNS round-trip
+// before every fetch. A public hostname that resolves to a private IP is
+// out of scope here; `redirect: "manual"` in fetchImageBytes below closes
+// the "public URL redirects to an internal one" variant of the same trick.
+// Exported so app/api/admin/hunter/[id]/route.ts can reject such URLs at
+// save time with a clear message, not only at run time.
+export function isSafePublicHttpUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+
+  const host = parsed.hostname.toLowerCase();
+  if (!host) return false;
+  if (host === "localhost" || host.endsWith(".localhost")) return false;
+  if (host.endsWith(".local") || host.endsWith(".internal")) return false;
+
+  // IPv6 literal — `new URL` keeps the surrounding brackets in hostname.
+  if (host.startsWith("[") && host.endsWith("]")) {
+    const v6 = host.slice(1, -1);
+    if (v6 === "::1" || v6 === "::") return false;
+    // fc00::/7 (unique local) and fe80::/10 (link-local).
+    if (/^f[cd][0-9a-f]{2}:/.test(v6)) return false;
+    if (/^fe[89ab][0-9a-f]:/.test(v6)) return false;
+    // IPv4-mapped (::ffff:a.b.c.d) — re-check the embedded v4 below.
+    const mapped = v6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) return isPublicIpv4(mapped[1]);
+    return true;
+  }
+
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) return isPublicIpv4(host);
+
+  // Not an IP literal: require a dot and a plausible TLD (>= 2 letters).
+  if (!host.includes(".")) return false;
+  const tld = host.split(".").pop() || "";
+  if (!/^[a-z]{2,}$/.test(tld)) return false;
+  return true;
+}
+
+function isPublicIpv4(ip: string): boolean {
+  const parts = ip.split(".").map((p) => Number(p));
+  if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return false;
+  const [a, b] = parts;
+  if (a === 0) return false; // 0.0.0.0/8
+  if (a === 10) return false; // 10/8
+  if (a === 127) return false; // 127/8 loopback
+  if (a === 169 && b === 254) return false; // 169.254/16 link-local (cloud metadata)
+  if (a === 172 && b >= 16 && b <= 31) return false; // 172.16/12
+  if (a === 192 && b === 168) return false; // 192.168/16
+  if (a >= 224) return false; // 224/4 multicast + 240/4 reserved + broadcast
+  return true;
+}
+
 // --- Internal: fetch one image's bytes over HTTP ------------------------
 type FetchedImage = { base64Image: string; mediaType: string; filename: string };
 
+// Hard ceilings on the fetch itself (2569-09-02, Bug Audit 4): a slow or
+// never-ending upstream used to hold the whole run request open
+// indefinitely, and a stream with no content-length was only bounded by
+// MAX_FILE_SIZE_BYTES per-chunk accounting below. 20s is generous for an ad
+// image on a CDN; 10 MB is well above MAX_FILE_SIZE_BYTES and only exists as
+// an absolute backstop.
+const FETCH_TIMEOUT_MS = 20_000;
+const MAX_FETCH_BYTES = 10 * 1024 * 1024;
+
 async function fetchImageBytes(imageUrl: string): Promise<FetchedImage> {
+  if (!isSafePublicHttpUrl(imageUrl)) {
+    throw new CheckAdError("invalid_image_url", 400);
+  }
+
   // FIX (found during manual pipeline test, 2026-08-30): a bare fetch()
   // with no User-Agent header gets a flat 400 from at least Wikimedia's
   // CDN (and several other image hosts do the same) — they treat a
@@ -85,6 +178,15 @@ async function fetchImageBytes(imageUrl: string): Promise<FetchedImage> {
   // works against a URL that's already publicly servable with no auth;
   // it does nothing to get past login walls, rate limits, or any other
   // access control a host actually enforces.
+  //
+  // SSRF hardening (2569-09-02, Bug Audit 4): redirect: "manual" so a
+  // public-looking URL can't bounce this fetch to an internal address the
+  // isSafePublicHttpUrl check above never saw — any 3xx is treated as a
+  // plain failure (a real ad-image CDN link serves the bytes directly).
+  // AbortSignal.timeout bounds how long an unresponsive host can hold the
+  // caller's request open. Error messages are deliberately generic — the
+  // upstream status/content-type used to be echoed back to the external
+  // check-ad caller, which turned this fetch into a small port/host probe.
   let fetchRes: Response;
   try {
     fetchRes = await fetch(imageUrl, {
@@ -93,17 +195,22 @@ async function fetchImageBytes(imageUrl: string): Promise<FetchedImage> {
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         Accept: "image/*,*/*;q=0.8",
       },
+      redirect: "manual",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   } catch {
     throw new CheckAdError("failed to fetch imageUrl", 400);
   }
+  if (fetchRes.status >= 300 && fetchRes.status < 400) {
+    throw new CheckAdError("failed to fetch imageUrl (redirects are not followed)", 400);
+  }
   if (!fetchRes.ok) {
-    throw new CheckAdError(`failed to fetch imageUrl (status ${fetchRes.status})`, 400);
+    throw new CheckAdError("failed to fetch imageUrl", 400);
   }
 
   const contentType = fetchRes.headers.get("content-type")?.split(";")[0]?.trim() || "";
   if (!ALLOWED_MEDIA_TYPES.includes(contentType)) {
-    throw new CheckAdError(`unsupported content-type "${contentType}" (JPG, PNG, PDF only)`, 400);
+    throw new CheckAdError("unsupported content-type (JPG, PNG, PDF only)", 400);
   }
 
   const declaredLength = fetchRes.headers.get("content-length");
@@ -122,7 +229,7 @@ async function fetchImageBytes(imageUrl: string): Promise<FetchedImage> {
     if (done) break;
     if (value) {
       totalBytes += value.byteLength;
-      if (totalBytes > MAX_FILE_SIZE_BYTES) {
+      if (totalBytes > MAX_FILE_SIZE_BYTES || totalBytes > MAX_FETCH_BYTES) {
         try {
           await reader.cancel();
         } catch {
@@ -365,11 +472,14 @@ export async function checkAdImageUrls(
 
   const images: CheckAdBatchImageResult[] = [];
   let unreviewedCount = 0;
+  let fetchedCount = 0;
+  const failedUrls: string[] = [];
 
   for (let i = 0; i < imageUrls.length; i++) {
     const imageUrl = imageUrls[i];
     try {
       const fetched = await fetchImageBytes(imageUrl);
+      fetchedCount++;
       const { status, flags, reviewFailed } = await reviewAndStoreImage(submission.id, i, fetched, caption, opts?.model);
       if (reviewFailed) unreviewedCount++;
       images.push({ imageUrl, status, flags, failed: false });
@@ -379,21 +489,31 @@ export async function checkAdImageUrls(
       // reserved/paid-for in this same batch — record it and refund just
       // this one credit, same as app/api/submissions/route.ts refunds
       // per-unreviewed-image rather than all-or-nothing.
-      const message = e instanceof CheckAdError ? e.message : "internal_error";
       console.error(`checkAdImageUrls: image ${i} ("${imageUrl}") failed for submission ${submission.id}:`, e);
       unreviewedCount++;
+      failedUrls.push(imageUrl);
       images.push({ imageUrl, status: "caution", flags: [], failed: true });
     }
   }
 
-  const overallStatus: "passed" | "caution" | "violation" = images.some((i) => i.status === "violation")
+  // CHANGE (2569-09-02, Bug Audit 4): overallStatus is reduced over the
+  // images that were actually reviewed only — a failed image's placeholder
+  // "caution" is not a review outcome, and a batch where every image
+  // failed has no outcome at all (allFailed below; callers must not mark
+  // the lead done in that case).
+  const reviewedImages = images.filter((i) => !i.failed);
+  const allFailed = fetchedCount === 0;
+  const overallStatus: "passed" | "caution" | "violation" = reviewedImages.some((i) => i.status === "violation")
     ? "violation"
-    : images.some((i) => i.status === "caution")
+    : reviewedImages.some((i) => i.status === "caution")
     ? "caution"
     : "passed";
-  const flagCount = images.reduce((sum, i) => sum + i.flags.length, 0);
+  const flagCount = reviewedImages.reduce((sum, i) => sum + i.flags.length, 0);
 
-  const finalStatus = overallStatus === "passed" ? "passed" : "needs_review";
+  // An all-failed batch's submission row is closed as needs_review (not
+  // "passed") so the share page never claims a clean result for images it
+  // never saw.
+  const finalStatus = overallStatus === "passed" && !allFailed ? "passed" : "needs_review";
   try {
     await sql`
       UPDATE submissions SET status = ${finalStatus}, ai_confidence = 90, completed_at = now()
@@ -413,5 +533,7 @@ export async function checkAdImageUrls(
     images,
     overallStatus,
     flagCount,
+    allFailed,
+    failedUrls,
   };
 }

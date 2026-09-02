@@ -14,6 +14,10 @@ import { sql } from "@/lib/db";
 // See migrations/017_hunter_lead_assignment.sql for assigned_hunter_user_id
 // — every "ส่ง" lead now goes to exactly ONE Hunter (picked automatically,
 // see pickHunterForAssignment below) instead of broadcasting to everyone.
+// See migrations/019_hunter_leads_run_watchdog.sql for run_started_at (the
+// stuck-'running' watchdog, recoverStaleRunningLeads below) and
+// auto_fill_attempts/auto_fill_last_attempt_at (the auto-fill cron's fair
+// rotation, markHunterLeadAutoFillAttempt below).
 
 export type HunterLeadStatus = "awaiting_images" | "ready" | "running" | "done" | "failed";
 export type HunterLeadReviewStatus = "passed" | "caution" | "violation";
@@ -34,7 +38,29 @@ review_status: HunterLeadReviewStatus | null;
 flag_count: number | null;
 hunter_sent_at: string | null;
 assigned_hunter_user_id: string | null;
+run_started_at: string | null;
+auto_fill_attempts: number;
+auto_fill_last_attempt_at: string | null;
 };
+
+// Thrown by updateHunterLeadImages when the lead is mid-run (status
+// 'running') — the PATCH route (app/api/admin/hunter/[id]/route.ts) turns
+// this into a 409 so the admin gets "แก้ลิงก์ได้เมื่อตรวจเสร็จ" instead of the
+// edit silently racing the in-flight review. Typed (not a string match on
+// the message) so the route can't confuse it with a real DB failure.
+export class HunterLeadBusyError extends Error {
+constructor() {
+super("hunter lead is running");
+this.name = "HunterLeadBusyError";
+}
+}
+
+// The clinic-name placeholder HunterImport.tsx substitutes for a row whose
+// name cell was empty (only a link present) — must match that file's
+// literal exactly. Exempt from dedupe in importHunterLeads below: many
+// rows can legitimately share it, and skipping all-but-one as "duplicates"
+// silently dropped real leads.
+export const UNNAMED_CLINIC_PLACEHOLDER = "(ไม่ระบุชื่อ - ต้องเช็ค)";
 
 const ALLOWED_STATUS: HunterLeadStatus[] = ["awaiting_images", "ready", "running", "done", "failed"];
 
@@ -139,30 +165,43 @@ return name.trim().toLowerCase();
 // file has no bulk-VALUES helper) rather than tagged-template interpolation,
 // since the VALUES clause itself (placeholder count) is only known at
 // runtime.
+// CHANGE (2569-09-02, Bug Audit 4): every chunk now goes to Neon inside ONE
+// `sql.transaction([...])` (the driver's non-interactive HTTP transaction —
+// it accepts the same un-awaited `sql(text, params)` promises), so an
+// import is all-or-nothing again: a failure in chunk 3 no longer leaves
+// chunks 1-2 committed with the admin told "นำเข้าไม่สำเร็จ". Also: rows
+// carrying the UNNAMED_CLINIC_PLACEHOLDER name are exempt from dedupe (see
+// that constant) and the return shape is { inserted, skippedDuplicates }
+// (plural, matching what the route/UI now report).
 const IMPORT_CHUNK_SIZE = 500;
 
 export async function importHunterLeads(
 rows: { clinic: string; province: string; link: string }[]
-): Promise<{ inserted: number; skippedDuplicate: number }> {
-if (rows.length === 0) return { inserted: 0, skippedDuplicate: 0 };
+): Promise<{ inserted: number; skippedDuplicates: number }> {
+if (rows.length === 0) return { inserted: 0, skippedDuplicates: 0 };
 
+const placeholderKey = normalizeClinicName(UNNAMED_CLINIC_PLACEHOLDER);
 const existingRows = (await sql`SELECT clinic_name FROM hunter_leads`) as { clinic_name: string }[];
 const existingNames = new Set(existingRows.map((r) => normalizeClinicName(r.clinic_name)));
 const seenInBatch = new Set<string>();
 
 const toInsert: { clinic: string; province: string; link: string }[] = [];
-let skippedDuplicate = 0;
+let skippedDuplicates = 0;
 
 for (const r of rows) {
 const key = normalizeClinicName(r.clinic);
-if (key && (existingNames.has(key) || seenInBatch.has(key))) {
-skippedDuplicate++;
+const dedupable = key.length > 0 && key !== placeholderKey;
+if (dedupable && (existingNames.has(key) || seenInBatch.has(key))) {
+skippedDuplicates++;
 continue;
 }
-if (key) seenInBatch.add(key);
+if (dedupable) seenInBatch.add(key);
 toInsert.push(r);
 }
 
+if (toInsert.length === 0) return { inserted: 0, skippedDuplicates };
+
+const queries = [];
 for (let i = 0; i < toInsert.length; i += IMPORT_CHUNK_SIZE) {
 const chunk = toInsert.slice(i, i + IMPORT_CHUNK_SIZE);
 const values: any[] = [];
@@ -172,13 +211,16 @@ const base = idx * 3;
 placeholders.push(`($${base + 1}, $${base + 2}, $${base + 3}, 'awaiting_images')`);
 values.push(r.clinic, r.province || null, r.link || null);
 });
-await sql(
+queries.push(
+sql(
 `INSERT INTO hunter_leads (clinic_name, province, source_link, status) VALUES ${placeholders.join(", ")}`,
 values
+)
 );
 }
+await sql.transaction(queries);
 
-return { inserted: toInsert.length, skippedDuplicate };
+return { inserted: toInsert.length, skippedDuplicates };
 }
 
 // Hunter filling in image URLs (and/or a note) for a lead they're
@@ -189,9 +231,12 @@ return { inserted: toInsert.length, skippedDuplicate };
 // - 'awaiting_images' -> 'ready' the moment the first image URL lands,
 // so the admin "run automation" list only ever shows leads that
 // actually have something to review.
-// - 'running' is left alone — editing urls mid-run shouldn't be
-// possible from the UI anyway (the run button disables while
-// running), but if it somehow happens, don't fight the in-flight run.
+// - 'running' -> throws HunterLeadBusyError (2569-09-02, Bug Audit 4).
+// Previously the edit went through and overwrote image_urls under an
+// in-flight review, so the run's result_url ended up describing a set
+// of images that no longer matched what was saved. The PATCH route
+// turns the error into a 409; the UI also disables the inputs while
+// running, but the server is the authority.
 // - 'done'/'failed' -> 'ready', clearing result_url/last_error,
 // whenever the edited image_urls array no longer matches what's
 // already in image_urls. This matters because a lead's images are
@@ -208,6 +253,7 @@ const [existing] = (await sql`
 SELECT status, image_urls FROM hunter_leads WHERE id = ${id}
 `) as { status: HunterLeadStatus; image_urls: string[] }[];
 if (!existing) return null;
+if (existing.status === "running") throw new HunterLeadBusyError();
 
 const urlsChanged = JSON.stringify(existing.image_urls) !== JSON.stringify(imageUrls);
 
@@ -288,8 +334,60 @@ return (row as HunterLead) ?? null;
 // either markHunterLeadDone(id, resultUrl, reviewStatus, flagCount) or
 // markHunterLeadFailed once, after the whole batch settles.
 
-export async function markHunterLeadRunning(id: string): Promise<void> {
-await sql`UPDATE hunter_leads SET status = 'running', last_error = NULL, updated_at = now() WHERE id = ${id}`;
+// CHANGE (2569-09-02, Bug Audit 4): now a compare-and-set — the `AND status
+// <> 'running'` guard means two concurrent run requests for the same lead
+// (double-click, the auto-run-on-3rd-URL firing alongside a manual click,
+// "ตรวจสอบทั้งหมด" overlapping a row's own button) can't BOTH proceed and
+// spend two batches of credits on one lead. Returns false when the lead is
+// already running (or doesn't exist) so the caller can 409/skip instead of
+// blindly continuing. Also stamps run_started_at for the stuck-run
+// watchdog (recoverStaleRunningLeads below).
+export async function markHunterLeadRunning(id: string): Promise<boolean> {
+const rows = await sql`
+UPDATE hunter_leads
+SET status = 'running', last_error = NULL, run_started_at = now(), updated_at = now()
+WHERE id = ${id} AND status <> 'running'
+RETURNING id
+`;
+return rows.length > 0;
+}
+
+// Stuck-'running' watchdog (2569-09-02, Bug Audit 4 — see
+// migrations/019_hunter_leads_run_watchdog.sql). A run that dies mid-flight
+// (Render restart/request timeout on the manual route, OOM kill on the cron)
+// never reaches markHunterLeadDone/Failed, so the lead sat at 'running'
+// forever with its run/delete buttons hidden. Flips any lead that has been
+// 'running' longer than maxAgeMinutes back to 'failed' with a clear Thai
+// last_error so the admin can simply re-run it. Called at the top of
+// GET /api/admin/hunter (every queue load) and at the start of
+// scripts/hunterAutoFillJob.ts. 15 minutes is far beyond a real run (≤3
+// images, each a single AI call). Returns how many rows were recovered.
+// Rows from before migration 019 have run_started_at NULL — those are
+// covered by the updated_at fallback so they can't stay stuck either.
+export async function recoverStaleRunningLeads(maxAgeMinutes = 15): Promise<number> {
+const rows = await sql`
+UPDATE hunter_leads
+SET status = 'failed',
+last_error = 'หมดเวลา (ระบบอาจรีสตาร์ทระหว่างตรวจ) — กดตรวจสอบอัตโนมัติอีกครั้ง',
+updated_at = now()
+WHERE status = 'running'
+AND COALESCE(run_started_at, updated_at) < now() - (${maxAgeMinutes} * interval '1 minute')
+RETURNING id
+`;
+return rows.length;
+}
+
+// Auto-fill cron bookkeeping (2569-09-02, Bug Audit 4 — see
+// migrations/019_hunter_leads_run_watchdog.sql): recorded after EVERY
+// attempt scripts/hunterAutoFillJob.ts makes to find a lead's images,
+// found or not, so that job's selection query can rotate fairly through
+// the queue instead of retrying the same never-found leads forever.
+export async function markHunterLeadAutoFillAttempt(id: string): Promise<void> {
+await sql`
+UPDATE hunter_leads
+SET auto_fill_attempts = auto_fill_attempts + 1, auto_fill_last_attempt_at = now()
+WHERE id = ${id}
+`;
 }
 
 // CHANGE (Sales Lead Distribution, 2026-09-01): now also takes the batch's
@@ -344,15 +442,24 @@ await sql`UPDATE hunter_leads SET status = 'failed', last_error = ${errorMessage
 // all to assign to — callers decide how to surface that; see
 // markHunterLeadSent below, which turns a null pick into a clear thrown
 // error rather than silently no-op'ing a "ส่ง" click.
-export async function pickHunterForAssignment(): Promise<string | null> {
-const rows = (await sql`
+//
+// CHANGE (2569-09-02, Bug Audit 4): only Hunters an admin has approved for
+// assignment (hunter_users.assignment_approved — see
+// migrations/020_hunter_assignment_approval.sql; self-registered rows
+// start false) are eligible. Also: markHunterLeadSent no longer calls this
+// function — it inlines the exact same SELECT as a subquery of its own
+// UPDATE (see PICK_HUNTER_SUBQUERY) so pick+assign is one statement. Keep
+// the two in sync if the ranking rule ever changes; this standalone
+// version is kept for the eligibility pre-check (countAssignableHunters)
+// and any future caller that only wants to *read* the pick.
+const PICK_HUNTER_SUBQUERY = `
 SELECT hu.id
 FROM hunter_users hu
 LEFT JOIN hunter_leads hl
 ON hl.assigned_hunter_user_id = hu.id AND hl.hunter_sent_at IS NOT NULL
 LEFT JOIN hunter_lead_pipeline hlp
 ON hlp.hunter_lead_id = hl.id AND hlp.hunter_user_id = hu.id
-WHERE hu.active = true
+WHERE hu.active = true AND hu.assignment_approved = true
 GROUP BY hu.id, hu.created_at
 ORDER BY
 COUNT(hl.id) FILTER (
@@ -361,9 +468,27 @@ AND COALESCE(hlp.status, 'new') NOT IN ('closed_won', 'closed_lost', 'no_respons
 ) ASC,
 hu.created_at ASC
 LIMIT 1
-`) as { id: string }[];
+`;
+
+export async function pickHunterForAssignment(): Promise<string | null> {
+const rows = (await sql(PICK_HUNTER_SUBQUERY)) as { id: string }[];
 return rows[0]?.id ?? null;
 }
+
+// How many Hunters are currently eligible to be assigned a lead — the
+// pre-check markHunterLeadSent runs so "no Hunter at all" can stay a clear
+// thrown error (-> 400 in the send route) rather than the single-statement
+// UPDATE below silently stamping assigned_hunter_user_id = NULL.
+async function countAssignableHunters(): Promise<number> {
+const [row] = (await sql`
+SELECT COUNT(*)::int AS n FROM hunter_users WHERE active = true AND assignment_approved = true
+`) as { n: number }[];
+return row?.n ?? 0;
+}
+
+// Message text the send route matches on to map "no Hunter" to a 400 —
+// exported so the route doesn't have to hard-code a substring.
+export const NO_ACTIVE_HUNTER_MESSAGE = "ไม่มี Hunter ที่เปิดใช้งานอยู่ในระบบ ไม่สามารถส่งได้";
 
 // --- "ส่ง" workflow (Hunter Freelancer Page, 2026-09-01) ------------------
 // The admin-driven gate between "checked" (status='done') and "visible to
@@ -383,24 +508,41 @@ return rows[0]?.id ?? null;
 // Error (rather than returning null, which the route would otherwise read
 // as "lead not found/not done") when there is no active Hunter at all —
 // the route below turns this into a clear 400 for the admin instead of
-// either silently no-op'ing the "ส่ง" click or a raw 500. Runs the pick
-// BEFORE the UPDATE (two round-trips, not one atomic statement) — fine
-// for a single admin click; the "ส่งทั้งหมด" batch path
-// (app/api/admin/hunter/send-all/route.ts) is what actually has to worry
-// about concurrent picks racing on stale counts, and that route calls
-// this function once per lead SEQUENTIALLY specifically so each pick sees
-// every prior iteration's already-committed assignment.
+// either silently no-op'ing the "ส่ง" click or a raw 500.
+//
+// CHANGE (2569-09-02, Bug Audit 4): two fixes in one rewrite —
+// 1. `AND hunter_sent_at IS NULL`: re-sending an already-sent lead used to
+// silently re-run the pick and REASSIGN it to a different Hunter (a
+// double-click on "ส่ง", or two admins) — now it's a no-op (returns
+// null) and the send route reports 409 "ถูกส่งไปแล้ว".
+// 2. The pick is now a subquery INSIDE the UPDATE (one statement, not
+// SELECT-then-UPDATE), so two concurrent sends can't both read the same
+// stale "who's least loaded" snapshot and pile onto one Hunter — each
+// UPDATE's subquery sees the other's committed assignment (or blocks on
+// the row lock if they target the same lead). The cheap
+// countAssignableHunters pre-check keeps the "no Hunter at all" case a
+// clear thrown error instead of an UPDATE that stamps a NULL assignee.
 export async function markHunterLeadSent(id: string): Promise<HunterLead | null> {
-const hunterUserId = await pickHunterForAssignment();
-if (!hunterUserId) {
-throw new Error("ไม่มี Hunter ที่เปิดใช้งานอยู่ในระบบ ไม่สามารถส่งได้");
+if ((await countAssignableHunters()) === 0) {
+throw new Error(NO_ACTIVE_HUNTER_MESSAGE);
 }
-const [row] = await sql`
-UPDATE hunter_leads SET hunter_sent_at = now(), assigned_hunter_user_id = ${hunterUserId}
-WHERE id = ${id} AND status = 'done'
-RETURNING *
-`;
-return (row as HunterLead) ?? null;
+const rows = (await sql(
+`UPDATE hunter_leads
+SET hunter_sent_at = now(), assigned_hunter_user_id = (${PICK_HUNTER_SUBQUERY})
+WHERE id = $1 AND status = 'done' AND hunter_sent_at IS NULL
+RETURNING *`,
+[id]
+)) as HunterLead[];
+const row = rows[0];
+if (!row) return null;
+// The roster emptied between the pre-check and the UPDATE (a Hunter was
+// deactivated in that window) — undo rather than leave a sent-but-
+// assigned-to-nobody lead that no Hunter would ever see.
+if (!row.assigned_hunter_user_id) {
+await sql`UPDATE hunter_leads SET hunter_sent_at = NULL, assigned_hunter_user_id = NULL WHERE id = ${id}`;
+throw new Error(NO_ACTIVE_HUNTER_MESSAGE);
+}
+return row;
 }
 
 // CHANGE (2569-09-01, Automatic Hunter Lead Assignment): also clears
@@ -463,11 +605,18 @@ deletedIds.push(id);
 } else {
 failed.push({ id, error: "ไม่พบรายการนี้" });
 }
-} catch {
+} catch (e: any) {
 // Same FK situation as deleteHunterLead above (lead already assigned
-// to a sales rep via sales_lead_assignments.hunter_lead_id) — surface
-// a plain-language reason rather than the raw DB error.
-failed.push({ id, error: "ลบไม่สำเร็จ (อาจถูกมอบหมายให้เซลล์แล้ว)" });
+// to a sales rep via sales_lead_assignments.hunter_lead_id, or a
+// hunter_lead_pipeline / hunter_commissions row referencing it) —
+// surface a plain-language reason rather than the raw DB error.
+// 23503 = Postgres foreign_key_violation; anything else is a generic
+// failure so an unrelated DB error isn't mislabeled as "assigned".
+const isFk = e?.code === "23503";
+failed.push({
+id,
+error: isFk ? "ลบไม่ได้เพราะมีข้อมูลผูกอยู่ (มอบหมายให้เซลล์/มีค่าคอมมิชชั่นแล้ว)" : "ลบไม่สำเร็จ",
+});
 }
 }
 return { deletedIds, failed };

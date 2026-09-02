@@ -156,8 +156,8 @@ source: "self",
 // PATCH /api/hunter/leads/[id] when body.source === "self". The
 // `hunter_user_id = ${hunterUserId}` clause is the ownership check: a
 // Hunter can never touch another Hunter's self-added row, even by guessing
-// its id (unlike admin leads, which every active Hunter can see and
-// privately work — self leads are exclusive to whoever added them).
+// its id (admin leads get the equivalent guard via assigned_hunter_user_id
+// in upsertHunterLeadPipeline below).
 export async function updateHunterSelfLead(
 hunterUserId: string,
 id: string,
@@ -200,6 +200,14 @@ return rows.length > 0;
 // clobbering it — mirrors lib/salesLeads.ts's updateSalesLeadAssignment for
 // the same reason (the UI saves status and notes independently, on
 // different interactions).
+//
+// FIX (Bug Audit 4, 2569-09-02): the INSERT now SELECTs its values FROM
+// hunter_leads with the exact same predicate listHunterLeadsForHunter's
+// admin half uses (sent AND assigned to this Hunter), so the write side
+// can no longer reach a lead the read side wouldn't show — previously the
+// route only checked hunter_sent_at, so any Hunter could write a private
+// status onto another Hunter's lead by id. Zero matching rows -> nothing
+// inserted -> returns null, which the route maps to a 404.
 export async function upsertHunterLeadPipeline(
 hunterUserId: string,
 hunterLeadId: string,
@@ -213,7 +221,11 @@ update: { status?: HunterPipelineStatus; notes?: string }
 // existing one, so a notes-only save never moves the date.
 const [row] = (await sql`
 INSERT INTO hunter_lead_pipeline (hunter_user_id, hunter_lead_id, status, notes)
-VALUES (${hunterUserId}, ${hunterLeadId}, ${update.status ?? "new"}, ${update.notes ?? ""})
+SELECT ${hunterUserId}::uuid, hl.id, ${update.status ?? "new"}::text, ${update.notes ?? ""}::text
+FROM hunter_leads hl
+WHERE hl.id = ${hunterLeadId}
+AND hl.hunter_sent_at IS NOT NULL
+AND hl.assigned_hunter_user_id = ${hunterUserId}
 ON CONFLICT (hunter_user_id, hunter_lead_id) DO UPDATE SET
 status = COALESCE(${update.status ?? null}, hunter_lead_pipeline.status),
 notes = COALESCE(${update.notes ?? null}, hunter_lead_pipeline.notes),
@@ -233,17 +245,32 @@ return row ?? null;
 // same way listHunterLeadsForHunter is: that function scopes to one
 // Hunter's own assigned/self leads with a COALESCE-to-'new' default, which
 // is correct for "what does this one Hunter see" but would double/multiply
-// count (or under/over count once assignment is fully rolled out) if
-// summed across every Hunter. Both source tables already default their
-// status column to 'new' at INSERT time (see migrations 014 and 016), so a
-// plain GROUP BY over the rows that actually exist is the honest total —
-// no COALESCE needed here.
+// count if summed across every Hunter.
+//
+// FIX (Bug Audit 4, 2569-09-02): the admin-lead half used to be a plain
+// `SELECT status FROM hunter_lead_pipeline` — every private row that ever
+// existed, regardless of whether its lead is still sent or still assigned
+// to that Hunter. That drifted from what Hunters actually see in two ways:
+// (a) a lead that was "ยกเลิกส่ง"/re-sent to someone else (or un-sent by
+// deactivating its Hunter — see lib/hunterUsers.ts:setHunterUserActive)
+// left a stale row still counted under the old Hunter's status, and (b)
+// sent leads the assignee hadn't touched yet have NO row at all, so they
+// were invisible here even though every Hunter's board shows them under
+// "ส่งมาแล้ว". Now: one row per currently-sent admin lead, joined to its
+// assignee's private row with the same COALESCE-to-'new' the Hunter's own
+// board uses (so untouched leads count as 'new'), and stale rows for other
+// Hunters are ignored. The self-leads half is unchanged — those are private
+// by construction and each row IS the lead.
 export type HunterPipelineOverview = Record<HunterPipelineStatus, number>;
 
 export async function getHunterPipelineOverview(): Promise<HunterPipelineOverview> {
   const rows = (await sql`
     SELECT status, count(*)::int AS count FROM (
-      SELECT status FROM hunter_lead_pipeline
+      SELECT COALESCE(hlp.status, 'new') AS status
+      FROM hunter_leads hl
+      LEFT JOIN hunter_lead_pipeline hlp
+        ON hlp.hunter_lead_id = hl.id AND hlp.hunter_user_id = hl.assigned_hunter_user_id
+      WHERE hl.hunter_sent_at IS NOT NULL AND hl.assigned_hunter_user_id IS NOT NULL
       UNION ALL
       SELECT pipeline_status AS status FROM hunter_self_leads
     ) combined
