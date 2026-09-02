@@ -64,7 +64,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (isSelf) {
       const updated = await updateHunterSelfLead(hunterUser.id, params.id, { status, notes });
       if (!updated) return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
-      return NextResponse.json({ pipelineStatus: updated.status, notes: updated.notes });
+      return NextResponse.json({
+        pipelineStatus: updated.status,
+        notes: updated.notes,
+        statusChangedAt: updated.status_changed_at,
+      });
     }
 
     const [sent] = await sql`
@@ -74,7 +78,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     const updated = await upsertHunterLeadPipeline(hunterUser.id, params.id, { status, notes });
     if (!updated) return NextResponse.json({ error: "อัปเดตไม่สำเร็จ" }, { status: 500 });
-    return NextResponse.json({ pipelineStatus: updated.status, notes: updated.notes });
+    return NextResponse.json({
+      pipelineStatus: updated.status,
+      notes: updated.notes,
+      statusChangedAt: updated.status_changed_at,
+    });
   } catch (e) {
     console.error(`PATCH /api/hunter/leads/${params.id} failed:`, e);
     return NextResponse.json({ error: "อัปเดตไม่สำเร็จ" }, { status: 500 });
