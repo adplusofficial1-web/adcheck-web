@@ -79,7 +79,14 @@ export default auth((req) => {
   // signs in a few days later" without living forever.
   if (req.nextUrl.pathname === "/login") {
     const ref = req.nextUrl.searchParams.get("ref");
-    if (ref) {
+    // Bug Audit 4 (2569-09-02): only stash a UUID-shaped value. Anything
+    // else (a mangled/truncated link, `?ref=abc` posted by someone hostile)
+    // used to be stored for 30 days and then crash lib/currentBusiness.ts's
+    // lazy-create branch for that visitor on every page — effectively a
+    // sign-up denial of service via a single shared link. Same regex as
+    // lib/validation.ts:isValidUuid, inlined because this file is part of
+    // the edge auth bundle and deliberately imports nothing from lib/.
+    if (ref && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)) {
       res.cookies.set("hunter_ref", ref, {
         maxAge: 60 * 60 * 24 * 30,
         httpOnly: true,
