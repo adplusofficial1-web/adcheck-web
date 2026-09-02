@@ -2,15 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-// Admin > Marketing > Hunter — "Hunter Freelancer (สิทธิ์เข้า /hunter)"
-// section. Lets a platform admin whitelist/deactivate the external Hunter
-// freelancers who get their own separate, read-only page at /hunter — see
-// app/hunter/page.tsx and the project doc "Hunter Freelancer Page -
-// Design.md". Mirrors components/admin/SalesOverview.tsx's add-user
-// form/table shape (thClass/tdClass, bg-inverse header) but simpler: no
-// polling/overview stats needed here, since a freelancer's /hunter page
-// has no per-person quota or activity feed to monitor — just an
-// add/enable/disable roster.
+// Admin > Marketing > Hunter — "สิทธิ์เข้า /hunter" tab (formerly the
+// "Hunter Freelancer (สิทธิ์เข้า /hunter)" section). Lets a platform admin
+// whitelist/deactivate the external Hunter freelancers who get their own
+// separate, read-only page at /hunter — see app/hunter/page.tsx and the
+// project doc "Hunter Freelancer Page - Design.md". Mirrors
+// components/admin/SalesOverview.tsx's add-user form/table shape
+// (thClass/tdClass, bg-inverse header) but simpler: no polling/overview
+// stats needed here, since a freelancer's /hunter page has no per-person
+// quota or activity feed to monitor — just an add/enable/disable roster.
+//
+// CHANGE (2026-09-02, Hunter tab restructure, per user request): moved
+// into its own tab (see components/admin/HunterMarketingTabs.tsx) instead
+// of always-visible section; renamed its on-page heading to the shorter
+// "สิทธิ์เข้า /hunter" to match the tab label.
 
 const thClass = "bg-inverse text-onInverse text-xs font-medium px-3 py-2 text-left";
 const tdClass = "px-3 py-2 border-b border-border text-left align-top";
@@ -91,8 +96,8 @@ export function HunterUsersManager() {
   };
 
   return (
-    <div className="mt-10">
-      <h2 className="text-lg font-medium text-primary">Hunter Freelancer (สิทธิ์เข้า /hunter)</h2>
+    <div>
+      <h2 className="text-lg font-medium text-primary">สิทธิ์เข้า /hunter</h2>
       <p className="mt-1 text-sm text-secondary max-w-2xl">
         รายชื่อ Freelancer ภายนอกที่ล็อกอิน Google เข้าหน้า{" "}
         <code className="text-xs bg-page border border-border rounded px-1 py-0.5">/hunter</code> ได้ — หน้านั้นแยก
