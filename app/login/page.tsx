@@ -1,7 +1,20 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { auth, signIn } from "@/auth";
+import { auth, signIn, signOut } from "@/auth";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+import { getCurrentBusiness } from "@/lib/currentBusiness";
+import { getCurrentHunterUser } from "@/lib/currentHunterUser";
+import { getCurrentSalesUser } from "@/lib/currentSalesUser";
+
+// Bug Audit 4 (2569-09-02): where a signed-in visitor should land after
+// sign-in. Only a same-origin path is honoured — an absolute URL or a
+// protocol-relative `//evil.example` in ?callbackUrl= would otherwise turn
+// this page into an open redirect.
+function safeCallbackUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return null;
+  return raw;
+}
 
 // Auth.js error codes passed via ?error=... when pages.error redirects here
 // (see auth.ts). Only a few are realistic for a Google-only OAuth setup;
@@ -27,18 +40,38 @@ export default async function LoginPage({
 }) {
   const errorCode =
     typeof searchParams?.error === "string" ? searchParams.error : undefined;
+  // app/admin/layout.tsx (via middleware's x-pathname) and other protected
+  // pages send people here with ?callbackUrl=<the page they wanted>. Bug
+  // Audit 4 (2569-09-02): this page used to ignore it and always send
+  // everyone to /dashboard after Google sign-in, which silently undid the
+  // audit-2 fix that made the admin redirect carry the real path.
+  const callbackUrl = safeCallbackUrl(searchParams?.callbackUrl) ?? "/dashboard";
 
+  // Already signed in? Send the visitor to the right home instead of
+  // showing the Google button again (or, worse, looping).
+  //
   // The login flow intermittently races two callback requests to Google
   // (root cause not yet fixed — see Google Login Setup doc), so the request
   // that "loses" can land here with an error even after the other one
-  // already succeeded and set a valid session cookie. Rather than show a
-  // scary error page to someone who is, from the session's point of view,
-  // already logged in, check first and just send them on to the dashboard.
-  if (errorCode) {
-    const session = await auth();
-    if (session?.user) {
-      redirect("/dashboard");
-    }
+  // already succeeded and set a valid session cookie — that case is covered
+  // by the same check.
+  //
+  // Bug Audit 4 (2569-09-02): every clinic page does `if (!business)
+  // redirect("/login")`, and lib/currentBusiness.ts deliberately returns
+  // null for Hunter/Sales Google accounts (they must never become a
+  // customer business). Before this block a Hunter or Sales rep who opened
+  // /dashboard bounced /dashboard → /login → /dashboard → … forever with no
+  // message. Now they're routed to their own area, and an account that is
+  // blocked from everything gets a plain explanation + sign-out instead of
+  // a loop.
+  const session = await auth();
+  let blockedAccountEmail: string | null = null;
+  if (session?.user?.email) {
+    const business = await getCurrentBusiness();
+    if (business) redirect(callbackUrl);
+    if (await getCurrentHunterUser()) redirect("/hunter");
+    if (await getCurrentSalesUser()) redirect("/sales");
+    blockedAccountEmail = session.user.email;
   }
 
   const errorMessage = errorCode
@@ -66,14 +99,33 @@ export default async function LoginPage({
             {errorMessage}
           </p>
         )}
-        <form
-          action={async () => {
-            "use server";
-            await signIn("google", { redirectTo: "/dashboard" });
-          }}
-        >
-          <GoogleSignInButton />
-        </form>
+        {blockedAccountEmail ? (
+          <div className="text-sm text-secondary">
+            <p className="mb-4">
+              บัญชี {blockedAccountEmail} เข้าสู่ระบบแล้ว แต่ยังใช้งานส่วนของคลินิกไม่ได้ในขณะนี้ —
+              ติดต่อทีม AD Plus หากคิดว่านี่เป็นความผิดพลาด หรือออกจากระบบแล้วเข้าด้วยบัญชี Google อื่น
+            </p>
+            <form
+              action={async () => {
+                "use server";
+                await signOut({ redirectTo: "/login" });
+              }}
+            >
+              <button type="submit" className="rounded-md border border-border px-4 py-2 text-sm text-primary">
+                ออกจากระบบ
+              </button>
+            </form>
+          </div>
+        ) : (
+          <form
+            action={async () => {
+              "use server";
+              await signIn("google", { redirectTo: callbackUrl });
+            }}
+          >
+            <GoogleSignInButton />
+          </form>
+        )}
         <p className="text-xs text-tertiary mt-6">
           ยังไม่เคยใช้งาน?{" "}
           <Link href="/case-studies" className="underline">
