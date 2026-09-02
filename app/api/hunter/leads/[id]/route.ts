@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getCurrentHunterUser } from "@/lib/currentHunterUser";
-import { sql } from "@/lib/db";
 import {
   upsertHunterLeadPipeline,
   updateHunterSelfLead,
@@ -20,10 +19,22 @@ import { isValidUuid, stripNulBytes } from "@/lib/validation";
 // one to already exist. See lib/hunterPipeline.ts and
 // migrations/014_hunter_referral_commissions.sql.
 //
-// Still checked against the shared "ส่ง" queue below (hunter_sent_at IS NOT
-// NULL) so a Hunter can't set a private status on a lead that was never
-// actually sent to freelancers at all — same visibility rule
-// GET /api/hunter/leads already enforces.
+// Still checked against the "ส่ง" queue below (hunter_sent_at IS NOT NULL)
+// so a Hunter can't set a private status on a lead that was never actually
+// sent to freelancers at all — same visibility rule GET /api/hunter/leads
+// already enforces.
+//
+// FIX (Bug Audit 4, 2569-09-02): that check used to stop at "is it sent" —
+// it never asked "is it sent to THIS Hunter". After migrations/017 made
+// every sent lead belong to exactly one assignee (and GET /api/hunter/leads
+// scoped its read accordingly), the write side lagged behind: any active
+// Hunter who knew/guessed a lead's UUID could still create a private
+// pipeline row on someone else's lead — which then inflated the admin
+// Pipeline overview and the picker's load count for that Hunter. The
+// ownership check now lives inside upsertHunterLeadPipeline itself
+// (assigned_hunter_user_id = this Hunter), and a miss is a 404 exactly
+// like a non-existent id, so the response doesn't leak whether the UUID
+// exists.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const hunterUser = await getCurrentHunterUser();
   if (!hunterUser) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -71,13 +82,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       });
     }
 
-    const [sent] = await sql`
-      SELECT 1 FROM hunter_leads WHERE id = ${params.id} AND hunter_sent_at IS NOT NULL
-    `;
-    if (!sent) return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
-
+    // Returns null when the lead isn't sent-and-assigned-to-this-Hunter —
+    // see the FIX note above and upsertHunterLeadPipeline's own guard.
     const updated = await upsertHunterLeadPipeline(hunterUser.id, params.id, { status, notes });
-    if (!updated) return NextResponse.json({ error: "อัปเดตไม่สำเร็จ" }, { status: 500 });
+    if (!updated) return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
     return NextResponse.json({
       pipelineStatus: updated.status,
       notes: updated.notes,
