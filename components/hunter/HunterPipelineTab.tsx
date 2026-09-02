@@ -231,7 +231,7 @@ function LeadCard({
           THIS Hunter last moved this card's stage — not when the card was
           created/sent, and not bumped by a notes-only save (see
           lib/hunterPipeline.ts's status_changed_at). */}
-      <div className="mt-1 text-[10px] text-tertiary">เปลี่ยนสถานะล่าสุด: {timeAgoLabel(lead.status_changed_at)}</div>
+      <div className="mt-1 text-[10px] text-tertiary">อัพเดท: {timeAgoLabel(lead.status_changed_at)}</div>
       <div className="mt-1 flex items-center justify-between gap-2">
         {savingNotes ? <div className="text-[10px] text-tertiary">กำลังบันทึกโน้ต…</div> : <span />}
         {lead.source === "self" && (
