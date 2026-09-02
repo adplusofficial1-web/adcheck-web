@@ -2,14 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Admin > Marketing > Hunter — "เซลล์ & การกระจาย Lead" section. Lets a
-// platform admin add/deactivate sales reps and watch (near-)realtime how
-// each rep's queue and recent status changes are doing, via
-// GET /api/admin/sales-overview polled every POLL_MS — see the design doc
-// (claude/Sales Lead Distribution - Design.md) for why polling was chosen
-// over websockets/SSE for this. Styling mirrors HunterImport.tsx (thClass/
-// tdClass, bg-inverse header, same button/input shapes) so this reads as
-// one continuous page, not a bolted-on widget.
+// Admin > Marketing > Hunter — "กระจาย Lead" tab (formerly the "เซลล์ &
+// การกระจาย Lead" section). Lets a platform admin add/deactivate sales reps
+// and watch (near-)realtime how each rep's queue and recent status changes
+// are doing, via GET /api/admin/sales-overview polled every POLL_MS — see
+// the design doc (claude/Sales Lead Distribution - Design.md) for why
+// polling was chosen over websockets/SSE for this. Styling mirrors
+// HunterImport.tsx (thClass/tdClass, bg-inverse header, same button/input
+// shapes) so this reads as one continuous page, not a bolted-on widget.
+//
+// CHANGE (2026-09-02, Hunter tab restructure, per user request): moved
+// into its own tab (see components/admin/HunterMarketingTabs.tsx) instead
+// of always-visible section; renamed its on-page heading from "เซลล์ &
+// การกระจาย Lead" to just "กระจาย Lead" to match the shorter tab label.
 
 const POLL_MS = 12000;
 const DAILY_QUOTA = 10;
@@ -139,8 +144,8 @@ export function SalesOverview() {
   };
 
   return (
-    <div className="mt-10">
-      <h2 className="text-lg font-medium text-primary">เซลล์ &amp; การกระจาย Lead</h2>
+    <div>
+      <h2 className="text-lg font-medium text-primary">กระจาย Lead</h2>
       <p className="mt-1 text-sm text-secondary max-w-2xl">
         Lead ที่ Hunter ตรวจพบปัญหาแล้ว (ควรระวัง/ห้ามเด็ดขาด) จะถูกกระจายให้เซลล์แต่ละคนวันละ {DAILY_QUOTA} รายชื่อ
         โดยอัตโนมัติ (เติมให้ครบทุกวัน) — หน้านี้อัปเดตทุก {Math.round(POLL_MS / 1000)} วินาที
