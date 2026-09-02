@@ -2,6 +2,7 @@ import { Nav } from "@/components/Nav";
 import { FlagDetail } from "@/components/FlagDetail";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { sql } from "@/lib/db";
+import { isValidUuid } from "@/lib/validation";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getAccessibleBusinessIds } from "@/lib/agency";
 import { notFound, redirect } from "next/navigation";
@@ -23,7 +24,7 @@ const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
 // (components/Nav.tsx, URL-prefix-only mode check) dropped back to
 // Clinic-mode chrome right at the end of the flow. `basePath` is what lets
 // the two thin page.tsx wrappers below render identical content while
-// keeping every link on this page (PDF, "อัพโหลดชุดใหม่") pointed at the
+// keeping every link on this page (PDF, "อัปโหลดชุดใหม่") pointed at the
 // right prefix for whichever mode the viewer is actually in.
 export async function ResultsPageContent({
   id,
@@ -42,14 +43,24 @@ export async function ResultsPageContent({
   // itself, so a signed-in user can never even learn whether a submission
   // id belonging to someone else's business exists (same pattern in
   // processing/[id]/page.tsx and results/[id]/pdf/page.tsx).
+  // Bug Audit 4 (2569-09-02): a non-UUID id used to reach Postgres and throw
+  // (`invalid input syntax for type uuid`) → a 500 "Application error" page
+  // for any mistyped/old link, unlike the API routes which were guarded in
+  // audit 1. Treat it as "no such submission" like any other unknown id.
+  if (!isValidUuid(id)) notFound();
+
   const accessibleIds = await getAccessibleBusinessIds(business.id);
   const [submission] = await sql`
     SELECT * FROM submissions WHERE id = ${id} AND business_id = ANY(${accessibleIds}::uuid[])
   `;
   if (!submission) notFound();
 
+  // Bug Audit 4 (2569-09-02): the base64 picture itself is no longer read
+  // here — pages embed <img src="/api/images/<id>"> (see that route) so this
+  // HTML stays small; has_image just tells the template whether to render
+  // the <img> at all.
   const images = (await sql`
-    SELECT * FROM submission_images WHERE submission_id = ${id} ORDER BY sort_order ASC
+    SELECT id, submission_id, caption, file_type, file_size_bytes, sort_order, filename, status, (image_url LIKE 'data:%') AS has_image FROM submission_images WHERE submission_id = ${id} ORDER BY sort_order ASC
   `) as any[];
 
   const flags = (await sql`
@@ -165,10 +176,11 @@ export async function ResultsPageContent({
                 </div>
 
                 <div className="flex flex-col md:flex-row gap-4">
-                  {img.image_url && img.image_url.startsWith("data:") && (
+                  {img.has_image && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={img.image_url}
+                      src={`/api/images/${img.id}`}
+                      loading="lazy"
                       alt={img.filename}
                       className="w-1/2 md:w-1/5 md:shrink-0 max-h-48 object-contain rounded-md bg-page"
                     />
@@ -216,7 +228,7 @@ export async function ResultsPageContent({
           </a>
           <ShareLinkButton shareToken={submission.share_token} />
           <a href={uploadHref} className="rounded-md bg-inverse text-onInverse px-4 py-2 text-sm ml-auto">
-            + อัพโหลดชุดใหม่
+            + อัปโหลดชุดใหม่
           </a>
         </div>
       </div>
