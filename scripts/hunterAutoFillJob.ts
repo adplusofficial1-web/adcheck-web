@@ -49,8 +49,22 @@ import {
   markHunterLeadRunning,
   markHunterLeadDone,
   markHunterLeadFailed,
+  markHunterLeadAutoFillAttempt,
+  recoverStaleRunningLeads,
+  getHunterLead,
 } from "../lib/hunterLeads";
 import { checkAdImageUrls, CheckAdError } from "../lib/automationCheckAd";
+
+// Fair-rotation knobs (2569-09-02, Bug Audit 4 — see
+// migrations/019_hunter_leads_run_watchdog.sql). A lead the Ad Library has
+// no images for used to be re-scraped on EVERY run forever (the selection
+// was simply "oldest awaiting_images first, LIMIT 5"), starving every lead
+// behind it. Now each lead gets at most MAX_AUTO_FILL_ATTEMPTS tries, at
+// least AUTO_FILL_RETRY_HOURS apart, and least-recently-tried leads go
+// first. A lead that exhausts its attempts just stays 'awaiting_images'
+// for a human Hunter to fill in by hand — nothing is marked failed.
+const MAX_AUTO_FILL_ATTEMPTS = 3;
+const AUTO_FILL_RETRY_HOURS = 24;
 
 // Sanity ceiling per run, same spirit as MAX_IMPORT_ROWS in
 // app/api/admin/hunter/route.ts — this job is meant to keep a queue that's
@@ -123,8 +137,26 @@ async function findImagesForLeads(leads: PendingLead[]): Promise<FoundLead[]> {
   try {
     for (const lead of leads) {
       const imageUrls = await findLeadImageUrls(browser, lead);
+      // Bookkeeping for the fair-rotation selection in main() — recorded
+      // whether or not anything was found, BEFORE any early `continue`.
+      await markHunterLeadAutoFillAttempt(lead.id);
       if (imageUrls.length === 0) {
         console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): no images found, left awaiting_images`);
+        continue;
+      }
+
+      // Re-read before writing (2569-09-02, Bug Audit 4): a headless-Chrome
+      // scrape takes long enough that a human may have pasted URLs into
+      // this very lead (or run/deleted it) in the meantime. Only a lead
+      // that is STILL 'awaiting_images' with no image_urls gets the scraped
+      // links — otherwise this cron used to overwrite the human's URLs
+      // (and, via updateHunterLeadImages' done/failed reset, wipe a
+      // finished result).
+      const fresh = await getHunterLead(lead.id);
+      if (!fresh || fresh.status !== "awaiting_images" || fresh.image_urls.length > 0) {
+        console.log(
+          `[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): changed since selection (status=${fresh?.status ?? "deleted"}), leaving as-is`
+        );
         continue;
       }
 
@@ -156,7 +188,14 @@ async function findImagesForLeads(leads: PendingLead[]): Promise<FoundLead[]> {
 async function reviewFoundLeads(foundLeads: FoundLead[]): Promise<number> {
   let reviewedCount = 0;
   for (const { lead, imageUrls } of foundLeads) {
-    await markHunterLeadRunning(lead.id);
+    // Compare-and-set (2569-09-02, Bug Audit 4): false = someone (the
+    // admin's manual button) already has this lead running — skip rather
+    // than run a second, concurrent review on it.
+    const started = await markHunterLeadRunning(lead.id);
+    if (!started) {
+      console.log(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): already running elsewhere, skipped`);
+      continue;
+    }
     try {
       // Haiku 4.5 (2026-08-31): after a side-by-side comparison against
       // Sonnet 5 on real Hunter lead images (scripts/compareModels.ts)
@@ -165,6 +204,14 @@ async function reviewFoundLeads(foundLeads: FoundLead[]): Promise<number> {
       // customer-facing check-ad endpoint (lib/automationCheckAd.ts's
       // checkAdImageUrl, singular) is untouched and still uses Sonnet 5.
       const result = await checkAdImageUrls(imageUrls, { caption: lead.clinic_name, model: "claude-haiku-4-5" });
+      // All links dead / not images (2569-09-02, Bug Audit 4) — a failed
+      // run, not a 'done' one; same handling as the manual run route.
+      if (result.allFailed) {
+        const message = "โหลดรูปไม่ได้ทุกลิงก์ (ลิงก์หมดอายุ/ไม่ใช่รูป): " + result.failedUrls.join(", ");
+        await markHunterLeadFailed(lead.id, message);
+        console.error(`[hunter-auto-fill] ${lead.id} ("${lead.clinic_name}"): every image failed to load`);
+        continue;
+      }
       // Sales Lead Distribution (2026-09-01): see the module comment above
       // — persists the overall outcome so this lead can enter the sales
       // pool if it found a problem.
@@ -181,11 +228,25 @@ async function reviewFoundLeads(foundLeads: FoundLead[]): Promise<number> {
 }
 
 async function main() {
+  // Stuck-'running' watchdog (2569-09-02, Bug Audit 4): a previous cron
+  // process OOM-killed mid-review (see the memory notes above) left its
+  // lead 'running' forever. Same recovery the admin queue's GET runs.
+  const recovered = await recoverStaleRunningLeads();
+  if (recovered > 0) {
+    console.log(`[hunter-auto-fill] recovered ${recovered} lead(s) stuck at 'running' -> failed`);
+  }
+
+  // Fair rotation — see MAX_AUTO_FILL_ATTEMPTS / AUTO_FILL_RETRY_HOURS above.
   const leads = (await sql`
     SELECT id, clinic_name, province, source_link
     FROM hunter_leads
     WHERE status = 'awaiting_images'
-    ORDER BY created_at ASC
+      AND auto_fill_attempts < ${MAX_AUTO_FILL_ATTEMPTS}
+      AND (
+        auto_fill_last_attempt_at IS NULL
+        OR auto_fill_last_attempt_at < now() - (${AUTO_FILL_RETRY_HOURS} * interval '1 hour')
+      )
+    ORDER BY auto_fill_last_attempt_at ASC NULLS FIRST, created_at ASC
     LIMIT ${MAX_LEADS_PER_RUN}
   `) as PendingLead[];
 
