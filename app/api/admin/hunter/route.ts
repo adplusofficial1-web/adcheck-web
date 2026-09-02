@@ -3,7 +3,12 @@ import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
 import { listHunterLeads, importHunterLeads } from "@/lib/hunterLeads";
 import { stripNulBytes } from "@/lib/validation";
 
-const MAX_IMPORT_ROWS = 500; // sanity ceiling, same spirit as MAX_GRANT_AMOUNT in app/api/admin/credits/route.ts
+// CHANGE (2569-09-02): raised from 500 — safe now that importHunterLeads
+// (lib/hunterLeads.ts) batch-inserts in chunks instead of one INSERT per
+// row, so a large import no longer risks a Render request timeout
+// partway through. Still a real ceiling (not "unlimited"): a sanity
+// bound, same spirit as MAX_GRANT_AMOUNT in app/api/admin/credits/route.ts.
+const MAX_IMPORT_ROWS = 3000;
 
 // GET /api/admin/hunter — the full queue table on
 // app/admin/marketing/hunter/page.tsx. Replaces the old client-only
