@@ -45,6 +45,17 @@ return typeof v === "string" && (ALLOWED_STATUS as string[]).includes(v);
 // check pipeline state) — the Pipeline tab never rendered that field, and
 // a self-sourced lead has no AI check at all, so keeping it around here
 // only invited confusion between two different "status" concepts.
+// CHANGE (2569-09-02, per user request "ทุกครั้งที่เปลี่ยนสถานะ อยากให้กำกับ
+// วันที่ด้วย ทุกครั้งที่เปลี่ยน" + "เพิ่มในแต่ละคลินิก"): status_changed_at —
+// when THIS Hunter last moved this clinic's pipeline_status, so the Pipeline
+// tab can show a date/time on every card. Deliberately NOT the same as the
+// underlying table's `updated_at`, which also bumps on a notes-only save
+// (see upsertHunterLeadPipeline/updateHunterSelfLead below) — that would
+// make a card's date move just from editing a note without ever changing
+// stage. For an admin-sent lead this Hunter has never touched yet (no
+// hunter_lead_pipeline row exists), this falls back to when the admin sent
+// it (hunter_leads.hunter_sent_at) — see the query below — since there is
+// no per-Hunter status-change event to report yet.
 export type HunterPipelineLead = {
 id: string;
 clinic_name: string;
@@ -55,6 +66,7 @@ result_url: string | null;
 review_status: HunterLeadReviewStatus | null;
 flag_count: number | null;
 pipeline_status: HunterPipelineStatus;
+status_changed_at: string;
 notes: string;
 source: "admin" | "self";
 };
@@ -95,6 +107,7 @@ SELECT
 hl.id, hl.clinic_name, hl.province, hl.source_link, hl.result_url, hl.created_at,
 hl.review_status, hl.flag_count,
 COALESCE(hlp.status, 'new') AS pipeline_status,
+COALESCE(hlp.status_changed_at, hl.hunter_sent_at) AS status_changed_at,
 COALESCE(hlp.notes, '') AS notes,
 'admin' AS source
 FROM hunter_leads hl
@@ -107,7 +120,7 @@ const selfRows = (await sql`
 SELECT
 id, clinic_name, province, source_link, created_at,
 NULL::text AS result_url, NULL::text AS review_status, NULL::int AS flag_count,
-pipeline_status, notes,
+pipeline_status, status_changed_at, notes,
 'self' AS source
 FROM hunter_self_leads
 WHERE hunter_user_id = ${hunterUserId}
@@ -128,7 +141,7 @@ fields: { clinicName: string; province?: string; sourceLink?: string }
 const [row] = (await sql`
 INSERT INTO hunter_self_leads (hunter_user_id, clinic_name, province, source_link)
 VALUES (${hunterUserId}, ${fields.clinicName}, ${fields.province ?? null}, ${fields.sourceLink ?? null})
-RETURNING id, clinic_name, province, source_link, created_at, pipeline_status, notes
+RETURNING id, clinic_name, province, source_link, created_at, pipeline_status, status_changed_at, notes
 `) as any[];
 return {
 ...row,
@@ -149,15 +162,23 @@ export async function updateHunterSelfLead(
 hunterUserId: string,
 id: string,
 update: { status?: HunterPipelineStatus; notes?: string }
-): Promise<{ status: HunterPipelineStatus; notes: string } | null> {
+): Promise<{ status: HunterPipelineStatus; notes: string; status_changed_at: string } | null> {
+// status_changed_at only moves when the incoming status is both present
+// AND actually different from the row's current value — a notes-only save
+// (status undefined) or re-selecting the same stage leaves it untouched.
+// See the CHANGE note on HunterPipelineLead above for why this can't just
+// reuse updated_at.
 const [row] = (await sql`
 UPDATE hunter_self_leads SET
 pipeline_status = COALESCE(${update.status ?? null}, pipeline_status),
 notes = COALESCE(${update.notes ?? null}, notes),
+status_changed_at = CASE
+WHEN ${update.status ?? null}::text IS NOT NULL AND ${update.status ?? null}::text IS DISTINCT FROM pipeline_status
+THEN now() ELSE status_changed_at END,
 updated_at = now()
 WHERE id = ${id} AND hunter_user_id = ${hunterUserId}
-RETURNING pipeline_status AS status, notes
-`) as { status: HunterPipelineStatus; notes: string }[];
+RETURNING pipeline_status AS status, notes, status_changed_at
+`) as { status: HunterPipelineStatus; notes: string; status_changed_at: string }[];
 return row ?? null;
 }
 
@@ -183,16 +204,25 @@ export async function upsertHunterLeadPipeline(
 hunterUserId: string,
 hunterLeadId: string,
 update: { status?: HunterPipelineStatus; notes?: string }
-): Promise<{ status: HunterPipelineStatus; notes: string } | null> {
+): Promise<{ status: HunterPipelineStatus; notes: string; status_changed_at: string } | null> {
+// On first INSERT (no row yet for this Hunter+lead pair), the column's
+// table-level DEFAULT now() covers status_changed_at — this is genuinely
+// the first time THIS Hunter has ever set a status on this lead. On the
+// ON CONFLICT branch, same rule as updateHunterSelfLead above: only bump
+// when an incoming status is present and actually differs from the
+// existing one, so a notes-only save never moves the date.
 const [row] = (await sql`
 INSERT INTO hunter_lead_pipeline (hunter_user_id, hunter_lead_id, status, notes)
 VALUES (${hunterUserId}, ${hunterLeadId}, ${update.status ?? "new"}, ${update.notes ?? ""})
 ON CONFLICT (hunter_user_id, hunter_lead_id) DO UPDATE SET
 status = COALESCE(${update.status ?? null}, hunter_lead_pipeline.status),
 notes = COALESCE(${update.notes ?? null}, hunter_lead_pipeline.notes),
+status_changed_at = CASE
+WHEN ${update.status ?? null}::text IS NOT NULL AND ${update.status ?? null}::text IS DISTINCT FROM hunter_lead_pipeline.status
+THEN now() ELSE hunter_lead_pipeline.status_changed_at END,
 updated_at = now()
-RETURNING status, notes
-`) as { status: HunterPipelineStatus; notes: string }[];
+RETURNING status, notes, status_changed_at
+`) as { status: HunterPipelineStatus; notes: string; status_changed_at: string }[];
 return row ?? null;
 }
 

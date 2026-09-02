@@ -31,9 +31,26 @@ type PipelineLead = {
   review_status: "passed" | "caution" | "violation" | null;
   flag_count: number | null;
   pipeline_status: PipelineStatus;
+  status_changed_at: string;
   notes: string;
   source: LeadSource;
 };
+
+// CHANGE (2569-09-02, per user request "ทุกครั้งที่เปลี่ยนสถานะ อยากให้กำกับ
+// วันที่ด้วย ทุกครั้งที่เปลี่ยน" + "เพิ่มในแต่ละคลินิก"): same relative-time-
+// then-date-fallback convention components/sales/SalesLeadList.tsx already
+// uses for "ได้รับมอบหมาย X ที่แล้ว" — reused here for "เปลี่ยนสถานะล่าสุด"
+// on every card so recent changes read at a glance and older ones fall back
+// to a plain Thai (Buddhist-era) date.
+function timeAgoLabel(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "เมื่อสักครู่";
+  if (mins < 60) return `${mins} นาทีที่แล้ว`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} ชั่วโมงที่แล้ว`;
+  return new Date(iso).toLocaleDateString("th-TH");
+}
 
 // FIX (bug audit, 2569-09-01): STAGES used to list only 5 of the 6 valid
 // PipelineStatus values — "no_response" was missing entirely, even though
@@ -209,6 +226,12 @@ function LeadCard({
           </option>
         ))}
       </select>
+      {/* CHANGE (2569-09-02, per user request "ทุกครั้งที่เปลี่ยนสถานะ อยากให้
+          กำกับวันที่ด้วย ทุกครั้งที่เปลี่ยน" + "เพิ่มในแต่ละคลินิก"): shows when
+          THIS Hunter last moved this card's stage — not when the card was
+          created/sent, and not bumped by a notes-only save (see
+          lib/hunterPipeline.ts's status_changed_at). */}
+      <div className="mt-1 text-[10px] text-tertiary">เปลี่ยนสถานะล่าสุด: {timeAgoLabel(lead.status_changed_at)}</div>
       <div className="mt-1 flex items-center justify-between gap-2">
         {savingNotes ? <div className="text-[10px] text-tertiary">กำลังบันทึกโน้ต…</div> : <span />}
         {lead.source === "self" && (
@@ -323,7 +346,12 @@ export function HunterPipelineTab() {
         prev
           ? prev.map((l) =>
               l.id === id
-                ? { ...l, pipeline_status: data.pipelineStatus ?? l.pipeline_status, notes: data.notes ?? l.notes }
+                ? {
+                    ...l,
+                    pipeline_status: data.pipelineStatus ?? l.pipeline_status,
+                    notes: data.notes ?? l.notes,
+                    status_changed_at: data.statusChangedAt ?? l.status_changed_at,
+                  }
                 : l
             )
           : prev
