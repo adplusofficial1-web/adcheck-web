@@ -1,9 +1,6 @@
-import { HunterImport } from "@/components/admin/HunterImport";
 import { MarketingSubNav } from "@/components/admin/MarketingSubNav";
-import { SalesOverview } from "@/components/admin/SalesOverview";
-import { HunterUsersManager } from "@/components/admin/HunterUsersManager";
-import { HunterCommissionOverview } from "@/components/admin/HunterCommissionOverview";
 import { HunterPipelineOverview } from "@/components/admin/HunterPipelineOverview";
+import { HunterMarketingTabs } from "@/components/admin/HunterMarketingTabs";
 
 // Admin > Marketing > Hunter — see components/admin/HunterImport.tsx for
 // the full writeup. Kept as a route sibling of /admin/marketing (not a
@@ -25,12 +22,6 @@ import { HunterPipelineOverview } from "@/components/admin/HunterPipelineOvervie
 // app/hunter/page.tsx and the project doc "Hunter Freelancer Page -
 // Design.md".
 //
-// CHANGE (2026-09-01, per user request): SalesOverview + HunterUsersManager
-// moved ABOVE HunterImport (which has a long, scrollable per-clinic table —
-// 50+ rows in practice) — an admin adding/disabling a sales rep or Hunter
-// freelancer used to have to scroll past the entire clinic queue to reach
-// those forms every time.
-//
 // ADDED (Hunter Referral Commission, 2569-09-01): HunterCommissionOverview
 // — the admin-side payout queue (per-Hunter totals + mark-paid) — sits
 // right below HunterUsersManager, same reasoning as the ordering above:
@@ -41,10 +32,17 @@ import { HunterPipelineOverview } from "@/components/admin/HunterPipelineOvervie
 // — a combined total of the 6 pipeline statuses across every Hunter (see
 // lib/hunterPipeline.ts's getHunterPipelineOverview). Scoped by the user to
 // just this summary row, not a per-Hunter table or a merged Kanban board —
-// those stay private to each Hunter on /hunter. Placed after
-// HunterCommissionOverview and before HunterImport: it's read-only glance
-// info, same tier as the commission overview above it, and shouldn't sit
-// below the long clinic import table.
+// those stay private to each Hunter on /hunter.
+//
+// CHANGE (2026-09-02, Hunter tab restructure, per user request): this page
+// used to stack SalesOverview, HunterUsersManager, HunterCommissionOverview
+// and HunterImport directly on top of each other — one long scroll below
+// the Pipeline summary. All four (Commission's payout-queue half split out
+// into a 5th) now live inside HunterMarketingTabs as tabs instead —
+// HunterPipelineOverview is the one exception, staying pinned above the
+// tab bar since it's glance-level info relevant no matter which tab is
+// open. See components/admin/HunterMarketingTabs.tsx for the tab list and
+// the renamed labels.
 export default function MarketingHunterPage() {
   return (
     <div className="max-w-5xl mx-auto">
@@ -60,16 +58,10 @@ export default function MarketingHunterPage() {
         <MarketingSubNav />
       </div>
 
-      <SalesOverview />
-
-      <HunterUsersManager />
-
-      <HunterCommissionOverview />
-
       <HunterPipelineOverview />
 
       <div className="mt-10">
-        <HunterImport />
+        <HunterMarketingTabs />
       </div>
     </div>
   );
