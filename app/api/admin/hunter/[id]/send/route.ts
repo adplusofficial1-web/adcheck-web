@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
-import { getHunterLead, markHunterLeadSent, unmarkHunterLeadSent } from "@/lib/hunterLeads";
+import { getHunterLead, markHunterLeadSent, unmarkHunterLeadSent, NO_ACTIVE_HUNTER_MESSAGE } from "@/lib/hunterLeads";
 import { isValidUuid } from "@/lib/validation";
 
 // POST /api/admin/hunter/[id]/send — the "ส่ง" button in HunterImport.tsx's
@@ -21,6 +21,13 @@ import { isValidUuid } from "@/lib/validation";
 // already treated as "ส่งไม่สำเร็จ") — caught below and surfaced as a 400
 // with the thrown message so the admin sees exactly why the send didn't
 // go through, rather than a generic 500.
+//
+// CHANGE (2569-09-02, Bug Audit 4): markHunterLeadSent's UPDATE now also
+// requires hunter_sent_at IS NULL, so a second "ส่ง" on an already-sent
+// lead (double-click, two admins) no longer silently REASSIGNS it to a
+// different Hunter — it returns null here and the route answers 409
+// "ถูกส่งไปแล้ว". The pre-checks moved inside the try/catch so a DB error
+// there is a generic JSON 500, not an unhandled throw.
 export async function POST(req: Request, { params }: { params: { id: string } }) {
 const adminEmail = await getCurrentPlatformAdminEmail();
 if (!adminEmail) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -29,24 +36,29 @@ if (!isValidUuid(params.id)) {
 return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
 }
 
+try {
 const lead = await getHunterLead(params.id);
 if (!lead) return NextResponse.json({ error: "ไม่พบรายการนี้" }, { status: 404 });
 if (lead.status !== "done") {
 return NextResponse.json({ error: "ต้องตรวจสอบเสร็จก่อนถึงจะส่งได้" }, { status: 400 });
 }
+if (lead.hunter_sent_at) {
+return NextResponse.json({ error: "รายการนี้ถูกส่งไปแล้ว" }, { status: 409 });
+}
 
-try {
 const updated = await markHunterLeadSent(params.id);
-if (!updated) return NextResponse.json({ error: "ส่งไม่สำเร็จ" }, { status: 500 });
+// null = the guarded UPDATE matched 0 rows: someone else sent it (or it
+// left 'done') between the read above and the write.
+if (!updated) return NextResponse.json({ error: "รายการนี้ถูกส่งไปแล้ว" }, { status: 409 });
 return NextResponse.json({ lead: updated });
 } catch (e) {
 console.error(`POST /api/admin/hunter/${params.id}/send failed:`, e);
-// No active Hunter to assign to (pickHunterForAssignment returned null)
-// is a distinct, expected failure mode worth its own clear message —
+// No active Hunter to assign to (markHunterLeadSent's pre-check) is a
+// distinct, expected failure mode worth its own clear message —
 // everything else stays a generic 500 like before.
 const message = e instanceof Error ? e.message : "";
-if (message.includes("ไม่มี Hunter ที่เปิดใช้งานอยู่")) {
-return NextResponse.json({ error: message }, { status: 400 });
+if (message === NO_ACTIVE_HUNTER_MESSAGE) {
+return NextResponse.json({ error: NO_ACTIVE_HUNTER_MESSAGE }, { status: 400 });
 }
 return NextResponse.json({ error: "ส่งไม่สำเร็จ" }, { status: 500 });
 }
