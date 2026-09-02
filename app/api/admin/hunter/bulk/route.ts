@@ -3,7 +3,12 @@ import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
 import { bulkDeleteHunterLeads } from "@/lib/hunterLeads";
 import { isValidUuid } from "@/lib/validation";
 
-const MAX_BULK_DELETE = 500; // same ceiling as MAX_IMPORT_ROWS in ../route.ts
+// Per-request ceiling. NOTE: this is deliberately NOT tied to MAX_IMPORT_ROWS
+// in ../route.ts (that one was raised to 3000 on 2569-09-02) — each id here
+// is its own DELETE round-trip (see bulkDeleteHunterLeads), so 500 keeps one
+// request well inside Render's timeout. The client (HunterImport.tsx
+// bulkDelete) chunks a larger selection into sequential 500-id calls.
+const MAX_BULK_DELETE = 500;
 
 // DELETE /api/admin/hunter/bulk — the checkbox multi-select "ลบที่เลือก"
 // button in HunterImport.tsx (2026-09-01, per user request: "มีปุ่มติ๊กที่
@@ -17,8 +22,9 @@ const MAX_BULK_DELETE = 500; // same ceiling as MAX_IMPORT_ROWS in ../route.ts
 // assigned to a sales rep (see the FK note on deleteHunterLead) fails on
 // its own instead of rolling back every other delete the admin selected —
 // the response reports both which ids were deleted and which failed, with
-// a reason, so the admin isn't left guessing why the count came back lower
-// than expected.
+// a reason ("ลบไม่ได้เพราะมีข้อมูลผูกอยู่ (มอบหมายให้เซลล์/มีค่าคอมมิชชั่นแล้ว)"
+// for an FK violation), so the admin isn't left guessing why the count
+// came back lower than expected.
 export async function DELETE(req: Request) {
   const adminEmail = await getCurrentPlatformAdminEmail();
   if (!adminEmail) return NextResponse.json({ error: "forbidden" }, { status: 403 });
