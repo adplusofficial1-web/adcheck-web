@@ -41,21 +41,21 @@ export default async function UploadPage({
     <main>
       <Nav credits={business?.credits_remaining ?? 0} />
       <div className="max-w-2xl mx-auto px-6 py-14">
-        <h1 className="text-2xl font-medium mb-2">อัพโหลดภาพโฆษณา</h1>
+        <h1 className="text-2xl font-medium mb-2">อัปโหลดภาพโฆษณา</h1>
         {isForOther && !agencyPlanBlocked && (
           <p className="text-sm text-secondary mb-2">
-            กำลังอัพโหลดให้ <span className="font-medium text-primary">{target.name}</span> ในเครือข่ายของคุณ —
+            กำลังอัปโหลดให้ <span className="font-medium text-primary">{target.name}</span> ในเครือข่ายของคุณ —
             ใช้เครดิตรวมจากแพ็กเกจองค์กรของคุณ
           </p>
         )}
         {agencyPlanBlocked ? (
           <div className="rounded-lg border border-warning bg-warningSoft p-5 mt-6">
             <p className="text-sm font-medium mb-1">
-              ต้องสมัครแพ็กเกจองค์กรก่อนอัพโหลดให้คลินิกในเครือข่าย
+              ต้องสมัครแพ็กเกจองค์กรก่อนอัปโหลดให้คลินิกในเครือข่าย
             </p>
             <p className="text-sm text-secondary mb-4">
               บัญชีของคุณยังไม่ได้สมัคร หรือแพ็กเกจองค์กร (หลายสาขา) หมดอายุแล้ว — สมัครหรือต่ออายุเพื่อปลดล็อกการ
-              อัพโหลดให้ทุกคลินิกในเครือข่ายนี้อีกครั้ง
+              อัปโหลดให้ทุกคลินิกในเครือข่ายนี้อีกครั้ง
             </p>
             <Link
               href="/agency/checkout?plan=agency"
