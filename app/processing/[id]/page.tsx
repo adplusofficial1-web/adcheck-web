@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { notFound, redirect } from "next/navigation";
 import { ProcessingScreen } from "@/components/ProcessingScreen";
 import { sql } from "@/lib/db";
+import { isValidUuid } from "@/lib/validation";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getAccessibleBusinessIds } from "@/lib/agency";
 
@@ -30,6 +31,12 @@ export default async function ProcessingPage({
   // itself (rather than fetching by id and checking afterward) so a
   // signed-in user can never even learn whether a submission id belonging
   // to a business it can't access exists at all.
+  // Bug Audit 4 (2569-09-02): a non-UUID id used to reach Postgres and throw
+  // (`invalid input syntax for type uuid`) → a 500 "Application error" page
+  // for any mistyped/old link, unlike the API routes which were guarded in
+  // audit 1. Treat it as "no such submission" like any other unknown id.
+  if (!isValidUuid(params.id)) notFound();
+
   const accessibleIds = await getAccessibleBusinessIds(business.id);
   const [submission] = await sql`
     SELECT id FROM submissions WHERE id = ${params.id} AND business_id = ANY(${accessibleIds}::uuid[])
