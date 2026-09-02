@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { notFound, redirect } from "next/navigation";
 import { sql } from "@/lib/db";
+import { isValidUuid } from "@/lib/validation";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { getAccessibleBusinessIds } from "@/lib/agency";
 import { AutoPrint } from "@/components/AutoPrint";
@@ -35,14 +36,24 @@ export default async function ResultsPdfPage({ params }: { params: { id: string 
   // signed-in user who guessed a submission id could open (and print/save)
   // another business's report (same pattern in results/[id]/page.tsx and
   // processing/[id]/page.tsx).
+  // Bug Audit 4 (2569-09-02): a non-UUID id used to reach Postgres and throw
+  // (`invalid input syntax for type uuid`) → a 500 "Application error" page
+  // for any mistyped/old link, unlike the API routes which were guarded in
+  // audit 1. Treat it as "no such submission" like any other unknown id.
+  if (!isValidUuid(params.id)) notFound();
+
   const accessibleIds = await getAccessibleBusinessIds(business.id);
   const [submission] = await sql`
     SELECT * FROM submissions WHERE id = ${params.id} AND business_id = ANY(${accessibleIds}::uuid[])
   `;
   if (!submission) notFound();
 
+  // Bug Audit 4 (2569-09-02): the base64 picture itself is no longer read
+  // here — pages embed <img src="/api/images/<id>"> (see that route) so this
+  // HTML stays small; has_image just tells the template whether to render
+  // the <img> at all.
   const images = (await sql`
-    SELECT * FROM submission_images WHERE submission_id = ${params.id} ORDER BY sort_order ASC
+    SELECT id, submission_id, caption, file_type, file_size_bytes, sort_order, filename, status, (image_url LIKE 'data:%') AS has_image FROM submission_images WHERE submission_id = ${params.id} ORDER BY sort_order ASC
   `) as any[];
 
   const flags = (await sql`
@@ -161,10 +172,10 @@ export default async function ResultsPdfPage({ params }: { params: { id: string 
                 </div>
 
                 <div className="flex flex-col md:flex-row gap-4">
-                  {img.image_url && img.image_url.startsWith("data:") && (
+                  {img.has_image && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={img.image_url}
+                      src={`/api/images/${img.id}`}
                       alt={img.filename}
                       className="w-1/2 md:w-1/5 md:shrink-0 max-h-48 object-contain rounded-md bg-page"
                     />
