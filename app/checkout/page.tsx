@@ -1,11 +1,17 @@
 export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
+import QRCode from "qrcode";
 import { getPlans } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { isOmiseConfigured } from "@/lib/omise";
+import { isQrPaymentMode } from "@/lib/paymentMode";
+import { buildPromptPayQrPayload } from "@/lib/promptpay";
+import { COMPANY_BANK_ACCOUNT } from "@/lib/companyBankAccount";
+import { getPendingManualPaymentForBusiness } from "@/lib/qrPayments";
 import { Nav } from "@/components/Nav";
 import { DisclaimerBox } from "@/components/DisclaimerBox";
 import { CheckoutForm } from "./CheckoutForm";
+import { QrCheckoutForm } from "./QrCheckoutForm";
 
 // There is no per-clinic checkout any more — every purchase here (whether
 // it's a solo clinic's own package or an agency's shared code='agency'
@@ -23,6 +29,55 @@ export default async function CheckoutPage({
   const business = await getCurrentBusiness();
   if (!business) {
     redirect("/login");
+  }
+
+  const amount = Number(plan.price_thb);
+
+  // PAYMENT_MODE (2569-09-03, lib/paymentMode.ts): interim manual QR
+  // PromptPay / bank-transfer flow while ADCheck's own Omise merchant
+  // account is still pending approval. Set PAYMENT_MODE=omise on Render
+  // once it's approved to flip straight back to the card/Omise checkout
+  // below — nothing about that path is touched by this branch.
+  if (isQrPaymentMode()) {
+    const qrPayload = buildPromptPayQrPayload(COMPANY_BANK_ACCOUNT.promptPayTaxId, amount);
+    const qrDataUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 288 });
+    const pending = await getPendingManualPaymentForBusiness(business.id, plan.id);
+
+    return (
+      <main>
+        <Nav credits={business?.credits_remaining} />
+        <div className="max-w-lg mx-auto px-6 py-14">
+          <h1 className="text-2xl font-medium mb-2">ยืนยันการชำระเงิน</h1>
+          <div className="bg-accentSoft rounded-lg p-4 flex items-center justify-between gap-4 mb-8 mt-4">
+            <div className="min-w-0">
+              <div className="font-medium">
+                แพ็ก{plan.name} — {plan.monthly_image_credits} ครั้ง
+              </div>
+              <div className="text-xs text-secondary">เครดิตจำนวนนี้จะถูกเพิ่มเข้าไป (ไม่ได้แทนที่ยอดเดิม) พร้อมรอบใช้งาน 30 วันนับจากวันที่ทีมงานอนุมัติ</div>
+            </div>
+            <div className="flex items-baseline gap-1 flex-shrink-0 whitespace-nowrap">
+              <span className="text-2xl font-semibold tabular-nums">{amount.toLocaleString("th-TH")}</span>
+              <span className="text-sm text-secondary">บาท</span>
+            </div>
+          </div>
+
+          {!pending && <DisclaimerBox className="mb-6" />}
+
+          <QrCheckoutForm
+            planCode={plan.code}
+            planName={plan.name}
+            amount={amount}
+            qrDataUrl={qrDataUrl}
+            bankAccount={COMPANY_BANK_ACCOUNT}
+            pending={
+              pending
+                ? { invoiceNumber: pending.invoice_number, createdAt: pending.created_at }
+                : null
+            }
+          />
+        </div>
+      </main>
+    );
   }
 
   // isOmiseConfigured() only checks env vars are present — it never touches
@@ -58,7 +113,7 @@ export default async function CheckoutPage({
               text-xl string competing for space with the text block above. */}
           <div className="flex items-baseline gap-1 flex-shrink-0 whitespace-nowrap">
             <span className="text-2xl font-semibold tabular-nums">
-              {Number(plan.price_thb).toLocaleString()}
+              {amount.toLocaleString()}
             </span>
             <span className="text-sm text-secondary">บาท</span>
           </div>
@@ -85,7 +140,7 @@ export default async function CheckoutPage({
         <DisclaimerBox className="mb-6" />
         <CheckoutForm
           planCode={plan.code}
-          amount={Number(plan.price_thb)}
+          amount={amount}
           paymentEnabled={paymentEnabled}
           omisePublicKey={omisePublicKey}
         />

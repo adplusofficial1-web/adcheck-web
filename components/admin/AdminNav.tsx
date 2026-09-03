@@ -7,6 +7,12 @@ const TABS = [
   { href: "/admin/knowledge-base", label: "คลังความรู้" },
   { href: "/admin/marketing", label: "Marketing" },
   { href: "/admin/credits", label: "เครดิต" },
+  // Interim manual QR PromptPay / bank-transfer review queue (2569-09-03)
+  // -- see lib/paymentMode.ts. Pull this tab once PAYMENT_MODE is back to
+  // "omise" and manual_payment_requests has stopped taking new rows, if it
+  // ever feels like clutter -- the underlying data/API stays intact either
+  // way for historical lookups.
+  { href: "/admin/manual-payments", label: "ตรวจสลิปโอนเงิน" },
   // Kept as its own tab rather than folded into "Marketing" above — that
   // page is an unrelated professional-association outreach tracker (see
   // lib/marketingAssociations.ts), and mixing customer-reported bugs into
