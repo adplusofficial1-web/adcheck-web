@@ -149,16 +149,18 @@ function normalizeClinicName(name: string): string {
 // freelancers yet) / ส่งสำเร็จ (hunter_sent_at is set — visible on /hunter).
 // See displayStatus() below and migrations/013_hunter_sent.sql.
 
-type DisplayStatus = "awaiting_review" | "queued" | "sent";
+type DisplayStatus = "awaiting_review" | "no_ads" | "queued" | "sent";
 
 function displayStatus(lead: HunterLead): DisplayStatus {
   if (lead.hunter_sent_at) return "sent";
   if (lead.status === "done") return "queued";
+  if (lead.status === "awaiting_images" && lead.auto_fill_attempts > 0) return "no_ads";
   return "awaiting_review";
 }
 
 const DISPLAY_STATUS_LABEL: Record<DisplayStatus, string> = {
   awaiting_review: "รอตรวจสอบ",
+  no_ads: "ไม่โฆษณา",
   queued: "รอคิว",
   sent: "ส่งสำเร็จ",
 };
@@ -169,6 +171,8 @@ function StatusBadge({ status }: { status: DisplayStatus }) {
       ? "bg-accentSoft text-accent"
       : status === "queued"
       ? "bg-warningSoft text-warning"
+    : status === "no_ads"
+  ? "bg-dangerSoft text-danger"
       : "bg-page text-tertiary border border-border";
   return (
     <span className={`rounded-pill px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${cls}`}>
@@ -926,6 +930,7 @@ export function HunterImport() {
   // leads array (not the filtered view below) so the tab counts don't
   // shrink to 0 once you've clicked into a filter.
   const awaitingReviewCount = leads.filter((l) => displayStatus(l) === "awaiting_review").length;
+  const noAdsCount = leads.filter((l) => displayStatus(l) === "no_ads").length;
   const queuedCount = leads.filter((l) => displayStatus(l) === "queued").length;
   const sentCount = leads.filter((l) => displayStatus(l) === "sent").length;
 
@@ -1262,6 +1267,7 @@ export function HunterImport() {
           {(
             [
               ["awaiting_review", awaitingReviewCount],
+              ["no_ads", noAdsCount],
               ["queued", queuedCount],
               ["sent", sentCount],
             ] as [DisplayStatus, number][]
