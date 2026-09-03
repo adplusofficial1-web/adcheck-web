@@ -81,7 +81,25 @@ function buildSearchUrl(opts: { pageId: string | null; query: string }): string 
     active_status: "active",
     ad_type: "all",
     country: "TH",
-    media_type: "image",
+    // CHANGE (2026-09-03): was "image" — narrowed the search itself to
+    // image-only ads, which silently returned ZERO results for any lead
+    // whose currently-active Facebook ads happen to be video/carousel
+    // rather than a plain single static image. Confirmed directly against
+    // a real stuck lead ("Seoul - N Clinic"): its page had 25 active ads,
+    // 0 of them matched media_type=image, all 25 showed up once that
+    // param was widened to "all". Switched to "all" and let
+    // extractCreativeImageUrls() below do the real filtering instead —
+    // verified via direct DOM inspection of that same page's results that
+    // this is safe: Meta renders a video ad's thumbnail as
+    // `<video poster="...">`, never as a matching `<img src="...">`, so
+    // extractCreativeImageUrls()'s <img>-only query naturally never picks
+    // up a video creative even with media_type=all. A carousel/slide
+    // (album) ad, by contrast, DOES render each frame as a real
+    // `<img src="fbcdn.net/...">` in the results grid, so those are now
+    // correctly picked up too (per explicit product decision: pull image
+    // and carousel/slide ads, whatever is actually gettable, but never a
+    // video's poster frame as a stand-in for the real ad content).
+    media_type: "all",
     search_type: "keyword_unordered",
   });
   if (opts.pageId) {
@@ -101,6 +119,16 @@ function buildSearchUrl(opts: { pageId: string | null; query: string }): string 
 // tags with real fbcdn.net URLs once it finishes its (lazy) initial load,
 // which manual testing found just as reliable and considerably faster than
 // clicking into every card individually.
+//
+// NOTE (2026-09-03): with media_type now "all" (see buildSearchUrl above),
+// this same query is also what keeps video ads out — Meta renders a video
+// creative as `<video poster="...">`, not `<img src="...">`, so it never
+// matches the `document.querySelectorAll("img")` below no matter how wide
+// its poster frame is. Confirmed empirically: on a results page mixing 15
+// video ads and several image/carousel ads, zero of the matched <img>
+// elements traced back to a video ad's container. A carousel/slide (album)
+// ad renders multiple real <img fbcdn.net> frames per card, so those are
+// picked up correctly (up to `limit` total, same as a single-image ad).
 async function extractCreativeImageUrls(browser: Browser, url: string, limit: number): Promise<string[]> {
   const page = await browser.newPage();
   try {
