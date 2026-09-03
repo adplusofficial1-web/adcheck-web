@@ -80,7 +80,7 @@ const AUTO_FILL_RETRY_HOURS = 24;
 // hitting the ceiling on a given run — any lead left over just waits for
 // the next scheduled run (see the re-run-safe note above), so this only
 // slows the backlog down, it doesn't lose anything.
-const MAX_LEADS_PER_RUN = 5;
+const MAX_LEADS_PER_RUN = 10;
 
 // FIX (2026-08-31): trimmed Chrome's own memory footprint to fit the 512MB
 // Render Starter plan, alongside the MAX_LEADS_PER_RUN cut above. Beyond
