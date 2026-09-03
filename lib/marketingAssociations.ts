@@ -53,8 +53,24 @@ export async function listMarketingAssociations(): Promise<MarketingAssociation[
   // LEFT JOIN + COUNT so a card can show "3 ผู้ติดต่อ" without a separate
   // query per association — contact_count is 0 (not null) for associations
   // with no contacts yet thanks to the LEFT JOIN + COUNT(contacts.id).
+  // FIX (2569-09-03, "เกิดข้อผิดพลาดชั่วคราว" crash on /admin/marketing):
+  // next_followup is a Postgres DATE column, and the @neondatabase/serverless
+  // `neon()` HTTP driver used by lib/db.ts returns DATE columns as native JS
+  // Date objects — not the plain "YYYY-MM-DD" string this module's own
+  // MarketingAssociation type promises. That Date object crossed the Server
+  // Component -> Client Component boundary intact (page.tsx passes this
+  // straight into <MarketingTracker initialAssociations={...} />, so it
+  // never passes through JSON.stringify the way the API-route paths do) and
+  // MarketingTracker.tsx renders it directly (`นัดติดตาม: {a.next_followup}`),
+  // which crashed with React error #31 ("Objects are not valid as a React
+  // child (found: [object Date])") the moment any association actually had
+  // a follow-up date set — harmless while every next_followup was NULL,
+  // which is why this wasn't caught until real dates were entered. Casting
+  // to text at the SQL layer guarantees a plain date string everywhere this
+  // is read from, matching the type this module has always declared.
   const rows = await sql`
-    SELECT a.id, a.name, a.contact, a.phase, a.status, a.next_followup, a.notes,
+    SELECT a.id, a.name, a.contact, a.phase, a.status,
+      to_char(a.next_followup, 'YYYY-MM-DD') AS next_followup, a.notes,
       a.created_by, a.created_at, a.updated_at,
       COUNT(c.id)::int AS contact_count
     FROM marketing_associations a
@@ -80,7 +96,8 @@ export async function createMarketingAssociation(input: {
     INSERT INTO marketing_associations (name, contact, phase, status, next_followup, notes, created_by)
     VALUES (${input.name}, ${input.contact ?? null}, ${phase}, ${status},
       ${input.nextFollowup ?? null}, ${input.notes ?? null}, ${input.createdBy})
-    RETURNING id, name, contact, phase, status, next_followup, notes, created_by, created_at, updated_at
+    RETURNING id, name, contact, phase, status, to_char(next_followup, 'YYYY-MM-DD') AS next_followup,
+      notes, created_by, created_at, updated_at
   `) as any[];
   return row;
 }
@@ -109,7 +126,8 @@ export async function updateMarketingAssociation(
       status = ${input.status}, next_followup = ${input.nextFollowup ?? null},
       notes = ${input.notes ?? null}, updated_at = now()
     WHERE id = ${id}
-    RETURNING id, name, contact, phase, status, next_followup, notes, created_by, created_at, updated_at
+    RETURNING id, name, contact, phase, status, to_char(next_followup, 'YYYY-MM-DD') AS next_followup,
+      notes, created_by, created_at, updated_at
   `) as any[];
   return rows[0] ?? null;
 }
