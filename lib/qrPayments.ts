@@ -142,9 +142,12 @@ export async function approveManualPaymentRequest(
     plan AS (
       SELECT pl.* FROM plans pl JOIN req ON pl.id = req.plan_id
     ),
+    -- channel is 'QR PromptPay' exactly -- transactions_channel_check only
+    -- allows the four literal values already used elsewhere (see
+    -- app/api/checkout/route.ts's CHANNELS), no free text.
     txn_insert AS (
       INSERT INTO transactions (business_id, plan_id, amount_thb, fee_thb, net_thb, channel, status, invoice_number)
-      SELECT req.business_id, req.plan_id, req.amount_thb, 0, req.amount_thb, 'QR PromptPay (โอนเงิน)', 'สำเร็จ', req.invoice_number
+      SELECT req.business_id, req.plan_id, req.amount_thb, 0, req.amount_thb, 'QR PromptPay', 'สำเร็จ', req.invoice_number
       FROM req
       RETURNING id, business_id, plan_id
     ),
