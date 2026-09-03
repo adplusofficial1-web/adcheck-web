@@ -1,8 +1,21 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { checkAdImageUrl, CheckAdError } from "@/lib/automationCheckAd";
 import { stripNulBytes } from "@/lib/validation";
 
 export const runtime = "nodejs";
+
+// Constant-time shared-secret comparison (2569-09-02, Bug Audit 4). A plain
+// `!==` short-circuits at the first differing byte, which leaks how much of
+// the key a caller has right via response timing. timingSafeEqual needs
+// equal-length buffers, so a length mismatch is simply "not equal" (fail
+// closed) — it never throws and never reveals the expected length.
+function apiKeyMatches(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 // ---------------------------------------------------------------------
 // PURPOSE
@@ -73,7 +86,7 @@ export async function POST(req: Request) {
     // anywhere below, even in error paths — it's a long-lived shared secret.
     const expectedKey = process.env.AUTOMATION_API_KEY;
     const providedKey = req.headers.get("x-api-key");
-    if (!expectedKey || !providedKey || providedKey !== expectedKey) {
+    if (!expectedKey || !providedKey || !apiKeyMatches(providedKey, expectedKey)) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
@@ -101,6 +114,12 @@ export async function POST(req: Request) {
       clinicLabel: clinicLabel ?? null,
     });
   } catch (e) {
+    // CheckAdError messages are our own short, fixed strings (and since
+    // Bug Audit 4 the fetch-failure ones no longer echo the upstream
+    // status/content-type — see lib/automationCheckAd.ts:fetchImageBytes),
+    // so they're safe to return. Anything else is logged server-side only
+    // and reported as a generic "internal_error" — never e.message, which
+    // could carry a driver/Postgres/network detail.
     if (e instanceof CheckAdError) {
       return NextResponse.json({ error: e.message }, { status: e.status });
     }

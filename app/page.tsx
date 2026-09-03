@@ -14,16 +14,20 @@ export default async function LandingPage() {
 
   return (
     <main className="bg-page">
-      <nav className="bg-inverse text-onInverse flex items-center justify-between px-16 py-7">
+      {/* Bug Audit 4 (2569-09-02): this nav had desktop-only spacing
+          (px-16, gap-8, text-xl) and no wrapping, so on a phone the four
+          links overflowed off the right edge; components/Nav.tsx (the
+          signed-in nav) already handles small screens — mirror that here. */}
+      <nav className="bg-inverse text-onInverse flex items-center justify-between gap-4 flex-wrap px-6 md:px-16 py-5 md:py-7">
         <span className="text-2xl font-medium">ADCheck</span>
-        <div className="flex items-center gap-8">
-          <Link href="#pricing" className="text-xl text-onInverse/90 hover:text-onInverse">
+        <div className="flex items-center gap-4 md:gap-8 flex-wrap">
+          <Link href="#pricing" className="text-base md:text-xl text-onInverse/90 hover:text-onInverse">
             ราคา
           </Link>
-          <Link href="/case-studies" className="text-xl text-onInverse/90 hover:text-onInverse">
+          <Link href="/case-studies" className="text-base md:text-xl text-onInverse/90 hover:text-onInverse">
             ตัวอย่างผลตรวจ
           </Link>
-          <Link href="/login" className="text-xl text-onInverse/90 hover:text-onInverse">
+          <Link href="/login" className="text-base md:text-xl text-onInverse/90 hover:text-onInverse">
             เข้าสู่ระบบ
           </Link>
           <Link
@@ -35,7 +39,7 @@ export default async function LandingPage() {
         </div>
       </nav>
 
-      <section className="bg-surface flex flex-col md:flex-row items-center gap-16 px-16 py-[100px]">
+      <section className="bg-surface flex flex-col md:flex-row items-center gap-10 md:gap-16 px-6 md:px-16 py-16 md:py-[100px]">
         <div className="w-full md:w-[46%] rounded-2xl overflow-hidden border border-border shadow-[0_20px_50px_-20px_rgba(27,27,24,0.18)]">
           <video autoPlay muted loop playsInline className="block w-full h-full object-cover">
             <source src="/hero/adcheck-hero.webm" type="video/webm" />
@@ -52,7 +56,7 @@ export default async function LandingPage() {
             ก่อนเผยแพร่จริง
           </h1>
           <p className="max-w-full w-[480px] text-secondary text-lg leading-[1.6]">
-            อัพโหลดภาพโฆษณา ให้ AI ตรวจตามแนวทาง สบส. ก่อนเผยแพร่จริง
+            อัปโหลดภาพโฆษณา ให้ AI ตรวจตามแนวทาง สบส. ก่อนเผยแพร่จริง
             พร้อมคำอธิบายว่าผิดตรงไหนและควรแก้อย่างไร
           </p>
           <div className="flex items-center gap-6 pt-3">
@@ -73,7 +77,7 @@ export default async function LandingPage() {
         <h2 className="text-[28px] font-medium text-primary">ใช้งานง่ายใน 3 ขั้นตอน</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
           {[
-            ["1", "อัพโหลดภาพโฆษณา", `ลากภาพหรือเลือกไฟล์ที่ต้องการตรวจสอบ สูงสุด ${MAX_UPLOAD_IMAGES} ภาพต่อครั้ง`],
+            ["1", "อัปโหลดภาพโฆษณา", `ลากภาพหรือเลือกไฟล์ที่ต้องการตรวจสอบ สูงสุด ${MAX_UPLOAD_IMAGES} ภาพต่อครั้ง`],
             ["2", "AI ตรวจตามแนวทาง สบส.", "วิเคราะห์คำและภาพเทียบกับมาตรา 38 และคู่มือโฆษณาฉบับล่าสุด"],
             ["3", "รับผลพร้อมคำแนะนำ", "เห็นจุดที่เสี่ยง เหตุผลอ้างอิงกฎหมาย และวิธีแก้ไขทันที"],
           ].map(([n, title, desc]) => (

@@ -83,7 +83,7 @@ export function AddClinicModal() {
               />
             </div>
             <p className="text-xs mt-2 mb-4 text-tertiary">
-              เพิ่มคลินิกได้โดยไม่ต้องชำระแพ็กเกจก่อน — เลือกแพ็กเกจและเริ่มอัพโหลดได้ภายหลังจากหน้าตั้งค่า
+              เพิ่มคลินิกได้โดยไม่ต้องชำระแพ็กเกจก่อน — เลือกแพ็กเกจและเริ่มอัปโหลดได้ภายหลังจากหน้าตั้งค่า
             </p>
             {error && <div className="text-sm text-danger mb-3">{error}</div>}
             <button

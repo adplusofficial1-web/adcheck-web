@@ -145,7 +145,7 @@ function AddRuleForm({ onCreated }: { onCreated: () => void }) {
               mode === m ? "bg-inverse text-onInverse" : "text-secondary"
             }`}
           >
-            {m === "text" ? "พิมพ์/วางข้อความ" : "อัพโหลดไฟล์ (PDF/DOCX/TXT)"}
+            {m === "text" ? "พิมพ์/วางข้อความ" : "อัปโหลดไฟล์ (PDF/DOCX/TXT)"}
           </button>
         ))}
       </div>
@@ -316,7 +316,11 @@ function RuleRow({
               <span className="rounded-pill bg-warningSoft text-warning px-2.5 py-0.5 text-xs">ใช้เสมอ</span>
             )}
             <span className="rounded-pill bg-page border border-border text-tertiary px-2.5 py-0.5 text-xs">
-              {rule.source_type === "upload" ? `ไฟล์: ${rule.source_filename ?? ""}` : "พิมพ์เอง"}
+              {rule.source_type === "upload"
+                ? rule.source_filename
+                  ? `ไฟล์: ${rule.source_filename}`
+                  : "นำเข้าจากไฟล์ (ไม่มีไฟล์ต้นฉบับแนบ)"
+                : "พิมพ์เอง"}
             </span>
             {rule.has_file && (
               <a
@@ -351,7 +355,13 @@ function RuleRow({
             </div>
           ) : (
             <p className={`mt-1.5 text-sm text-secondary whitespace-pre-wrap ${expanded ? "" : "line-clamp-2"}`}>
-              {rule.content}
+              {/* Bug Audit 4 (2569-09-02): a collapsed row used to put the
+                  ENTIRE content (tens of thousands of characters for a
+                  full act/manual) into the DOM and merely hide it with
+                  line-clamp — the page froze the browser for seconds with
+                  only 7 rules. Only a short prefix is rendered until the
+                  admin expands it. */}
+              {expanded ? rule.content : rule.content.slice(0, 400)}
             </p>
           )}
           {!editing && rule.content.length > 120 && (

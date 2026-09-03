@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { isValidUuid } from "@/lib/validation";
 
 // Every clinic an "Agency" account manages lives in the same `businesses`
 // table as a stand-alone clinic, linked back via `parent_agency_id`
@@ -82,6 +83,12 @@ export async function getAccessibleBusinessIds(agencyId: string): Promise<string
 // throwing so callers can respond 403/404 without leaking whether the id
 // exists at all.
 export async function getBusinessByIdForOwner(id: string, ownerBusinessId: string) {
+  // Bug Audit 4 (2569-09-02): `id` comes straight from ?business= / ?clinic=
+  // query strings on /agency/upload, /agency/history, /agency/settings and
+  // the checkout/submissions routes. A non-UUID value threw inside Postgres
+  // and surfaced as a 500 page; "not one of your clinics" is the honest
+  // answer for garbage input too.
+  if (!isValidUuid(id)) return null;
   const rows = await sql`
     SELECT b.*, p.name AS plan_name, p.code AS plan_code, p.price_thb, p.monthly_image_credits
     FROM businesses b
@@ -185,7 +192,7 @@ export function getPlanCycleStatus(business: {
 }
 
 // Whether this account's OWN plan unlocks uploading on behalf of the
-// clinics it manages in Agency mode — gates the per-clinic "+ อัพโหลด"
+// clinics it manages in Agency mode — gates the per-clinic "+ อัปโหลด"
 // buttons on /agency/dashboard and the ?business= path in
 // app/upload/page.tsx + app/api/submissions/route.ts. Requires the
 // *signed-in* account itself (never a child clinic — see the callers,
@@ -202,7 +209,7 @@ export function getPlanCycleStatus(business: {
 // 'agency' plan and then later bought any OTHER plan (while the agency
 // package was still unexpired) would have `plan_id` silently pointed at
 // the newer, non-agency plan — this check would then wrongly say "no
-// active agency plan" and lock every clinic's "+ อัพโหลด" button even
+// active agency plan" and lock every clinic's "+ อัปโหลด" button even
 // though the agency package (and its credits) were still perfectly valid.
 // Querying business_packages directly (the same table credits actually
 // live in) makes this agree with reality regardless of purchase order.

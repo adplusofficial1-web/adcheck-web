@@ -62,17 +62,69 @@ type ParsedRow = {
   dupInSystem?: boolean;
 };
 
-const CLINIC_KEYS = ["ชื่อคลินิก", "คลินิก", "clinic", "clinic name", "name", "ชื่อ"];
+// Column detection (reworked 2569-09-02, Bug Audit 4). The old single list
+// ["ชื่อคลินิก", "คลินิก", "clinic", ..., "name", "ชื่อ"] was scanned column-
+// by-column with `includes`, so a sheet laid out as [ชื่อผู้ติดต่อ, ชื่อคลินิก,
+// ...] matched "ชื่อ" inside "ชื่อผู้ติดต่อ" in column A first and imported
+// every contact person's name as the clinic name. Now: (1) the SPECIFIC
+// clinic headers are tried across ALL columns before the generic
+// "ชื่อ"/"name" fallback is even considered, (2) a header that clearly
+// names a person/contact is never picked, and (3) when only the generic
+// fallback (or the "column A" default) matched, the preview requires the
+// admin to tick "คอลัมน์ชื่อคลินิกถูกต้อง" before importing.
+const CLINIC_KEYS_SPECIFIC = ["ชื่อคลินิก", "clinic name", "clinic", "คลินิก", "สถานพยาบาล"];
+const CLINIC_KEYS_GENERIC = ["ชื่อ", "name"];
+const CLINIC_EXCLUDE_KEYS = ["ติดต่อ", "contact", "user", "ผู้"];
 const PROVINCE_KEYS = ["จังหวัด", "province"];
 // NOTE: ลิงก์เพจตรึงไว้ที่คอลัมน์ D (index 3) ตรงๆ แล้ว — ดูจุดที่กำหนด
 // linkIdx = 3 ด้านล่าง — จึงไม่ต้องมี LINK_KEYS สำหรับเดาจากชื่อหัวตารางอีก
 
-function findKeyIndex(header: string[], keys: string[]): number {
-  for (let i = 0; i < header.length; i++) {
-    const norm = String(header[i] || "").trim().toLowerCase();
-    if (keys.some((k) => norm === k || norm.includes(k))) return i;
+function normHeader(h: unknown): string {
+  return String(h || "").trim().toLowerCase();
+}
+
+// Exact matches across every column first, then substring matches — so
+// "clinic" (exact) in column C beats "clinic contact" (substring) in
+// column A regardless of column order. Headers containing any of
+// `exclude` are skipped entirely.
+function findKeyIndex(header: string[], keys: string[], exclude: string[] = []): number {
+  const candidates = header.map((h, i) => ({ i, norm: normHeader(h) })).filter(
+    (c) => c.norm && !exclude.some((x) => c.norm.includes(x))
+  );
+  for (const k of keys) {
+    const exact = candidates.find((c) => c.norm === k);
+    if (exact) return exact.i;
+  }
+  for (const k of keys) {
+    const partial = candidates.find((c) => c.norm.includes(k));
+    if (partial) return partial.i;
   }
   return -1;
+}
+
+// Returns the clinic-name column plus whether it was found via a specific
+// header (trusted) or only via the generic fallback / column-A default
+// (needs the admin's confirmation checkbox before import).
+function findClinicColumn(header: string[]): { idx: number; confident: boolean } {
+  const specific = findKeyIndex(header, CLINIC_KEYS_SPECIFIC, CLINIC_EXCLUDE_KEYS);
+  if (specific >= 0) return { idx: specific, confident: true };
+  const generic = findKeyIndex(header, CLINIC_KEYS_GENERIC, CLINIC_EXCLUDE_KEYS);
+  if (generic >= 0) return { idx: generic, confident: false };
+  return { idx: 0, confident: false };
+}
+
+// The clinic-name placeholder for a row with a link but no name — must
+// match lib/hunterLeads.ts:UNNAMED_CLINIC_PLACEHOLDER exactly (the server
+// exempts it from dedupe; duplicated here because this is a client
+// component and can't import that server module — see normalizeClinicName
+// below for the same reasoning).
+const UNNAMED_CLINIC_PLACEHOLDER = "(ไม่ระบุชื่อ - ต้องเช็ค)";
+
+// Only a real web link gets rendered as an <a href> — anything else in
+// source_link (a phone number, "ไม่มี", a javascript: URL from a bad
+// import) is shown as plain text. See LeadRow.
+function isHttpUrl(s: string): boolean {
+  return /^https?:\/\//i.test(s);
 }
 
 // Mirrors lib/hunterLeads.ts:normalizeClinicName exactly (trim + lowercase,
@@ -166,11 +218,12 @@ function LeadRow({
   // this is a client component and can't import a server-only constant;
   // if that cap ever changes, update both.
   const MAX_IMAGE_URLS = 3;
-  const [urls, setUrls] = useState<string[]>(() => {
-    const base = [...lead.image_urls];
-    while (base.length < 3) base.push("");
-    return base;
-  });
+  const padUrls = (base: string[]) => {
+    const next = [...base];
+    while (next.length < MAX_IMAGE_URLS) next.push("");
+    return next;
+  };
+  const [urls, setUrls] = useState<string[]>(() => padUrls(lead.image_urls));
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -183,6 +236,38 @@ function LeadRow({
   // Debounce ref for auto-save — see saveUrls below.
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Request sequencing + dirty tracking (2569-09-02, Bug Audit 4).
+  // saveSeq: each PATCH takes the next number; a response whose number is
+  // no longer the latest is ignored, so a slow earlier save can't land
+  // AFTER a faster later one and revert the row to older URLs.
+  // editSeq/savedEditSeq: bumped on every keystroke / on every successful
+  // save respectively — the row is "dirty" while they differ. focusCount:
+  // how many of the 3 inputs currently have focus. Both feed the resync
+  // effect below.
+  const saveSeqRef = useRef(0);
+  const editSeqRef = useRef(0);
+  const savedEditSeqRef = useRef(0);
+  const focusCountRef = useRef(0);
+  // True once the admin has typed in any slot since they last committed —
+  // the auto-run in commitUrls only considers a blur/Enter that follows an
+  // actual edit, so merely tabbing through a 'ready' row's inputs can't
+  // kick off a review.
+  const editedSinceCommitRef = useRef(false);
+
+  // Resync the inputs from the server's image_urls whenever the lead prop
+  // changes underneath this row (a "โหลด" after the cron filled in links,
+  // another admin's edit, the run route's response) — but only while the
+  // admin isn't typing here (no input focused, nothing unsaved), so it
+  // never clobbers a half-typed URL. Keyed on the joined string so a
+  // fresh-but-equal array from a reload doesn't re-run it.
+  const imageUrlsKey = lead.image_urls.join("|");
+  useEffect(() => {
+    if (focusCountRef.current > 0) return;
+    if (editSeqRef.current !== savedEditSeqRef.current) return;
+    setUrls(padUrls(imageUrlsKey ? imageUrlsKey.split("|") : []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageUrlsKey]);
+
   // CHANGE (2026-08-31): removed the separate "บันทึกลิงก์" button per user
   // request — typing a URL now auto-saves (debounced 600ms after the last
   // keystroke, so it doesn't fire a PATCH per character) and, once saved,
@@ -191,17 +276,25 @@ function LeadRow({
   // from closure) so the debounce timer always saves the latest value even
   // if the user kept typing after the timer was scheduled.
   //
-  // CHANGE (2026-08-31, same day): once the save lands with all
-  // MAX_IMAGE_URLS (3) slots filled, kick off the automation run
-  // automatically instead of waiting for the button — the user asked for
-  // "กรอกครบ 3 ลิงก์แล้วทำงานทันที". Filling only 1-2 and stopping does
-  // NOT auto-run (confirmed with the user) — that still needs the manual
-  // button, since a partial set might not be "done entering" yet. Runs
-  // only out of a state where a run makes sense (not already
-  // running/done/failed) so this can't fire twice for the same save or
-  // re-trigger on every subsequent unrelated re-render.
+  // CHANGE (2026-08-31, same day): once all MAX_IMAGE_URLS (3) slots are
+  // filled, kick off the automation run automatically instead of waiting
+  // for the button — the user asked for "กรอกครบ 3 ลิงก์แล้วทำงานทันที".
+  // Filling only 1-2 and stopping does NOT auto-run (confirmed with the
+  // user) — that still needs the manual button, since a partial set might
+  // not be "done entering" yet.
+  //
+  // CHANGE (2569-09-02, Bug Audit 4): the auto-run no longer fires from
+  // the debounced keystroke save — it used to trigger the moment the 3rd
+  // slot had been idle for 600ms, i.e. mid-typing ("https://scont…"), and
+  // burned credits on a guaranteed-failed fetch. It now fires only from
+  // commitUrls (blur / Enter on an input), and only when nothing else is
+  // running for this row (see the guards there). saveUrls itself is now
+  // a plain save that resolves to the saved lead (or null if it failed or
+  // was superseded by a newer save).
   const saveUrls = useCallback(
-    async (nextUrls: string[]) => {
+    async (nextUrls: string[]): Promise<HunterLead | null> => {
+      const seq = ++saveSeqRef.current;
+      const editSeqAtStart = editSeqRef.current;
       setSaving(true);
       setSaveMsg(null);
       try {
@@ -211,35 +304,83 @@ function LeadRow({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageUrls: cleaned }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error || "บันทึกไม่สำเร็จ");
-        onSaved(data.lead);
-
-        if (cleaned.length >= MAX_IMAGE_URLS && data.lead.status === "ready") {
-          // setRunning here (rather than calling the run() helper defined
-          // below) so the "ตรวจสอบอัตโนมัติ" button visibly flips to
-          // "กำลังตรวจสอบ…" for this auto-triggered run too, not just for
-          // manual clicks.
-          setRunning(true);
-          onRun(lead.id).finally(() => setRunning(false));
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error("เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง กรุณาลองใหม่");
         }
+        // A newer save is already in flight (or done) — this response is
+        // stale; the newer one owns the row's state now.
+        if (seq !== saveSeqRef.current) return null;
+        if (!res.ok || !data?.lead) throw new Error(data?.error || "บันทึกไม่สำเร็จ");
+        // Only mark clean if nothing was typed while this request was out.
+        if (editSeqRef.current === editSeqAtStart) savedEditSeqRef.current = editSeqAtStart;
+        onSaved(data.lead);
+        return data.lead as HunterLead;
       } catch (e: any) {
-        setSaveMsg(e?.message || "บันทึกไม่สำเร็จ");
+        if (seq === saveSeqRef.current) setSaveMsg(e?.message || "บันทึกไม่สำเร็จ");
+        return null;
       } finally {
-        setSaving(false);
+        if (seq === saveSeqRef.current) setSaving(false);
       }
     },
-    [lead.id, onSaved, onRun, MAX_IMAGE_URLS]
+    [lead.id, onSaved]
   );
 
   const handleUrlChange = (i: number, value: string) => {
     const next = [...urls];
     next[i] = value;
     setUrls(next);
+    editSeqRef.current++;
+    editedSinceCommitRef.current = true;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
       saveUrls(next);
     }, 600);
+  };
+
+  // Blur / Enter on an input: flush any pending debounced save right now,
+  // then — and only here — decide whether to auto-run. The guards:
+  // all 3 slots saved, the saved lead is 'ready', no bulk action is
+  // holding this row (disableActions), and neither this row's own run nor
+  // a server-side run is already in progress.
+  const commitUrls = async () => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    if (!editedSinceCommitRef.current) return;
+    editedSinceCommitRef.current = false;
+    const dirty = editSeqRef.current !== savedEditSeqRef.current;
+    const saved = dirty ? await saveUrls(urls) : lead;
+    if (!saved) return;
+    const cleanedCount = urls.map((u) => u.trim()).filter(Boolean).length;
+    if (
+      cleanedCount >= MAX_IMAGE_URLS &&
+      saved.image_urls.length >= MAX_IMAGE_URLS &&
+      saved.status === "ready" &&
+      !disableActions &&
+      !running
+    ) {
+      // setRunning here (rather than calling the run() helper defined
+      // below) so the "ตรวจสอบอัตโนมัติ" button visibly flips to
+      // "กำลังตรวจสอบ…" for this auto-triggered run too, not just for
+      // manual clicks.
+      setRunning(true);
+      onRun(lead.id)
+        .catch((e: any) => setSaveMsg(e?.message || "ตรวจสอบไม่สำเร็จ"))
+        .finally(() => setRunning(false));
+    }
+  };
+
+  const handleUrlFocus = () => {
+    focusCountRef.current++;
+  };
+  const handleUrlBlur = () => {
+    focusCountRef.current = Math.max(0, focusCountRef.current - 1);
+    void commitUrls();
   };
 
   // Clear any pending debounce on unmount so it can't fire (and call
@@ -254,8 +395,11 @@ function LeadRow({
 
   const run = async () => {
     setRunning(true);
+    setSaveMsg(null);
     try {
       await onRun(lead.id);
+    } catch (e: any) {
+      setSaveMsg(e?.message || "ตรวจสอบไม่สำเร็จ");
     } finally {
       setRunning(false);
     }
@@ -330,7 +474,11 @@ function LeadRow({
   // anymore, since every edit now auto-saves within 600ms with no separate
   // save step. lead.image_urls (the server's last-saved value) still gates
   // having at least one URL to run against.
+  // A 'failed' lead (including one the stuck-run watchdog flipped to
+  // failed — see lib/hunterLeads.ts:recoverStaleRunningLeads) is
+  // deliberately runnable and deletable: only 'running' blocks either.
   const canRun = lead.image_urls.length > 0 && !saving && lead.status !== "running" && !disableActions;
+  const urlInputsDisabled = lead.status === "running";
 
   return (
     <tr>
@@ -345,7 +493,7 @@ function LeadRow({
       </td>
       <td className={tdClass}>{index + 1}</td>
       <td className={tdClass}>
-        {lead.source_link ? (
+        {lead.source_link && isHttpUrl(lead.source_link) ? (
           <a
             href={lead.source_link}
             target="_blank"
@@ -355,7 +503,12 @@ function LeadRow({
             {lead.clinic_name}
           </a>
         ) : (
-          <div className="font-medium text-primary">{lead.clinic_name}</div>
+          <div className="font-medium text-primary">
+            {lead.clinic_name}
+            {lead.source_link && (
+              <div className="text-[11px] text-tertiary font-normal break-all">{lead.source_link}</div>
+            )}
+          </div>
         )}
       </td>
       <td className={tdClass}>
@@ -371,7 +524,22 @@ function LeadRow({
                 // the 3 action buttons on the right fit on one line — see
                 // the actions <div> below.
                 className={`${smallInputClass} w-14`}
+                // Locked while a review is in flight (2569-09-02, Bug
+                // Audit 4) — the server 409s such an edit anyway (see
+                // lib/hunterLeads.ts:HunterLeadBusyError); disabling the
+                // inputs makes that visible instead of a surprise error.
+                disabled={urlInputsDisabled}
                 onChange={(e) => handleUrlChange(i, e.target.value)}
+                onFocus={handleUrlFocus}
+                onBlur={handleUrlBlur}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    // Blurring triggers handleUrlBlur -> commitUrls, so
+                    // Enter and blur share one code path.
+                    e.currentTarget.blur();
+                  }
+                }}
               />
             ))}
           </div>
@@ -419,7 +587,7 @@ function LeadRow({
               user request, clicking it now copies the link to the
               clipboard instead (ready to paste immediately), rather than
               navigating away. */}
-          {lead.result_url ? (
+          {lead.result_url && lead.status === "done" ? (
             <button
               type="button"
               onClick={copyResultLink}
@@ -472,9 +640,19 @@ function LeadRow({
 export function HunterImport() {
   const [leads, setLeads] = useState<HunterLead[]>([]);
   const [loadingLeads, setLoadingLeads] = useState(true);
+  // Set when the queue itself couldn't be loaded (network/500/non-JSON) —
+  // shown in place of "ยังไม่มีรายการ", which used to be what an admin saw
+  // for a failed load, indistinguishable from a genuinely empty queue.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState("");
   const [colMapMsg, setColMapMsg] = useState("");
+  // Column-detection confidence (2569-09-02, Bug Audit 4 — see
+  // findClinicColumn): when the clinic-name column was only found via the
+  // generic "ชื่อ"/"name" fallback (or defaulted to column A), the admin
+  // must tick "คอลัมน์ชื่อคลินิกถูกต้อง" before "นำเข้าทั้งหมดเข้าคิว" enables.
+  const [clinicColNeedsConfirm, setClinicColNeedsConfirm] = useState(false);
+  const [clinicColConfirmed, setClinicColConfirmed] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [importMsg, setImportMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [importing, setImporting] = useState(false);
@@ -483,8 +661,17 @@ export function HunterImport() {
   const loadLeads = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/hunter");
-      const data = await res.json();
-      if (res.ok) setLeads(data.leads || []);
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง กรุณาโหลดหน้าใหม่");
+      }
+      if (!res.ok) throw new Error(data?.error || "โหลดข้อมูลไม่สำเร็จ");
+      setLeads(data.leads || []);
+      setLoadError(null);
+    } catch (e: any) {
+      setLoadError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
     } finally {
       setLoadingLeads(false);
     }
@@ -509,10 +696,9 @@ export function HunterImport() {
           if (!rows.length) throw new Error("ไฟล์ว่างเปล่า");
 
           const header = rows[0];
-          const clinicIdx = (() => {
-            const i = findKeyIndex(header, CLINIC_KEYS);
-            return i >= 0 ? i : 0;
-          })();
+          const { idx: clinicIdx, confident: clinicColConfident } = findClinicColumn(header);
+          setClinicColNeedsConfirm(!clinicColConfident);
+          setClinicColConfirmed(false);
           const provinceIdx = findKeyIndex(header, PROVINCE_KEYS);
           // CHANGE (2026-08-31): ลิงก์เพจคลินิกตรึงไว้ที่คอลัมน์ D (index 3) ของ
           // ไฟล์ Excel ตรงๆ ตามคำขอผู้ใช้ แทนที่จะเดาจากชื่อหัวตาราง (LINK_KEYS
@@ -535,7 +721,7 @@ export function HunterImport() {
             const province = provinceIdx >= 0 ? String(row[provinceIdx] || "").trim() : "";
             const link = linkIdx >= 0 ? String(row[linkIdx] || "").trim() : "";
             if (!clinic && !link) continue;
-            result.push({ clinic: clinic || "(ไม่ระบุชื่อ - ต้องเช็ค)", province, link });
+            result.push({ clinic: clinic || UNNAMED_CLINIC_PLACEHOLDER, province, link });
           }
 
           if (!result.length) {
@@ -553,10 +739,15 @@ export function HunterImport() {
           // of whether `leads` has loaded yet). Neither flag removes the
           // row from the preview or blocks import — see importRows below
           // for what actually gets skipped.
+          // Placeholder-named rows are exempt (matches the server rule in
+          // lib/hunterLeads.ts:importHunterLeads) — many rows can share
+          // "(ไม่ระบุชื่อ - ต้องเช็ค)" without being the same clinic.
+          const placeholderKey = normalizeClinicName(UNNAMED_CLINIC_PLACEHOLDER);
           const existingSystemNames = new Set(leads.map((l) => normalizeClinicName(l.clinic_name)));
           const seenInFile = new Set<string>();
           for (const r of result) {
             const key = normalizeClinicName(r.clinic);
+            if (key === placeholderKey) continue;
             if (seenInFile.has(key)) r.dupInFile = true;
             else seenInFile.add(key);
             if (existingSystemNames.has(key)) r.dupInSystem = true;
@@ -587,10 +778,16 @@ export function HunterImport() {
     setFileName("");
     setColMapMsg("");
     setUploadMsg(null);
+    setClinicColNeedsConfirm(false);
+    setClinicColConfirmed(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const importRows = async () => {
+    if (clinicColNeedsConfirm && !clinicColConfirmed) {
+      setImportMsg({ text: "กรุณายืนยันว่าคอลัมน์ชื่อคลินิกถูกต้องก่อนนำเข้า", ok: false });
+      return;
+    }
     setImporting(true);
     setImportMsg(null);
     try {
@@ -599,13 +796,19 @@ export function HunterImport() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rows: parsedRows }),
       });
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง กรุณาโหลดคิวใหม่เพื่อดูว่านำเข้าสำเร็จหรือไม่");
+      }
       if (!res.ok) throw new Error(data?.error || "นำเข้าไม่สำเร็จ");
       // CHANGE (2026-09-01, dedupe): the server now also reports
-      // skippedDuplicate (see app/api/admin/hunter/route.ts) — surfaced
+      // skippedDuplicates (see app/api/admin/hunter/route.ts) — surfaced
       // here so the admin sees both how many actually landed in the queue
       // and how many were skipped as already-existing clinic names.
-      const skippedMsg = data.skippedDuplicate > 0 ? ` (ข้ามชื่อซ้ำ ${data.skippedDuplicate} รายการ)` : "";
+      const skipped = Number(data.skippedDuplicates) || 0;
+      const skippedMsg = skipped > 0 ? ` (ข้ามชื่อซ้ำ ${skipped} รายการ)` : "";
       setImportMsg({ text: `นำเข้า ${data.inserted} รายการเข้าคิวแล้ว${skippedMsg}`, ok: true });
       cancelPreview();
       await loadLeads();
@@ -616,15 +819,29 @@ export function HunterImport() {
     }
   };
 
+  // Rejects (throws) only when the response carries no lead to reflect —
+  // a 409 "กำลังตรวจสอบอยู่แล้ว", a non-JSON 502, a network error — so the
+  // row can show the message under its inputs. A failed run that DOES
+  // return the lead (status 'failed' + last_error) resolves normally: the
+  // row already renders last_error, so surfacing it twice would be noise.
   const runAutomation = async (id: string) => {
-    const res = await fetch(`/api/admin/hunter/${id}/run`, { method: "POST" });
-    const data = await res.json();
+    let res: Response;
+    try {
+      res = await fetch(`/api/admin/hunter/${id}/run`, { method: "POST" });
+    } catch {
+      throw new Error("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่");
+    }
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error("เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง กรุณาโหลดคิวใหม่");
+    }
     if (data?.lead) {
       setLeads((prev) => prev.map((l) => (l.id === id ? data.lead : l)));
     }
-    if (!res.ok) {
-      // Error is already reflected in lead.last_error/status from the
-      // response above — nothing else to show here.
+    if (!res.ok && !data?.lead) {
+      throw new Error(data?.error || "ตรวจสอบไม่สำเร็จ");
     }
   };
 
@@ -686,7 +903,14 @@ export function HunterImport() {
     setRunAllProgress({ done: 0, total: targets.length });
     try {
       for (let i = 0; i < targets.length; i++) {
-        await runAutomation(targets[i]);
+        try {
+          await runAutomation(targets[i]);
+        } catch (e) {
+          // One lead's failure (409 already running, transient network
+          // error) shouldn't abort the rest of the batch — the row's own
+          // state (last_error / status) is what the admin looks at.
+          console.error(`run-all: lead ${targets[i]} failed:`, e);
+        }
         setRunAllProgress({ done: i + 1, total: targets.length });
       }
     } finally {
@@ -707,30 +931,69 @@ export function HunterImport() {
 
   // "ส่งทั้งหมด" (2026-09-01) — mirrors runAllReady above but for the send
   // step: sends every currently-"รอคิว" (queued = checked, not yet sent)
-  // lead in one go. Unlike runAllReady this fires all requests in
-  // parallel — each send is just a single lightweight UPDATE (no AI /
-  // credit cost like a review run), so there's no shared resource to
-  // contend over by going one at a time.
+  // lead. The server (POST /api/admin/hunter/send-all) does the actual
+  // sequential pick+assign loop and computes the target list itself.
+  //
+  // CHANGE (2569-09-02, Bug Audit 4): batched. The route now takes
+  // { limit } (max 200) and reports `remaining`; this loops until nothing
+  // is left, showing progress, so a queue of 1000+ doesn't sit in one
+  // request that may time out. Batches of 100 above 200 queued; a single
+  // 200-cap call otherwise. Stops early if a batch sends nothing (e.g. no
+  // active Hunter — every later batch would fail the same way).
   const [sendingAll, setSendingAll] = useState(false);
+  const [sendAllProgress, setSendAllProgress] = useState<{ done: number; total: number } | null>(null);
 
   const sendAllQueued = async () => {
-    const targets = leads.filter((l) => displayStatus(l) === "queued").map((l) => l.id);
-    if (targets.length === 0) return;
+    const total = leads.filter((l) => displayStatus(l) === "queued").length;
+    if (total === 0) return;
     setSendingAll(true);
+    setSendAllProgress({ done: 0, total });
+    const batchSize = total > 200 ? 100 : 200;
+    let sentSoFar = 0;
+    let failedCount = 0;
+    let firstFailure = "";
     try {
-      const res = await fetch("/api/admin/hunter/send-all", { method: "POST" });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        window.alert(data?.error || "ส่งไม่สำเร็จ");
-        return;
+      // Hard upper bound on iterations so a server that keeps reporting
+      // remaining > 0 can't spin this loop forever.
+      for (let i = 0; i < 100; i++) {
+        let res: Response;
+        try {
+          res = await fetch("/api/admin/hunter/send-all", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ limit: batchSize }),
+          });
+        } catch {
+          window.alert("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่");
+          break;
+        }
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {
+          window.alert("เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง กรุณาโหลดคิวใหม่เพื่อดูสถานะ");
+          break;
+        }
+        if (!res.ok) {
+          window.alert(data?.error || "ส่งไม่สำเร็จ");
+          break;
+        }
+        const sentCount = (data?.sent || []).length;
+        const failedThisBatch: { error?: string }[] = data?.failed || [];
+        sentSoFar += sentCount;
+        failedCount += failedThisBatch.length;
+        if (!firstFailure && failedThisBatch[0]?.error) firstFailure = failedThisBatch[0].error;
+        setSendAllProgress({ done: Math.min(total, sentSoFar), total });
+        const remaining = Number(data?.remaining) || 0;
+        if (remaining <= 0 || sentCount === 0) break;
       }
       await loadLeads();
-      const failedCount = (data?.failed || []).length;
       if (failedCount > 0) {
-        window.alert("ส่งไม่สำเร็จ " + failedCount + " รายการ: " + (data.failed[0]?.error || ""));
+        window.alert(`ส่งสำเร็จ ${sentSoFar} รายการ, ส่งไม่สำเร็จ ${failedCount} รายการ: ${firstFailure}`);
       }
     } finally {
       setSendingAll(false);
+      setSendAllProgress(null);
     }
   };
 
@@ -797,30 +1060,58 @@ export function HunterImport() {
     if (!window.confirm(`ลบ ${ids.length} รายการที่เลือกออกจากคิว Hunter? การกระทำนี้ย้อนกลับไม่ได้`)) return;
     setBulkDeleting(true);
     setBulkDeleteMsg(null);
+    // Chunked (2569-09-02, Bug Audit 4): the route caps a request at
+    // MAX_BULK_DELETE (500) ids — a bigger selection used to get a flat
+    // 400 "ลบได้สูงสุด 500 รายการต่อครั้ง" and nothing deleted. Now sent as
+    // sequential 500-id calls; ids deleted by earlier chunks stay deleted
+    // even if a later chunk fails, and the message reports the totals.
+    const BULK_DELETE_CHUNK = 500;
+    const deletedSet = new Set<string>();
+    let failedCount = 0;
+    let firstFailure = "";
     try {
-      const res = await fetch("/api/admin/hunter/bulk", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "ลบไม่สำเร็จ");
-      const deletedSet = new Set<string>(data.deletedIds || []);
-      setLeads((prev) => prev.filter((l) => !deletedSet.has(l.id)));
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        deletedSet.forEach((id) => next.delete(id));
-        return next;
-      });
-      const failedCount = (data.failed || []).length;
+      for (let i = 0; i < ids.length; i += BULK_DELETE_CHUNK) {
+        const chunk = ids.slice(i, i + BULK_DELETE_CHUNK);
+        const res = await fetch("/api/admin/hunter/bulk", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: chunk }),
+        });
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error("เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง กรุณาโหลดคิวใหม่เพื่อดูว่าลบไปแล้วกี่รายการ");
+        }
+        if (!res.ok) throw new Error(data?.error || "ลบไม่สำเร็จ");
+        (data.deletedIds || []).forEach((id: string) => deletedSet.add(id));
+        const failedThisChunk: { error?: string }[] = data.failed || [];
+        failedCount += failedThisChunk.length;
+        if (!firstFailure && failedThisChunk[0]?.error) firstFailure = failedThisChunk[0].error;
+        setBulkDeleteMsg(`กำลังลบ… (${Math.min(ids.length, i + chunk.length)}/${ids.length})`);
+      }
       setBulkDeleteMsg(
         failedCount > 0
-          ? `ลบสำเร็จ ${deletedSet.size} รายการ, ล้มเหลว ${failedCount} รายการ (อาจถูกมอบหมายให้เซลล์แล้ว)`
+          ? `ลบสำเร็จ ${deletedSet.size} รายการ, ล้มเหลว ${failedCount} รายการ (${firstFailure || "ลบไม่สำเร็จ"})`
           : `ลบสำเร็จ ${deletedSet.size} รายการ`
       );
     } catch (e: any) {
-      setBulkDeleteMsg(e?.message || "ลบไม่สำเร็จ");
+      setBulkDeleteMsg(
+        deletedSet.size > 0
+          ? `ลบไปแล้ว ${deletedSet.size} รายการ แล้วเกิดข้อผิดพลาด: ${e?.message || "ลบไม่สำเร็จ"}`
+          : e?.message || "ลบไม่สำเร็จ"
+      );
     } finally {
+      // Apply whatever actually got deleted, whether or not every chunk
+      // succeeded.
+      if (deletedSet.size > 0) {
+        setLeads((prev) => prev.filter((l) => !deletedSet.has(l.id)));
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          deletedSet.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
       setBulkDeleting(false);
     }
   };
@@ -891,10 +1182,28 @@ export function HunterImport() {
                 </tbody>
               </table>
             </div>
+            {/* Column-detection confirmation (2569-09-02, Bug Audit 4) —
+                only when the clinic-name column was found via the generic
+                "ชื่อ"/"name" fallback or defaulted to column A; a specific
+                header ("ชื่อคลินิก", "clinic", …) needs no confirmation. */}
+            {clinicColNeedsConfirm && (
+              <label className="flex items-center gap-2 mt-3 text-xs text-warning">
+                <input
+                  type="checkbox"
+                  checked={clinicColConfirmed}
+                  onChange={(e) => setClinicColConfirmed(e.target.checked)}
+                  disabled={importing}
+                />
+                <span>
+                  ระบบเดาคอลัมน์ชื่อคลินิกจากหัวตารางทั่วไป — กรุณาตรวจสอบตัวอย่างด้านบนแล้วติ๊กยืนยัน
+                  &quot;คอลัมน์ชื่อคลินิกถูกต้อง&quot; ก่อนนำเข้า
+                </span>
+              </label>
+            )}
             <div className="flex items-center gap-3 mt-4 flex-wrap">
               <button
                 onClick={importRows}
-                disabled={importing}
+                disabled={importing || (clinicColNeedsConfirm && !clinicColConfirmed)}
                 className="rounded-md bg-inverse text-onInverse px-5 py-2.5 text-sm font-medium disabled:opacity-40"
               >
                 {importing ? "กำลังนำเข้า…" : "นำเข้าทั้งหมดเข้าคิว"}
@@ -921,6 +1230,11 @@ export function HunterImport() {
             {runAllProgress && (
               <span className="text-xs text-tertiary">
                 กำลังตรวจสอบ… ({runAllProgress.done}/{runAllProgress.total})
+              </span>
+            )}
+            {sendAllProgress && (
+              <span className="text-xs text-tertiary">
+                กำลังส่ง… ({sendAllProgress.done}/{sendAllProgress.total})
               </span>
             )}
             <button
@@ -1029,6 +1343,15 @@ export function HunterImport() {
                 <tr>
                   <td colSpan={6} className="text-center text-tertiary py-6">
                     กำลังโหลด…
+                  </td>
+                </tr>
+              ) : loadError ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-6">
+                    <span className="text-danger">{loadError}</span>{" "}
+                    <button type="button" onClick={loadLeads} className="text-xs text-accent underline">
+                      ลองใหม่
+                    </button>
                   </td>
                 </tr>
               ) : leads.length === 0 ? (

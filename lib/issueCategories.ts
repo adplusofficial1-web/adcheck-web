@@ -11,7 +11,7 @@
 // import it directly without ever touching server-only code.
 export const CATEGORIES: { id: string; label: string }[] = [
   { id: "wrong_review_result", label: "ผลตรวจภาพไม่ถูกต้อง (ระบบ flag ผิด/พลาด)" },
-  { id: "upload_issue", label: "ปัญหาการอัพโหลดภาพ" },
+  { id: "upload_issue", label: "ปัญหาการอัปโหลดภาพ" },
   { id: "billing_credits", label: "ปัญหาการชำระเงิน/แพ็กเกจ/เครดิต" },
   { id: "login_account", label: "ปัญหาการเข้าสู่ระบบ/บัญชี" },
   { id: "bug_broken_page", label: "หน้าเว็บใช้งานไม่ได้/บั๊ก" },

@@ -6,10 +6,11 @@ import { getActiveHunterUserByEmail } from "@/lib/hunterUsers";
 // (read the signed-in Google account's email off the session, look it up
 // against the admin-managed whitelist, hit the DB fresh every call rather
 // than trusting a cached role claim so a deactivated freelancer is locked
-// out on their very next request). Does NOT auto-create anything — a
-// Hunter freelancer must already exist as an active hunter_users row,
-// added by a platform admin from /admin/marketing/hunter (see
-// lib/hunterUsers.ts:createHunterUser).
+// out on their very next request). Does NOT auto-create anything itself —
+// the self-serve registration of a brand-new email happens only in
+// app/hunter/page.tsx (lib/hunterUsers.ts:autoRegisterHunterUser), never
+// from an API route, so a null here from a route is always "not a Hunter"
+// and safe to 403.
 //
 // Returns null when there's no signed-in session at all — callers decide
 // what to do with that (redirect to /hunter/login from a page, 403 from

@@ -82,6 +82,6 @@ export async function POST(req: Request) {
     // ../route.ts for the same fix/reasoning. console.error above still
     // preserves the real message for debugging via server logs.
     console.error("POST /api/admin/knowledge-base/upload failed:", e);
-    return NextResponse.json({ error: "อัพโหลดไม่สำเร็จ" }, { status: 500 });
+    return NextResponse.json({ error: "อัปโหลดไม่สำเร็จ" }, { status: 500 });
   }
 }

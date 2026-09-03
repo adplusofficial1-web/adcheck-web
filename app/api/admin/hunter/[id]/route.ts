@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentPlatformAdminEmail } from "@/lib/platformAdmin";
-import { updateHunterLeadImages, deleteHunterLead } from "@/lib/hunterLeads";
+import { updateHunterLeadImages, deleteHunterLead, HunterLeadBusyError } from "@/lib/hunterLeads";
+import { isSafePublicHttpUrl } from "@/lib/automationCheckAd";
 import { isValidUuid, stripNulBytes } from "@/lib/validation";
 
 const MAX_IMAGE_URLS = 3; // matches the DB CHECK constraint in migrations/009_hunter_queue.sql
@@ -30,15 +31,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (imageUrls.length > MAX_IMAGE_URLS) {
       return NextResponse.json({ error: `ใส่ลิงก์รูปได้สูงสุด ${MAX_IMAGE_URLS} รูปต่อคลินิก` }, { status: 400 });
     }
-    // Basic shape check only (must at least parse as a URL) — the actual
-    // fetch/content-type validation happens server-side inside
-    // /api/automation/check-ad when the run route calls it, so there's no
-    // reason to duplicate that stricter check here too.
+    // CHANGE (2569-09-02, Bug Audit 4): tightened from "parses as a URL".
+    // `new URL("ht")` throws but `new URL("http://a")` and
+    // `new URL("javascript:x")` don't — and since the UI auto-runs the
+    // review the moment 3 slots are saved, a half-typed "https://scont"
+    // used to be accepted as slot 3 and immediately burn credits on a
+    // guaranteed-to-fail fetch. Now: http(s) only, a real-looking public
+    // hostname (dot + >=2-letter TLD), and no loopback/private/link-local
+    // targets — the same SSRF rule the fetch itself enforces
+    // (lib/automationCheckAd.ts:isSafePublicHttpUrl), applied here at save
+    // time so the admin sees the bad link right away instead of as a
+    // failed run. The fetch/content-type check still happens at run time.
     for (const u of imageUrls) {
-      try {
-        new URL(u);
-      } catch {
-        return NextResponse.json({ error: `ลิงก์รูปไม่ถูกต้อง: "${u}"` }, { status: 400 });
+      if (!isSafePublicHttpUrl(u)) {
+        return NextResponse.json(
+          { error: `ลิงก์รูปไม่ถูกต้อง (ต้องขึ้นต้นด้วย http:// หรือ https:// และเป็นลิงก์สาธารณะ): "${u}"` },
+          { status: 400 }
+        );
       }
     }
 
@@ -49,6 +58,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     return NextResponse.json({ lead: updated });
   } catch (e) {
+    // Mid-run edit (see lib/hunterLeads.ts:HunterLeadBusyError) — an
+    // expected state, not a failure: tell the admin to wait for the run.
+    if (e instanceof HunterLeadBusyError) {
+      return NextResponse.json({ error: "กำลังตรวจสอบอยู่ แก้ลิงก์ได้เมื่อตรวจเสร็จ" }, { status: 409 });
+    }
     console.error(`PATCH /api/admin/hunter/${params.id} failed:`, e);
     return NextResponse.json({ error: "บันทึกไม่สำเร็จ" }, { status: 500 });
   }

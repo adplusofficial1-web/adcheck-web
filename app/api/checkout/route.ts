@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 import { nextInvoiceNumber } from "@/lib/invoiceNumber";
-import { recordHunterCommissionIfApplicable } from "@/lib/hunterCommission";
+import { recordHunterCommissionSafely } from "@/lib/hunterCommission";
 
 // The card channel ("บัตรเครดิต/เดบิต") now has a real gateway behind it —
 // see app/api/billing/card/route.ts, which tokenizes via Omise.js client-side
@@ -76,14 +76,6 @@ export async function POST(req: Request) {
     RETURNING id
   `;
 
-  // Hunter Referral Commission (2569-09-01): this channel is currently
-  // dormant (PAYMENT_GATEWAY_ENABLED === false above, see that flag's
-  // comment), but the call is wired in anyway so enabling one of these
-  // channels later doesn't silently skip commission the way forgetting it
-  // here would — see lib/hunterCommission.ts for the no-op-if-not-referred
-  // check this does internally.
-  await recordHunterCommissionIfApplicable(business.id, transaction.id, Number(plan.price_thb));
-
   // A new, independent 30-day credit pool — added alongside any package(s)
   // already active, never replacing them.
   await sql`
@@ -96,6 +88,15 @@ export async function POST(req: Request) {
     SET plan_id = ${plan.id}, credits_reset_at = now() + interval '30 days', updated_at = now()
     WHERE id = ${business.id}
   `;
+
+  // Hunter Referral Commission (2569-09-01): this channel is currently
+  // dormant (PAYMENT_GATEWAY_ENABLED === false above, see that flag's
+  // comment), but the call is wired in anyway so enabling one of these
+  // channels later doesn't silently skip commission the way forgetting it
+  // here would — see lib/hunterCommission.ts for the no-op-if-not-referred
+  // check this does internally. Bug Audit 4 (2569-09-02): after the credit
+  // grant and via the never-throwing wrapper, same as every other money path.
+  await recordHunterCommissionSafely(business.id, transaction.id, Number(plan.price_thb));
 
   return NextResponse.json({ ok: true, invoiceNumber });
 }

@@ -29,6 +29,11 @@ export default async function SalesPage() {
             บัญชี {session.user.email} ยังไม่อยู่ในรายชื่อเซลล์ที่แอดมินเพิ่มไว้ (หรือถูกปิดใช้งานอยู่) —
             ติดต่อทีม AD Plus หากคิดว่านี่เป็นความผิดพลาด
           </p>
+          <p className="mt-6 text-sm">
+            <a href="/dashboard" className="underline text-primary">
+              กลับไปหน้าหลัก
+            </a>
+          </p>
         </div>
       </div>
     );

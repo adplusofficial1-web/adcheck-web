@@ -21,6 +21,34 @@ export async function GET() {
 
 const PAYOUT_METHODS: HunterPayoutMethod[] = ["promptpay", "bank"];
 
+// Bug Audit 4 (2569-09-02): per-field length caps. Every column here is
+// unbounded TEXT (migrations/014) and the form is open to any self-
+// registered Google account, so without these a single PATCH could store
+// megabytes into hunter_users, and the name (shown in the admin roster,
+// payout queue, and header) can't be blank. Generous limits — nothing
+// legitimate comes close.
+const LIMITS = {
+  name: 120,
+  phone: 30,
+  lineId: 60,
+  taxId: 20,
+  taxAddress: 500,
+  bank: 120,
+} as const;
+
+// Returns the cleaned string, undefined when the field wasn't sent, or a
+// Thai error message when it's too long.
+function cleanField(raw: unknown, max: number, label: string): string | undefined | { error: string } {
+  if (typeof raw !== "string") return undefined;
+  const value = stripNulBytes(raw).trim();
+  if (value.length > max) return { error: `${label}ต้องไม่เกิน ${max} ตัวอักษร` };
+  return value;
+}
+
+function isFieldError(v: unknown): v is { error: string } {
+  return typeof v === "object" && v !== null && "error" in v;
+}
+
 export async function PATCH(req: Request) {
   const hunterUser = await getCurrentHunterUser();
   if (!hunterUser) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -51,12 +79,28 @@ export async function PATCH(req: Request) {
         avatarUrl = body.avatarBase64;
       }
 
+      const fields = {
+        name: cleanField(body.name, LIMITS.name, "ชื่อ"),
+        phone: cleanField(body.phone, LIMITS.phone, "เบอร์โทรศัพท์"),
+        lineId: cleanField(body.lineId, LIMITS.lineId, "LINE ID"),
+        taxId: cleanField(body.taxId, LIMITS.taxId, "เลขประจำตัวผู้เสียภาษี"),
+        taxAddress: cleanField(body.taxAddress, LIMITS.taxAddress, "ที่อยู่สำหรับออกเอกสาร"),
+      };
+      for (const v of Object.values(fields)) {
+        if (isFieldError(v)) return NextResponse.json({ error: v.error }, { status: 400 });
+      }
+      // Only reject an empty name when the field was actually sent — a
+      // payout-only or avatar-only save doesn't carry it at all.
+      if (fields.name === "") {
+        return NextResponse.json({ error: "กรุณาระบุชื่อ" }, { status: 400 });
+      }
+
       await updateHunterProfile(hunterUser.id, {
-        name: typeof body.name === "string" ? stripNulBytes(body.name) : undefined,
-        phone: typeof body.phone === "string" ? stripNulBytes(body.phone) : undefined,
-        lineId: typeof body.lineId === "string" ? stripNulBytes(body.lineId) : undefined,
-        taxId: typeof body.taxId === "string" ? stripNulBytes(body.taxId) : undefined,
-        taxAddress: typeof body.taxAddress === "string" ? stripNulBytes(body.taxAddress) : undefined,
+        name: fields.name as string | undefined,
+        phone: fields.phone as string | undefined,
+        lineId: fields.lineId as string | undefined,
+        taxId: fields.taxId as string | undefined,
+        taxAddress: fields.taxAddress as string | undefined,
         avatarUrl,
       });
     }
@@ -65,12 +109,21 @@ export async function PATCH(req: Request) {
       if (!PAYOUT_METHODS.includes(body.payoutMethod)) {
         return NextResponse.json({ error: "ช่องทางรับเงินไม่ถูกต้อง" }, { status: 400 });
       }
+      const payout = {
+        promptpayId: cleanField(body.promptpayId, LIMITS.bank, "หมายเลข PromptPay"),
+        bankName: cleanField(body.bankName, LIMITS.bank, "ชื่อธนาคาร"),
+        bankAccountNo: cleanField(body.bankAccountNo, LIMITS.bank, "เลขที่บัญชี"),
+        bankAccountName: cleanField(body.bankAccountName, LIMITS.bank, "ชื่อบัญชี"),
+      };
+      for (const v of Object.values(payout)) {
+        if (isFieldError(v)) return NextResponse.json({ error: v.error }, { status: 400 });
+      }
       await updateHunterPayout(hunterUser.id, {
         method: body.payoutMethod,
-        promptpayId: typeof body.promptpayId === "string" ? stripNulBytes(body.promptpayId) : undefined,
-        bankName: typeof body.bankName === "string" ? stripNulBytes(body.bankName) : undefined,
-        bankAccountNo: typeof body.bankAccountNo === "string" ? stripNulBytes(body.bankAccountNo) : undefined,
-        bankAccountName: typeof body.bankAccountName === "string" ? stripNulBytes(body.bankAccountName) : undefined,
+        promptpayId: payout.promptpayId as string | undefined,
+        bankName: payout.bankName as string | undefined,
+        bankAccountNo: payout.bankAccountNo as string | undefined,
+        bankAccountName: payout.bankAccountName as string | undefined,
       });
     }
 

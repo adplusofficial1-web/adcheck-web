@@ -14,7 +14,7 @@
 import { sql } from "../lib/db";
 import { isOmiseConfigured, chargeCustomer } from "../lib/omise";
 import { nextInvoiceNumber } from "../lib/invoiceNumber";
-import { recordHunterCommissionIfApplicable } from "../lib/hunterCommission";
+import { recordHunterCommissionSafely } from "../lib/hunterCommission";
 
 const MAX_RETRIES = 3;
 
@@ -77,13 +77,6 @@ async function main() {
       `) as any[];
 
       if (transaction) {
-        // Hunter Referral Commission (2569-09-01): the trailing 5% rate is
-        // explicitly meant to apply to every monthly auto-renewal too, not
-        // just manual repurchases (see lib/hunterCommission.ts and
-        // migrations/014_hunter_referral_commissions.sql) — this cron is
-        // the only place that commission would otherwise be missed.
-        await recordHunterCommissionIfApplicable(biz.id, transaction.id, Number(biz.price_thb));
-
         await sql`
           INSERT INTO business_packages (business_id, plan_id, transaction_id, credits_granted, credits_remaining, purchased_at, expires_at)
           VALUES (${biz.id}, ${biz.plan_id}, ${transaction.id}, ${biz.monthly_image_credits}, ${biz.monthly_image_credits}, now(), now() + interval '30 days')
@@ -94,6 +87,20 @@ async function main() {
         SET credits_reset_at = now() + interval '30 days', billing_retry_count = 0, updated_at = now()
         WHERE id = ${biz.id}
       `;
+      if (transaction) {
+        // Hunter Referral Commission (2569-09-01): the trailing 5% rate is
+        // explicitly meant to apply to every monthly auto-renewal too, not
+        // just manual repurchases (see lib/hunterCommission.ts and
+        // migrations/014_hunter_referral_commissions.sql) — this cron is
+        // the only place that commission would otherwise be missed.
+        //
+        // Bug Audit 4 (2569-09-02): runs AFTER the credits are granted and
+        // credits_reset_at is advanced, through the never-throwing wrapper —
+        // a commission bookkeeping failure must never leave a charged
+        // customer without credits, or make this cron re-charge them
+        // tomorrow (see recordHunterCommissionSafely's comment).
+        await recordHunterCommissionSafely(biz.id, transaction.id, Number(biz.price_thb));
+      }
       console.log(`[auto-billing] ${biz.id} charged successfully (${result.chargeId})`);
     } else {
       // Record the failed attempt for the transactions history even though

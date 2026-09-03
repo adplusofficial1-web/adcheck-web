@@ -16,6 +16,13 @@ import { useCallback, useEffect, useState } from "react";
 // into its own tab (see components/admin/HunterMarketingTabs.tsx) instead
 // of always-visible section; renamed its on-page heading to the shorter
 // "สิทธิ์เข้า /hunter" to match the tab label.
+//
+// CHANGE (Bug Audit 4, 2569-09-02): the roster is no longer a pure admin
+// whitelist — Hunters self-register on first Google sign-in at /hunter
+// (lib/hunterUsers.ts:autoRegisterHunterUser) with assignment_approved =
+// false, so this tab now also shows a "รอแอดมินอนุมัติรับ lead" badge on
+// those rows plus an approve/suspend toggle (PATCH { assignmentApproved }).
+// Rows added via the form below are approved from the start.
 
 const thClass = "bg-inverse text-onInverse text-xs font-medium px-3 py-2 text-left";
 const tdClass = "px-3 py-2 border-b border-border text-left align-top";
@@ -25,6 +32,7 @@ type HunterUser = {
   email: string;
   name: string;
   active: boolean;
+  assignment_approved: boolean;
   created_at: string;
 };
 
@@ -76,13 +84,15 @@ export function HunterUsersManager() {
     }
   };
 
-  const toggleActive = async (id: string, active: boolean) => {
+  // Both toggles hit the same PATCH endpoint with a different one-key body
+  // — see app/api/admin/hunter-users/[id]/route.ts.
+  const patchHunterUser = async (id: string, patch: { active: boolean } | { assignmentApproved: boolean }) => {
     setTogglingId(id);
     try {
       const res = await fetch(`/api/admin/hunter-users/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active }),
+        body: JSON.stringify(patch),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -90,18 +100,25 @@ export function HunterUsersManager() {
         return;
       }
       await load();
+    } catch {
+      window.alert("อัปเดตไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
     } finally {
       setTogglingId(null);
     }
   };
 
+  const toggleActive = (id: string, active: boolean) => patchHunterUser(id, { active });
+  const toggleApproved = (id: string, assignmentApproved: boolean) => patchHunterUser(id, { assignmentApproved });
+
   return (
     <div>
       <h2 className="text-lg font-medium text-primary">สิทธิ์เข้า /hunter</h2>
       <p className="mt-1 text-sm text-secondary max-w-2xl">
-        รายชื่อ Freelancer ภายนอกที่ล็อกอิน Google เข้าหน้า{" "}
-        <code className="text-xs bg-page border border-border rounded px-1 py-0.5">/hunter</code> ได้ — หน้านั้นแยก
-        จากหน้านี้โดยสมบูรณ์ (ดูอย่างเดียว: ชื่อคลินิก + คัดลอกลิงก์ผลตรวจสอบ) ไม่มีสิทธิ์แก้ไข/นำเข้า/ลบข้อมูลใดๆ
+        รายชื่อ Freelancer ภายนอกที่ใช้หน้า{" "}
+        <code className="text-xs bg-page border border-border rounded px-1 py-0.5">/hunter</code> — Hunter สมัครเองได้ทันที
+        ด้วยการล็อกอิน Google ที่หน้านั้น (ได้ลิงก์ชวนสมัคร + Pipeline คลินิกที่หาเอง + ค่าคอมมิชชั่น) แต่จะเริ่ม
+        &quot;ได้รับคลินิกจากแอดมิน&quot; (ปุ่มส่งในแท็บคิว Hunter) ก็ต่อเมื่อแอดมินกด &quot;อนุมัติรับ lead&quot; ในตารางนี้ก่อน —
+        Hunter ที่เพิ่มจากฟอร์มด้านล่างถือว่าอนุมัติแล้ว การปิดใช้งานจะดึงคลินิกที่ยังไม่ปิดของคนนั้นกลับเข้าคิวรอส่งใหม่
       </p>
 
       {error && <p className="mt-3 text-sm text-danger">{error}</p>}
@@ -164,23 +181,42 @@ export function HunterUsersManager() {
                   <td className={tdClass}>{u.name}</td>
                   <td className={tdClass}>{u.email}</td>
                   <td className={tdClass}>
-                    <span
-                      className={`rounded-pill px-2 py-0.5 text-[11px] font-medium ${
-                        u.active ? "bg-accentSoft text-accent" : "bg-page text-tertiary border border-border"
-                      }`}
-                    >
-                      {u.active ? "ใช้งานอยู่" : "ปิดใช้งาน"}
-                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      <span
+                        className={`rounded-pill px-2 py-0.5 text-[11px] font-medium ${
+                          u.active ? "bg-accentSoft text-accent" : "bg-page text-tertiary border border-border"
+                        }`}
+                      >
+                        {u.active ? "ใช้งานอยู่" : "ปิดใช้งาน"}
+                      </span>
+                      {!u.assignment_approved && (
+                        <span className="rounded-pill px-2 py-0.5 text-[11px] font-medium bg-warningSoft text-warning whitespace-nowrap">
+                          รอแอดมินอนุมัติรับ lead
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className={tdClass}>
-                    <button
-                      type="button"
-                      disabled={togglingId === u.id}
-                      onClick={() => toggleActive(u.id, !u.active)}
-                      className="rounded-md border border-border px-2.5 py-1 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
-                    >
-                      {u.active ? "ปิดใช้งาน" : "เปิดใช้งาน"}
-                    </button>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        disabled={togglingId === u.id}
+                        onClick={() => toggleApproved(u.id, !u.assignment_approved)}
+                        className={`rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-40 whitespace-nowrap ${
+                          u.assignment_approved ? "border border-border" : "bg-inverse text-onInverse"
+                        }`}
+                      >
+                        {u.assignment_approved ? "ระงับรับ lead" : "อนุมัติรับ lead"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={togglingId === u.id}
+                        onClick={() => toggleActive(u.id, !u.active)}
+                        className="rounded-md border border-border px-2.5 py-1 text-xs font-medium disabled:opacity-40 whitespace-nowrap"
+                      >
+                        {u.active ? "ปิดใช้งาน" : "เปิดใช้งาน"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))

@@ -113,6 +113,10 @@ export function HunterSettingsTab({ onAvatarChange }: { onAvatarChange?: (url: s
       setAvatarChanged(false);
       onAvatarChange?.(data.settings?.avatar_url ?? null);
       setSaved(true);
+    } catch {
+      // Bug Audit 4 (2569-09-02): a rejected fetch (offline) used to escape
+      // as an unhandled rejection with no feedback at all.
+      window.alert("บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง");
     } finally {
       setSaving(false);
     }

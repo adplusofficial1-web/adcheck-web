@@ -28,6 +28,13 @@ const REVIEW_BADGE: Record<string, { label: string; className: string }> = {
   caution: { label: "ควรระวัง", className: "bg-warningSoft text-warning border border-warningSoft" },
 };
 
+// Bug Audit 4 (2569-09-02): source_link is free text from the admin's
+// Excel import — only render it as an <a href> when it's an actual web URL
+// (same rule as components/hunter/HunterPipelineTab.tsx).
+function isWebUrl(v: string | null): v is string {
+  return typeof v === "string" && /^https?:\/\//i.test(v.trim());
+}
+
 function timeAgoLabel(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60000);
@@ -35,7 +42,7 @@ function timeAgoLabel(iso: string): string {
   if (mins < 60) return `${mins} นาทีที่แล้ว`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours} ชั่วโมงที่แล้ว`;
-  return new Date(iso).toLocaleDateString("th-TH");
+  return new Date(iso).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" });
 }
 
 function LeadCard({
@@ -115,16 +122,19 @@ function LeadCard({
               </span>
             )}
           </div>
-          {lead.source_link && (
-            <a
-              href={lead.source_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 inline-block text-xs text-accent underline break-all"
-            >
-              ลิงก์เพจต้นทาง
-            </a>
-          )}
+          {lead.source_link &&
+            (isWebUrl(lead.source_link) ? (
+              <a
+                href={lead.source_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-block text-xs text-accent underline break-all"
+              >
+                ลิงก์เพจต้นทาง
+              </a>
+            ) : (
+              <div className="mt-1 text-xs text-secondary break-all">ต้นทาง: {lead.source_link}</div>
+            ))}
         </div>
         {lead.result_url && (
           <button
