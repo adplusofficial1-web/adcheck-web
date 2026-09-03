@@ -159,6 +159,16 @@ export async function isActiveHunterUserId(id: string): Promise<boolean> {
   return !!row;
 }
 
+// Hunter chat (2569-09-03): the admin inbox's per-thread route
+// (app/api/admin/hunter-messages/[hunterUserId]/route.ts) needs the row —
+// name/avatar for the thread header, and active so a deactivated Hunter's
+// old thread stays readable (history) but is shown as read-only. Any row,
+// active or not.
+export async function getHunterUserById(id: string): Promise<HunterUser | null> {
+  const [row] = await sql`SELECT * FROM hunter_users WHERE id = ${id} LIMIT 1`;
+  return (row as HunterUser) ?? null;
+}
+
 // Adding a Hunter freelancer from the admin management form. ON CONFLICT
 // reactivates + renames rather than erroring — same as
 // lib/salesLeads.ts:createSalesUser, so re-adding a previously-deactivated
