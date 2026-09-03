@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { HunterOverviewTab } from "@/components/hunter/HunterOverviewTab";
 import { HunterPipelineTab } from "@/components/hunter/HunterPipelineTab";
 import { HunterCommissionTab } from "@/components/hunter/HunterCommissionTab";
 import { HunterSettingsTab } from "@/components/hunter/HunterSettingsTab";
 import { HunterHelpTab } from "@/components/hunter/HunterHelpTab";
+import { HunterChatTab } from "@/components/hunter/HunterChatTab";
 
 // The /hunter page's header + tab switcher — replaces the old split of
 // app/hunter/page.tsx (header) + components/hunter/HunterTabs.tsx (a
@@ -27,7 +28,7 @@ import { HunterHelpTab } from "@/components/hunter/HunterHelpTab";
 // Pipeline) noticeably more width to work with on desktop, while still
 // comfortably fitting inside typical viewports (it's a max-width, not a
 // fixed width, so nothing changes on mobile/tablet).
-type Tab = "overview" | "pipeline" | "commission" | "settings" | "help";
+type Tab = "overview" | "pipeline" | "commission" | "settings" | "help" | "chat";
 
 const TABS: { key: Tab; label: string }[] = [
   // FIX (per user request, 2569-09-01): renamed from "ภาพรวม" to
@@ -42,7 +43,16 @@ const TABS: { key: Tab; label: string }[] = [
   // New tab (per user request, 2569-09-01, "เพิ่มหน้าวิธีการใช้งาน") — see
   // components/hunter/HunterHelpTab.tsx.
   { key: "help", label: "วิธีการใช้งาน" },
+  // Hunter ↔ admin chat (2569-09-03, per user request) — see
+  // components/hunter/HunterChatTab.tsx. The tab label carries an unread
+  // badge (admin replies this Hunter hasn't opened yet), polled below.
+  { key: "chat", label: "แชทกับทีมงาน" },
 ];
+
+// How often the header asks "any unread admin replies?" while the chat tab
+// is NOT the one open (the chat tab itself marks messages read as it
+// polls, so while it's open the count is always 0 anyway).
+const UNREAD_POLL_MS = 15_000;
 
 type HunterHeaderInfo = { name: string; email: string; avatarUrl: string | null };
 
@@ -61,12 +71,59 @@ function HunterAvatar({ name, avatarUrl }: { name: string; avatarUrl: string | n
 export function HunterShell({ hunterUser }: { hunterUser: HunterHeaderInfo }) {
   const [tab, setTab] = useState<Tab>("overview");
   const [avatarUrl, setAvatarUrl] = useState(hunterUser.avatarUrl);
+  const [unreadChat, setUnreadChat] = useState(0);
+  const unreadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+
+  // Unread-badge poll for the "แชทกับทีมงาน" tab. Same self-re-arming
+  // pattern as components/admin/HunterPipelineOverview.tsx. Deliberately
+  // does NOT mark anything read (?countOnly=1) — only opening the tab does.
+  const loadUnread = useCallback(async () => {
+    try {
+      const res = await fetch("/api/hunter/messages?countOnly=1", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !mounted.current) return;
+      setUnreadChat(typeof data.unread === "number" ? data.unread : 0);
+    } catch {
+      // Badge is a nicety — a failed poll just leaves the last value.
+    }
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    loadUnread();
+    const tick = () => {
+      unreadTimer.current = setTimeout(async () => {
+        await loadUnread();
+        if (!mounted.current) return;
+        tick();
+      }, UNREAD_POLL_MS);
+    };
+    tick();
+    return () => {
+      mounted.current = false;
+      if (unreadTimer.current) clearTimeout(unreadTimer.current);
+    };
+  }, [loadUnread]);
+
+  // Opening the chat tab clears the badge locally right away (the tab's own
+  // first fetch marks them read server-side within the same second).
+  function selectTab(next: Tab) {
+    setTab(next);
+    if (next === "chat") setUnreadChat(0);
+  }
 
   function TabButton({ t, className }: { t: (typeof TABS)[number]; className: (active: boolean) => string }) {
     const active = tab === t.key;
+    const badge = t.key === "chat" && unreadChat > 0 ? unreadChat : 0;
     return (
-      <button key={t.key} type="button" onClick={() => setTab(t.key)} className={className(active)}>
+      <button key={t.key} type="button" onClick={() => selectTab(t.key)} className={className(active)}>
         {t.label}
+        {badge > 0 && (
+          <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-pill bg-danger text-onInverse text-[10px] font-medium px-1 align-middle">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
       </button>
     );
   }
@@ -128,6 +185,7 @@ export function HunterShell({ hunterUser }: { hunterUser: HunterHeaderInfo }) {
           {tab === "commission" && <HunterCommissionTab />}
           {tab === "settings" && <HunterSettingsTab onAvatarChange={setAvatarUrl} />}
           {tab === "help" && <HunterHelpTab />}
+          {tab === "chat" && <HunterChatTab />}
         </div>
       </main>
     </div>
