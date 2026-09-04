@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Prompt } from "next/font/google";
 import Script from "next/script";
+import { Suspense } from "react";
+import { RouteChangeTracker } from "@/components/GA/RouteChangeTracker";
 import "./globals.css";
 
 const prompt = Prompt({
@@ -27,7 +29,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           gtag('config', 'G-0PXYV4TRYW');`}
         </Script>
       </head>
-      <body className="font-sans min-h-screen">{children}</body>
+      <body className="font-sans min-h-screen">
+        <Suspense fallback={null}>
+          <RouteChangeTracker />
+        </Suspense>
+        {children}</body>
     </html>
     );
 }
