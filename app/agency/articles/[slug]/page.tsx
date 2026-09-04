@@ -1,11 +1,5 @@
 import { ArticleDetailContent } from "@/components/articles/ArticleDetailContent";
-import { getArticleBySlug } from "@/lib/articles";
-import { getCurrentBusiness } from "@/lib/currentBusiness";
-
-// Bug Audit 4 (2569-09-02): rendered per request (not statically at build)
-// so the Nav can show the signed-in reader's credit balance, same as the
-// list page — see components/articles/ArticleDetailContent.tsx.
-export const dynamic = "force-dynamic";
+import { ARTICLES, getArticleBySlug } from "@/lib/articles";
 
 // Agency-mode twin of app/articles/[slug]/page.tsx — see
 // app/agency/articles/page.tsx for why this exists (keeps Agency-mode Nav
@@ -13,16 +7,26 @@ export const dynamic = "force-dynamic";
 // have two routes: both render the same ArticleDetailContent component
 // against the same lib/articles.ts data, so there's nothing to keep in
 // sync by hand.
+export function generateStaticParams() {
+  return ARTICLES.map((a) => ({ slug: a.slug }));
+}
+
 export function generateMetadata({ params }: { params: { slug: string } }) {
   const article = getArticleBySlug(params.slug);
   if (!article) return {};
   return {
     title: `${article.title} — AdCheck`,
     description: article.excerpt,
+    // SEO: canonical back to the clinic-mode URL — same reasoning as
+    // app/agency/articles/page.tsx. The JSON-LD in ArticleDetailContent
+    // also always points at this same /articles/ URL regardless of which
+    // basePath rendered the page.
+    alternates: {
+      canonical: `/articles/${article.slug}`,
+    },
   };
 }
 
-export default async function AgencyArticleDetailPage({ params }: { params: { slug: string } }) {
-  const business = await getCurrentBusiness();
-  return <ArticleDetailContent slug={params.slug} basePath="/agency/articles" credits={business?.credits_remaining} />;
+export default function AgencyArticleDetailPage({ params }: { params: { slug: string } }) {
+  return <ArticleDetailContent slug={params.slug} basePath="/agency/articles" />;
 }
