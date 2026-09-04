@@ -130,7 +130,7 @@ export default async function SharedResultsPage({ params }: { params: { token: s
           {new Date(submission.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}
         </p>
 
-        <div className="flex gap-3 mb-8 text-sm">
+        <div className="flex flex-wrap gap-3 mb-8 text-sm">
           <span className="rounded-pill bg-accentSoft text-accent px-3 py-1">{passedCount} ภาพพร้อมเผยแพร่</span>
           <span className="rounded-pill bg-warningSoft text-warning px-3 py-1">{cautionCount} ภาพควรระวัง</span>
           <span className="rounded-pill bg-dangerSoft text-danger px-3 py-1">{violationCount} ภาพเข้าข่ายผิด</span>
@@ -175,8 +175,8 @@ export default async function SharedResultsPage({ params }: { params: { token: s
             const imgFlags = flagsByImage[img.id] || [];
             return (
               <div key={img.id} className="border border-border rounded-lg p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-sm font-medium">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="text-sm font-medium truncate min-w-0 flex-1 mr-2">
                     ภาพที่ {idx + 1} · {img.filename}
                   </div>
                   <span className={`rounded-pill px-3 py-1 text-xs font-medium ${s.badge}`}>
@@ -192,7 +192,7 @@ export default async function SharedResultsPage({ params }: { params: { token: s
                       src={`/api/images/${img.id}?share=${encodeURIComponent(params.token)}`}
                       loading="lazy"
                       alt={img.filename}
-                      className="w-1/2 md:w-1/5 md:shrink-0 max-h-48 object-contain rounded-md bg-page"
+                      className="w-full md:w-1/5 md:shrink-0 max-h-48 object-contain rounded-md bg-page"
                     />
                   )}
 
@@ -228,7 +228,7 @@ export default async function SharedResultsPage({ params }: { params: { token: s
           })}
         </div>
 
-        <div className="flex items-center gap-4 mt-8">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-8">
           {/* Public PDF twin of the authenticated download button on
               components/results/ResultsPageContent.tsx — looked up by the
               same share_token instead of a session, see
