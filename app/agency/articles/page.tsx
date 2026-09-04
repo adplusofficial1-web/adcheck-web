@@ -8,10 +8,17 @@ import { getCurrentBusiness } from "@/lib/currentBusiness";
 // article data (lib/articles.ts) — there are two routes but one shared
 // implementation, so the content is always identical between modes with
 // nothing to keep in sync by hand.
+//
+// SEO: identical content to /articles, so this points its canonical back
+// at the main route instead of competing with it for the same search
+// queries — Google should only ever rank one URL for this content.
 export const metadata = {
   title: "บทความ — AdCheck",
   description:
     "สรุปข่าวและประกาศจากหน่วยงานภาครัฐเกี่ยวกับการโฆษณาสถานพยาบาล คัดสรรและเรียบเรียงให้เข้าใจง่าย พร้อมลิงก์ไปต้นฉบับทุกบทความ",
+  alternates: {
+    canonical: "/articles",
+  },
 };
 
 // Same fix as app/articles/page.tsx — this route never passed credits to
