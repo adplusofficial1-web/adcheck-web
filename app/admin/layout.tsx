@@ -48,7 +48,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </span>
           </div>
           <AdminNav />
-          <span className="text-sm text-onInverse/70">{adminEmail}</span>
+          {/* fix(mobile): the admin email is a single unbreakable string
+              with no truncate, sitting in the same flex-wrap row as the
+              5-tab AdminNav pill — on a narrow phone it competed for
+              space with the tabs and could push them around. Hidden below
+              sm (same breakpoint HunterShell.tsx already hides its own
+              user email at) and truncated so a long address can't force
+              the header wider than the viewport at sm/md either. */}
+          <span className="hidden sm:block text-sm text-onInverse/70 truncate max-w-[220px]">{adminEmail}</span>
         </div>
       </header>
       <main className="px-6 md:px-14 py-10">{children}</main>
