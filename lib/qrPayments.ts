@@ -20,6 +20,13 @@ export type ManualPaymentRequest = {
   plan_id: string;
   plan_name: string;
   amount_thb: string | number;
+  // Credits the approve button will grant -- lib/qrPayments.ts:
+  // approveManualPaymentRequest always grants exactly plan.monthly_image_credits
+  // (never a value typed by the admin), so surface that same number here for
+  // the review queue instead of leaving the admin to guess or type one in
+  // (see components/admin/ManualPaymentsManager.tsx -- the "หมายเหตุ" input
+  // next to the button is a rejection note only, never a credit amount).
+  credits_to_grant: number;
   invoice_number: string;
   slip_media_type: string;
   status: ManualPaymentStatus;
@@ -73,7 +80,8 @@ export async function getPendingManualPaymentForBusiness(businessId: string, pla
 export async function listPendingManualPayments(): Promise<ManualPaymentRequest[]> {
   const rows = await sql`
     SELECT m.id, m.business_id, b.name AS business_name, b.contact_email AS business_email,
-      m.plan_id, p.name AS plan_name, m.amount_thb, m.invoice_number, m.slip_media_type,
+      m.plan_id, p.name AS plan_name, m.amount_thb, p.monthly_image_credits AS credits_to_grant,
+      m.invoice_number, m.slip_media_type,
       m.status, m.reviewed_by, m.reviewed_at, m.review_note, m.created_at
     FROM manual_payment_requests m
     JOIN businesses b ON b.id = m.business_id
@@ -90,11 +98,18 @@ export async function listPendingManualPayments(): Promise<ManualPaymentRequest[
 export async function listReviewedManualPayments(limit = 50): Promise<ManualPaymentRequest[]> {
   const rows = await sql`
     SELECT m.id, m.business_id, b.name AS business_name, b.contact_email AS business_email,
-      m.plan_id, p.name AS plan_name, m.amount_thb, m.invoice_number, m.slip_media_type,
+      m.plan_id, p.name AS plan_name, m.amount_thb,
+      -- Historical requests use the credits actually granted at approval
+      -- time (business_packages.credits_granted) when available, falling
+      -- back to the plan's current value for rejected requests (which never
+      -- created a business_packages row) -- see credits_to_grant above.
+      COALESCE(bp.credits_granted, p.monthly_image_credits) AS credits_to_grant,
+      m.invoice_number, m.slip_media_type,
       m.status, m.reviewed_by, m.reviewed_at, m.review_note, m.created_at
     FROM manual_payment_requests m
     JOIN businesses b ON b.id = m.business_id
     JOIN plans p ON p.id = m.plan_id
+    LEFT JOIN business_packages bp ON bp.transaction_id = m.transaction_id
     WHERE m.status <> 'pending'
     ORDER BY m.reviewed_at DESC
     LIMIT ${limit}
