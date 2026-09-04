@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Script from "next/script";
 import { DbdTrustBadge } from "@/components/DbdTrustBadge";
+import { trackEvent } from "@/lib/gtag";
 
 const CHANNELS = ["บัตรเครดิต/เดบิต", "QR PromptPay", "Mobile Banking", "Direct Debit"];
 
@@ -57,6 +58,15 @@ export function CheckoutForm({
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [omiseReady, setOmiseReady] = useState(false);
+
+  useEffect(() => {
+    trackEvent("begin_checkout", {
+      currency: "THB",
+      value: amount,
+      items: [{ item_id: planCode, price: amount }],
+    });
+  }, [amount, planCode]);
+    
 
   const [cardName, setCardName] = useState("");
   const [cardNumber, setCardNumber] = useState("");
@@ -129,6 +139,12 @@ export function CheckoutForm({
       const data = await res.json();
       if (res.ok && data.ok) {
         setDone(data.invoiceNumber);
+        trackEvent("purchase", {
+          transaction_id: data.invoiceNumber,
+          currency: "THB",
+          value: amount,
+          items: [{ item_id: planCode, price: amount }],
+        });
         setTimeout(() => router.push(isAgencyCheckout ? "/agency/dashboard" : "/dashboard"), 1500);
       } else if (data.requires3ds && data.authorizeUri) {
         // Bank requires 3-D Secure step-up — hand off to the bank's own
@@ -163,6 +179,12 @@ export function CheckoutForm({
     setLoading(false);
     if (res.ok) {
       setDone(data.invoiceNumber);
+      trackEvent("purchase", {
+        transaction_id: data.invoiceNumber,
+        currency: "THB",
+        value: amount,
+        items: [{ item_id: planCode, price: amount }],
+      });
       setTimeout(() => router.push(isAgencyCheckout ? "/agency/dashboard" : "/dashboard"), 1500);
     } else {
       setError(data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
