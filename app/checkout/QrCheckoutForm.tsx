@@ -122,10 +122,13 @@ export function QrCheckoutForm({
 
   return (
     <div>
-      <div className="bg-warningSoft text-warning rounded-lg p-4 mb-6 text-sm">
-        ระบบชำระเงินออนไลน์ผ่านบัตร/เกตเวย์อยู่ระหว่างรออนุมัติจากผู้ให้บริการ ขณะนี้กรุณาชำระเงินด้วยการโอนผ่าน QR PromptPay ด้านล่าง แล้วแนบสลิปเพื่อให้ทีมงานตรวจสอบและเติมเครดิตให้
-      </div>
-
+      {/* CHANGE (2569-09-04, per user request): removed the "รออนุมัติจาก
+          ผู้ให้บริการ" warning banner that used to render here — the QR
+          PromptPay flow is the intended, primary way to pay in this mode
+          (see PAYMENT_MODE in lib/paymentMode.ts and the comment above this
+          component), so telling the user card payment is "pending approval"
+          before they've even seen a card option read as an error message
+          rather than normal flow framing. */}
       <div className="rounded-lg border border-border bg-surface p-6 mb-6 flex flex-col items-center text-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
