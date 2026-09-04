@@ -64,12 +64,15 @@ export function CheckoutForm({
   const [expYear, setExpYear] = useState("");
   const [cvv, setCvv] = useState("");
   const [consent, setConsent] = useState(false);
-  // Acceptance of components/DisclaimerBox.tsx, rendered directly above this
-  // form on app/checkout/page.tsx. Required for EVERY channel (unlike
-  // `consent`, which is only the recurring-auto-billing authorization and
-  // only applies to the card channel) — enforced here for the button state
-  // and again server-side in both app/api/billing/card/route.ts and
-  // app/api/checkout/route.ts, since a disabled button is only a UI nicety.
+  // Acceptance of components/DisclaimerBox.tsx — CHANGE (2569-09-04, per
+  // user request): that box now renders BELOW this form (at the very
+  // bottom of app/checkout/page.tsx) instead of above it, so the checkbox
+  // copy below says "ด้านล่าง" (below), not "ข้างต้น" (above). Required for
+  // EVERY channel (unlike `consent`, which is only the recurring-auto-
+  // billing authorization and only applies to the card channel) —
+  // enforced here for the button state and again server-side in both
+  // app/api/billing/card/route.ts and app/api/checkout/route.ts, since a
+  // disabled button is only a UI nicety.
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   const isCardChannel = channel === CHANNELS[0];
@@ -263,10 +266,10 @@ export function CheckoutForm({
       )}
 
       {/* Required for every channel, not just the card one — see the
-          termsAccepted comment near its useState above. Rendered right at
-          the payment decision point, directly below components/DisclaimerBox.tsx
-          on app/checkout/page.tsx, so acceptance and the terms it refers to
-          are on screen together. */}
+          termsAccepted comment near its useState above. components/
+          DisclaimerBox.tsx now renders below this form, at the very
+          bottom of app/checkout/page.tsx (CHANGE 2569-09-04) — copy says
+          "ด้านล่าง" (below) to match. */}
       <label className="flex items-start gap-2 text-xs text-secondary pt-1 pb-3">
         <input
           type="checkbox"
@@ -274,7 +277,7 @@ export function CheckoutForm({
           onChange={(e) => setTermsAccepted(e.target.checked)}
           className="mt-0.5"
         />
-        <span>ฉันได้อ่านและยอมรับข้อกำหนดและข้อจำกัดความรับผิดชอบข้างต้นแล้ว</span>
+        <span>ฉันได้อ่านและยอมรับข้อกำหนดและข้อจำกัดความรับผิดชอบด้านล่างแล้ว</span>
       </label>
 
       {error && <div className="text-sm text-danger mb-4 mt-3">{error}</div>}

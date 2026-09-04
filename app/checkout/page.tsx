@@ -61,8 +61,6 @@ export default async function CheckoutPage({
             </div>
           </div>
 
-          {!pending && <DisclaimerBox className="mb-6" />}
-
           <QrCheckoutForm
             planCode={plan.code}
             planName={plan.name}
@@ -75,6 +73,12 @@ export default async function CheckoutPage({
                 : null
             }
           />
+
+          {/* CHANGE (2569-09-04, per user request): moved from above
+              QrCheckoutForm to the very bottom of the page — QrCheckoutForm's
+              own "ฉันได้อ่านและยอมรับ...ด้านล่าง" checkbox now points down to
+              this box instead of up to it. */}
+          {!pending && <DisclaimerBox className="mt-6" />}
         </div>
       </main>
     );
@@ -129,21 +133,22 @@ export default async function CheckoutPage({
             ระบบชำระเงินออนไลน์ยังไม่เปิดให้บริการในขณะนี้ กรุณาติดต่อทีมงานเพื่อเติมเครดิตด้วยตนเองก่อน
           </div>
         )}
-        {/* Shown at the payment decision point (not just on /pricing, see
-            components/pricing/PricingContent.tsx) so the user reads the full
-            terms right before the moment that legally matters, rather than a
-            page they may never have visited before buying. CheckoutForm.tsx
-            renders the "I have read and accept" checkbox right below this and
-            blocks submission (both client- and server-side, see
-            app/api/billing/card/route.ts and app/api/checkout/route.ts) until
-            it's checked. */}
-        <DisclaimerBox className="mb-6" />
         <CheckoutForm
           planCode={plan.code}
           amount={amount}
           paymentEnabled={paymentEnabled}
           omisePublicKey={omisePublicKey}
         />
+
+        {/* CHANGE (2569-09-04, per user request): moved from above
+            CheckoutForm to the very bottom of the page — reading the full
+            terms still happens before submission is possible (the "I have
+            read and accept" checkbox inside CheckoutForm still blocks
+            payment client- and server-side, see app/api/billing/card/route.ts
+            and app/api/checkout/route.ts), it's just no longer positioned
+            above the form. CheckoutForm.tsx's checkbox copy now points down
+            ("...ด้านล่าง") to this box instead of up. */}
+        <DisclaimerBox className="mt-6" />
       </div>
     </main>
   );

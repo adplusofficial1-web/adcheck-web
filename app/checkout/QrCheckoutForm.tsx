@@ -156,6 +156,9 @@ export function QrCheckoutForm({
         <img src={filePreview} alt="ตัวอย่างสลิป" className="mt-3 max-h-48 rounded-md border border-border mx-auto" />
       )}
 
+      {/* CHANGE (2569-09-04, per user request): components/DisclaimerBox.tsx
+          now renders below this form, at the very bottom of
+          app/checkout/page.tsx — copy says "ด้านล่าง" (below) to match. */}
       <label className="flex items-start gap-2 text-xs text-secondary pt-4 pb-3">
         <input
           type="checkbox"
@@ -163,7 +166,7 @@ export function QrCheckoutForm({
           onChange={(e) => setTermsAccepted(e.target.checked)}
           className="mt-0.5"
         />
-        <span>ฉันได้อ่านและยอมรับข้อกำหนดและข้อจำกัดความรับผิดชอบข้างต้นแล้ว</span>
+        <span>ฉันได้อ่านและยอมรับข้อกำหนดและข้อจำกัดความรับผิดชอบด้านล่างแล้ว</span>
       </label>
 
       {error && <div className="text-sm text-danger mb-4">{error}</div>}
