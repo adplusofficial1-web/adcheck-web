@@ -30,7 +30,7 @@ export function ManualPaymentsManager({ initialPending, initialReviewed }: Props
   async function act(id: string, action: "approve" | "reject") {
     const item = pending.find((p) => p.id === id);
     if (!item) return;
-    if (action === "approve" && !window.confirm(`ยืนยันว่าตรวจสอบยอดโอน ${Number(item.amount_thb).toLocaleString("th-TH")} บาท จากแอปธนาคารแล้ว และจะอนุมัติเติมเครดิตให้ ${item.business_name}?`)) {
+    if (action === "approve" && !window.confirm(`ยืนยันว่าตรวจสอบยอดโอน ${Number(item.amount_thb).toLocaleString("th-TH")} บาท จากแอปธนาคารแล้ว และจะอนุมัติเติมเครดิต ${item.credits_to_grant.toLocaleString("th-TH")} เครดิต ให้ ${item.business_name}?`)) {
       return;
     }
     setBusyId(id);
@@ -109,7 +109,7 @@ export function ManualPaymentsManager({ initialPending, initialReviewed }: Props
                       </span>
                     </div>
                     <div className="mt-1 text-xs text-tertiary">
-                      แพ็ก{p.plan_name} · เลขที่ใบแจ้งชำระ {p.invoice_number} · ส่งเมื่อ {formatThaiDateTime(p.created_at)}
+                      แพ็ก{p.plan_name} ({p.credits_to_grant.toLocaleString("th-TH")} เครดิต) · เลขที่ใบแจ้งชำระ {p.invoice_number} · ส่งเมื่อ {formatThaiDateTime(p.created_at)}
                     </div>
 
                     <input
@@ -126,7 +126,7 @@ export function ManualPaymentsManager({ initialPending, initialReviewed }: Props
                         disabled={busyId === p.id}
                         className="rounded-md bg-accent px-4 py-2 text-xs font-medium text-onInverse disabled:opacity-50"
                       >
-                        {busyId === p.id ? "กำลังดำเนินการ..." : "อนุมัติ + เติมเครดิต"}
+                        {busyId === p.id ? "กำลังดำเนินการ..." : `อนุมัติ + เติมเครดิต ${p.credits_to_grant.toLocaleString("th-TH")} เครดิต`}
                       </button>
                       <button
                         onClick={() => act(p.id, "reject")}
@@ -164,7 +164,7 @@ export function ManualPaymentsManager({ initialPending, initialReviewed }: Props
               </div>
               <div className="mt-1 flex items-center justify-between gap-4 flex-wrap text-xs text-tertiary">
                 <span>
-                  แพ็ก{r.plan_name} · {Number(r.amount_thb).toLocaleString("th-TH")} บาท · {r.invoice_number}
+                  แพ็ก{r.plan_name} ({r.credits_to_grant.toLocaleString("th-TH")} เครดิต) · {Number(r.amount_thb).toLocaleString("th-TH")} บาท · {r.invoice_number}
                   {r.review_note ? ` · ${r.review_note}` : ""}
                 </span>
                 <span>{r.reviewed_at ? formatThaiDateTime(r.reviewed_at) : ""} · โดย {r.reviewed_by}</span>
