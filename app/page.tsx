@@ -50,7 +50,7 @@ export default async function LandingPage() {
           <span className="inline-block rounded-pill bg-accentSoft text-accent text-xs font-medium tracking-wide px-3.5 py-1.5">
             ตรวจสอบโฆษณาคลินิกสถานพยาบาลด้วย AI
           </span>
-          <h1 className="max-w-full w-[560px] text-[46px] font-medium leading-[1.16] tracking-tight text-primary">
+          <h1 className="max-w-full w-[560px] text-[32px] md:text-[46px] font-medium leading-[1.16] tracking-tight text-primary">
             โฆษณาคลินิกให้ถูกกฎหมาย
             <br />
             ก่อนเผยแพร่จริง
@@ -73,7 +73,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section className="bg-surface border-t border-border flex flex-col items-center gap-14 px-16 py-20">
+      <section className="bg-surface border-t border-border flex flex-col items-center gap-14 px-6 md:px-16 py-16 md:py-20">
         <h2 className="text-[28px] font-medium text-primary">ใช้งานง่ายใน 3 ขั้นตอน</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
           {[
@@ -90,7 +90,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section id="pricing" className="bg-surface border-t border-border flex flex-col items-center gap-12 px-16 py-[100px]">
+      <section id="pricing" className="bg-surface border-t border-border flex flex-col items-center gap-12 px-6 md:px-16 py-16 md:py-[100px]">
         <h2 className="text-[28px] font-medium text-primary text-center">
           ราคาแพ็กเกจรายเดือน - เลือกตามการใช้งาน
         </h2>
@@ -138,7 +138,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section className="bg-inverse flex flex-col items-center gap-5 px-16 py-24">
+      <section className="bg-inverse flex flex-col items-center gap-5 px-6 md:px-16 py-16 md:py-24">
         <h3 className="text-[28px] font-medium text-onInverse">เริ่มตรวจสอบโฆษณาคลินิกของคุณวันนี้</h3>
         <Link
           href="/login"
@@ -148,7 +148,7 @@ export default async function LandingPage() {
         </Link>
       </section>
 
-      <footer className="bg-surface flex flex-col items-center gap-4 px-16 py-8 text-xs text-tertiary">
+      <footer className="bg-surface flex flex-col items-center gap-4 px-6 md:px-16 py-8 text-xs text-tertiary">
         <p className="max-w-full w-[600px] text-center">
           AdCheck เป็นเครื่องมือคัดกรองเบื้องต้น ไม่ใช่การอนุมัติโฆษณาตามกฎหมาย
           สถานพยาบาลยังต้องยื่นขออนุมัติกับ สบส. ก่อนเผยแพร่จริงทุกครั้ง
