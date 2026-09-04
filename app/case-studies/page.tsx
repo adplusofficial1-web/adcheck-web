@@ -190,12 +190,12 @@ function ScrollHint({ count }: { count: number }) {
 export default function CaseStudiesPage() {
   return (
     <main className="bg-page">
-      <nav className="bg-inverse text-onInverse flex items-center justify-between px-16 py-7">
+      <nav className="bg-inverse text-onInverse flex items-center justify-between gap-4 flex-wrap px-6 md:px-16 py-5 md:py-7">
         <Link href="/" className="text-2xl font-medium">
           ADCheck
         </Link>
-        <div className="flex items-center gap-8">
-          <Link href="/login" className="text-xl text-onInverse/90 hover:text-onInverse">
+        <div className="flex items-center gap-4 md:gap-8 flex-wrap">
+          <Link href="/login" className="text-base md:text-xl text-onInverse/90 hover:text-onInverse">
             เข้าสู่ระบบ
           </Link>
           <Link
@@ -207,11 +207,11 @@ export default function CaseStudiesPage() {
         </div>
       </nav>
 
-      <div className="bg-surface flex flex-col items-start gap-3 px-16 pt-16 pb-12">
+      <div className="bg-surface flex flex-col items-start gap-3 px-6 md:px-16 pt-16 pb-12">
         <p className="text-tertiary text-sm">
           <Link href="/" className="hover:text-primary">หน้าแรก</Link> &nbsp;/&nbsp; ตัวอย่างการตรวจสอบ
         </p>
-        <h1 className="text-[44px] font-medium text-primary">ตัวอย่างการตรวจสอบโฆษณา</h1>
+        <h1 className="text-[30px] md:text-[44px] font-medium text-primary">ตัวอย่างการตรวจสอบโฆษณา</h1>
         <p className="max-w-[720px] text-secondary text-lg leading-[1.6]">
           ดูตัวอย่างจริงว่า AI ของ AdCheck จับจุดเสี่ยงในข้อความโฆษณาและช่วยแนะนำการแก้ไขอย่างไร
           ก่อนเผยแพร่โฆษณาจริง
@@ -219,7 +219,7 @@ export default function CaseStudiesPage() {
       </div>
 
       {/* Before / After Showcase */}
-      <div className="bg-surface flex flex-col items-start gap-7 px-16 pb-20">
+      <div className="bg-surface flex flex-col items-start gap-7 px-6 md:px-16 pb-20">
         <div>
           <p className="text-[28px] font-medium text-primary mb-1.5">ตัวอย่างการตรวจสอบ</p>
           <p className="max-w-[640px] text-secondary text-[15px] leading-snug">
@@ -234,7 +234,7 @@ export default function CaseStudiesPage() {
             <div className="flex flex-col gap-6">
               {COMPARE_EXAMPLES.map((ex, i) => (
                 <div key={i} className="flex flex-wrap gap-6">
-                  <div className="flex-1 min-w-[380px] rounded-xl border-2 border-dangerSoft p-6 flex flex-col gap-4">
+                  <div className="w-full sm:flex-1 sm:min-w-[380px] rounded-xl border-2 border-dangerSoft p-6 flex flex-col gap-4">
                     <span className="inline-flex w-fit rounded-pill bg-dangerSoft text-danger text-xs font-medium px-3 py-1.5">
                       ⚠ พบ 3 จุดเสี่ยง — ก่อนตรวจสอบ
                     </span>
@@ -254,7 +254,7 @@ export default function CaseStudiesPage() {
                     </div>
                   </div>
 
-                  <div className="flex-1 min-w-[380px] rounded-xl border-2 border-accentSoft p-6 flex flex-col gap-4">
+                  <div className="w-full sm:flex-1 sm:min-w-[380px] rounded-xl border-2 border-accentSoft p-6 flex flex-col gap-4">
                     <span className="inline-flex w-fit rounded-pill bg-accentSoft text-accent text-xs font-medium px-3 py-1.5">
                       ✓ ผ่านเกณฑ์ — หลังแก้ไขโดย AdCheck
                     </span>
@@ -281,7 +281,7 @@ export default function CaseStudiesPage() {
         </div>
       </div>
 
-      <div className="bg-inverse flex flex-col items-center gap-5 px-16 py-24">
+      <div className="bg-inverse flex flex-col items-center gap-5 px-6 md:px-16 py-24">
         <h2 className="text-[28px] font-medium text-onInverse text-center max-w-[600px]">
           อยากตรวจโฆษณาของคุณแบบนี้บ้างไหม ลองใช้ AdCheck วันนี้
         </h2>
@@ -293,7 +293,7 @@ export default function CaseStudiesPage() {
         </Link>
       </div>
 
-      <footer className="bg-surface flex flex-col items-center gap-2 px-16 py-8 text-xs text-tertiary">
+      <footer className="bg-surface flex flex-col items-center gap-2 px-6 md:px-16 py-8 text-xs text-tertiary">
         <p className="max-w-full w-[600px] text-center">
           AdCheck เป็นเครื่องมือคัดกรองเบื้องต้น ไม่ใช่การอนุมัติโฆษณาตามกฎหมาย
           สถานพยาบาลยังต้องยื่นขออนุมัติกับ สบส. ก่อนเผยแพร่จริงทุกครั้ง
