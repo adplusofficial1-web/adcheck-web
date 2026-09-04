@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Prompt } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const prompt = Prompt({
@@ -17,7 +18,16 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th" className={prompt.variable}>
+      <head>
+        <Script src="https://www.googletagmanager.com/gtag/js?id=G-0PXYV4TRYW" strategy="afterInteractive" />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'G-0PXYV4TRYW');`}
+        </Script>
+      </head>
       <body className="font-sans min-h-screen">{children}</body>
     </html>
-  );
+    );
 }
