@@ -67,12 +67,12 @@ export default async function DashboardPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <div className="border border-border rounded-lg p-5">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-8">
+          <div className="border border-border rounded-lg p-4 sm:p-5">
             <div className="text-xs text-secondary mb-2">ตรวจแล้วเดือนนี้</div>
             <div className="text-2xl font-medium">{totalThisMonth}</div>
           </div>
-          <div className="border border-border rounded-lg p-5">
+          <div className="border border-border rounded-lg p-4 sm:p-5">
             <div className="text-xs text-secondary mb-2">ภาพที่ผ่านทั้งหมด</div>
             <div className="text-2xl font-medium">{passedAllTime}</div>
           </div>
