@@ -98,16 +98,43 @@ const REVIEW_BADGE: Record<string, { label: string; className: string }> = {
   caution: { label: "ควรระวัง", className: "bg-warningSoft text-warning border border-warningSoft" },
 };
 
+// New (2569-09-05, per user request "เมื่อระบบแจกจ่าย Lead ให้ระบบ ส่ง link
+// Referral ไปใส่ในสคริปเลยได้ไหม ให้ hunter ทำแค่ คัดลอก แล้วส่งให้ลูกค้าเลย"):
+// builds the same outreach message finalized with the marketing team
+// (clinic name + source link + flag count + result link + the standard
+// สบส./มาตรา 38 context + the free-trial offer), with THIS Hunter's own
+// referral link appended at the end so a signup traces back to them. Kept
+// as a pure function (no component state) so it's trivial to keep in sync
+// with the copy the marketing team maintains outside the codebase.
+function composeOutreachMessage(lead: PipelineLead, referralLink: string): string {
+  const flagCount = lead.flag_count ?? 0;
+  const paragraphs = [
+    `เรียน ${lead.clinic_name}`,
+    `ทีมงาน AdCheck ขอเรียนแจ้งผลการตรวจสอบโฆษณา โดยระบบ AI ตรวจสอบตามมาตรา 38 แห่งพระราชบัญญัติสถานพยาบาล พ.ศ. 2541${
+      lead.source_link ? ` ได้ทำการตรวจสอบโพสต์โฆษณาจากลิงก์ดังต่อไปนี้ ${lead.source_link}` : ""
+    }`,
+    `ผลการตรวจสอบพบจุดที่เข้าข่ายผิดกฎหมายจำนวน ${flagCount} จุด${
+      lead.result_url ? ` สามารถดูรายละเอียดผลการตรวจสอบฉบับเต็มได้ที่ลิงก์นี้ ${lead.result_url}` : ""
+    }`,
+    `ในปีงบประมาณ 2569 กรมสนับสนุนบริการสุขภาพ (สบส.) ได้ตรวจสอบโฆษณาไปแล้ว 4,521 โพสต์ พบว่าผิดกฎหมายถึง 2,433 โพสต์ และกำลังจะมีระเบียบ "รางวัลนำจับ" ประกาศใช้เพิ่มเติม จึงขอเรียนแจ้งให้ทราบล่วงหน้าก่อนที่จะเกิดปัญหา`,
+    `ทางบริษัทมีเครื่องมือตรวจสอบโฆษณาก่อนเผยแพร่ (adcheck.pro) เปิดให้ทดลองใช้ฟรี 15 ครั้ง ไม่มีค่าใช้จ่ายใดๆ ท่านสนใจทดลองใช้เพื่อตรวจสอบและแก้ไขจุดที่พบก่อนเผยแพร่หรือไม่ สมัครทดลองใช้งานได้ที่ ${referralLink}`,
+  ];
+  return paragraphs.join("\n\n");
+}
+
 function LeadCard({
   lead,
   onUpdate,
   onDelete,
+  referralLink,
 }: {
   lead: PipelineLead;
   onUpdate: (id: string, updates: { status?: PipelineStatus; notes?: string }, source: LeadSource) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  referralLink: string | null;
 }) {
   const [copied, setCopied] = useState(false);
+  const [copiedMsg, setCopiedMsg] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
   const [notesDraft, setNotesDraft] = useState(lead.notes);
   const [savingNotes, setSavingNotes] = useState(false);
@@ -115,6 +142,7 @@ function LeadCard({
   // Cleared on unmount so a card removed (deleted / moved off-screen by a
   // parent reload) within the 2s window doesn't setState on a dead component.
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyMsgResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setNotesDraft(lead.notes);
@@ -123,16 +151,20 @@ function LeadCard({
   useEffect(() => {
     return () => {
       if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+      if (copyMsgResetTimer.current) clearTimeout(copyMsgResetTimer.current);
     };
   }, []);
 
-  const copyResult = async () => {
-    if (!lead.result_url) return;
+  // Shared clipboard-write with the same execCommand fallback as copyResult
+  // below (Safari/older WebViews inside the /hunter page don't all support
+  // navigator.clipboard.writeText from a non-HTTPS-secure or embedded context).
+  const writeToClipboard = async (text: string): Promise<boolean> => {
     try {
-      await navigator.clipboard.writeText(lead.result_url);
+      await navigator.clipboard.writeText(text);
+      return true;
     } catch {
       const textarea = document.createElement("textarea");
-      textarea.value = lead.result_url;
+      textarea.value = text;
       textarea.style.position = "fixed";
       textarea.style.opacity = "0";
       document.body.appendChild(textarea);
@@ -141,13 +173,33 @@ function LeadCard({
         document.execCommand("copy");
       } catch {
         document.body.removeChild(textarea);
-        return;
+        return false;
       }
       document.body.removeChild(textarea);
+      return true;
     }
+  };
+
+  const copyResult = async () => {
+    if (!lead.result_url) return;
+    if (!(await writeToClipboard(lead.result_url))) return;
     setCopied(true);
     if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
     copyResetTimer.current = setTimeout(() => setCopied(false), 2000);
+  };
+
+  // New (2569-09-05): copies the full ready-to-send outreach message with
+  // THIS Hunter's own referral link already inserted — see
+  // composeOutreachMessage above. Disabled (see button below) until
+  // referralLink has loaded, so a Hunter can never send a copy of the
+  // message missing their own link.
+  const copyMessage = async () => {
+    if (!referralLink) return;
+    const message = composeOutreachMessage(lead, referralLink);
+    if (!(await writeToClipboard(message))) return;
+    setCopiedMsg(true);
+    if (copyMsgResetTimer.current) clearTimeout(copyMsgResetTimer.current);
+    copyMsgResetTimer.current = setTimeout(() => setCopiedMsg(false), 2000);
   };
 
   const changeStatus = async (status: PipelineStatus) => {
@@ -223,6 +275,21 @@ function LeadCard({
         ) : (
           <div className="mt-1.5 text-[11px] text-secondary break-all">ต้นทาง: {lead.source_link}</div>
         ))}
+      {/* New (2569-09-05, per user request "ให้ hunter ทำแค่ คัดลอก แล้วส่งให้
+          ลูกค้าเลย"): only for leads that actually went through the AI check
+          (result_url + a known flag_count) — a self-sourced or
+          still-awaiting-images lead has neither, and the message template
+          needs both to say anything meaningful. */}
+      {lead.result_url && typeof lead.flag_count === "number" && (
+        <button
+          type="button"
+          onClick={copyMessage}
+          disabled={!referralLink}
+          className="mt-2 w-full rounded-md bg-inverse text-onInverse px-2.5 py-1.5 text-[11px] font-medium disabled:opacity-50"
+        >
+          {!referralLink ? "กำลังโหลดลิงก์…" : copiedMsg ? "คัดลอกแล้ว ✓ พร้อมส่งลูกค้า" : "คัดลอกข้อความส่งลูกค้า"}
+        </button>
+      )}
       <textarea
         value={notesDraft}
         onChange={(e) => setNotesDraft(e.target.value)}
@@ -336,6 +403,12 @@ export function HunterPipelineTab() {
   const [leads, setLeads] = useState<PipelineLead[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  // New (2569-09-05): this Hunter's own referral link (same id + /login?ref=
+  // pattern HunterOverviewTab.tsx already uses via /api/hunter/settings),
+  // fetched once here and passed to every LeadCard so the "copy message"
+  // button can append it. Left null (button stays disabled) if the fetch
+  // fails — never send a message silently missing the Hunter's own link.
+  const [referralLink, setReferralLink] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -352,6 +425,24 @@ export function HunterPipelineTab() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/hunter/settings", { cache: "no-store" });
+        const data = await res.json();
+        if (!cancelled && res.ok && data?.settings?.id) {
+          setReferralLink(`${window.location.origin}/login?ref=${data.settings.id}`);
+        }
+      } catch {
+        // Silent — the copy-message button just stays disabled/loading.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onUpdate = useCallback(
     async (id: string, updates: { status?: PipelineStatus; notes?: string }, source: LeadSource) => {
@@ -489,7 +580,7 @@ export function HunterPipelineTab() {
                     </div>
                   ) : (
                     stageLeads.map((lead) => (
-                      <LeadCard key={lead.id} lead={lead} onUpdate={onUpdate} onDelete={onDelete} />
+                      <LeadCard key={lead.id} lead={lead} onUpdate={onUpdate} onDelete={onDelete} referralLink={referralLink} />
                     ))
                   )}
                 </div>
