@@ -35,6 +35,14 @@ type PipelineLead = {
   status_changed_at: string;
   notes: string;
   source: LeadSource;
+  // New (2569-09-05, per user request "ถ้ามีเข้าสู่ระบบ จาก referral อยากให้
+  // Hunter มีโชว์ว่า ลูกค้ากำลังใช้งาน และจำนวนครั้งที่ใช้ไป"): only ever
+  // meaningful for source === "admin" — a self-sourced lead's referral link
+  // never carries a lead id (see composeOutreachMessage below), so the API
+  // always sends customer_signed_up: false for those.
+  customer_signed_up: boolean;
+  customer_credits_remaining: number | null;
+  customer_usage_count: number | null;
 };
 
 // CHANGE (2569-09-02, per user request "ทุกครั้งที่เปลี่ยนสถานะ อยากให้กำกับ
@@ -107,7 +115,19 @@ const REVIEW_BADGE: Record<string, { label: string; className: string }> = {
 // referral link appended at the end so a signup traces back to them. Kept
 // as a pure function (no component state) so it's trivial to keep in sync
 // with the copy the marketing team maintains outside the codebase.
-function composeOutreachMessage(lead: PipelineLead, referralLink: string): string {
+//
+// CHANGE (Hunter Lead Referral Attribution, 2569-09-05, per user request
+// "ถ้ามีเข้าสู่ระบบ จาก referral อยากให้ Hunter มีโชว์ว่า ลูกค้ากำลังใช้งาน และ
+// จำนวนครั้งที่ใช้ไป แล้วย้าย Pipeline ให้อัตโนมัติ"): baseReferralLink alone
+// (`/login?ref=<hunter_user_id>`) only says WHICH Hunter — this appends
+// `&lead=<hunter_lead_id>` so a signup can be traced back to THIS specific
+// card (see middleware.ts and lib/currentBusiness.ts for where that's read
+// and validated). lead.id here is always a hunter_leads id, never a
+// hunter_self_leads one — this function (and the button that calls it) only
+// ever runs for source === "admin" cards (gated on lead.result_url, which a
+// self-sourced lead never has).
+function composeOutreachMessage(lead: PipelineLead, baseReferralLink: string): string {
+  const referralLink = `${baseReferralLink}&lead=${lead.id}`;
   // Bug fix (2569-09-05, found via live test — a real lead had status=done
   // and a result_url but a null flag_count/review_status, one of 2 such
   // rows in production): never claim a violation count we don't actually
@@ -266,6 +286,23 @@ function LeadCard({
           </span>
         )}
       </div>
+      {/* New (2569-09-05, per user request "ถ้ามีเข้าสู่ระบบ จาก referral
+          อยากให้ Hunter มีโชว์ว่า ลูกค้ากำลังใช้งาน และจำนวนครั้งที่ใช้ไป"):
+          only ever true once this specific clinic has actually signed in
+          through THIS card's own referral link (see composeOutreachMessage
+          above, middleware.ts, lib/currentBusiness.ts) — a strong, concrete
+          signal the Hunter didn't have any way to see before short of
+          asking the clinic directly. customer_usage_count defaults to 0
+          (not shown as blank) since "signed up, 0 checks yet" is itself
+          useful information. */}
+      {lead.customer_signed_up && (
+        <div className="mt-1.5 rounded-md bg-accentSoft border border-accentSoft px-2 py-1 text-[11px] text-accent">
+          ลูกค้ากำลังใช้งาน · ตรวจไปแล้ว {lead.customer_usage_count ?? 0} ครั้ง
+          {typeof lead.customer_credits_remaining === "number"
+            ? ` (เหลือเครดิต ${lead.customer_credits_remaining})`
+            : ""}
+        </div>
+      )}
       {/* New (2569-09-05, per user request "ให้ hunter ทำแค่ คัดลอก แล้วส่งให้
           ลูกค้าเลย"): only for leads that actually went through the AI
           check (result_url set). A self-sourced or still-awaiting-images
