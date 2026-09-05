@@ -9,13 +9,13 @@ export const dynamic = "force-dynamic";
 // app/agency/checkout/page.tsx — same fix applied there for the
 // "สมัคร/ต่ออายุ" button on /agency/dashboard).
 //
-// SEO: this page previously had no metadata export at all, and identical
-// pricing content to /pricing — added a title/description plus a
-// canonical back to /pricing so the two don't split ranking signal.
+// SEO: canonical back to /pricing so the two don't split ranking signal.
+// Title kept identical to app/pricing/page.tsx's (updated together,
+// 2569-09-05) so a shared /agency/pricing link previews the same way.
 import { PricingContent } from "@/components/pricing/PricingContent";
 
 export const metadata = {
-  title: "ราคา — AdCheck",
+  title: "ราคาแพ็กเกจตรวจสอบโฆษณาคลินิกด้วย AI — AdCheck",
   description: "แพ็กเกจตรวจสอบโฆษณาคลินิกด้วย AI เลือกตามปริมาณการใช้งาน เริ่มต้น 199 บาท/เดือน",
   alternates: {
     canonical: "/pricing",
