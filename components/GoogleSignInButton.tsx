@@ -1,6 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
+import { trackEvent } from "@/lib/gtag";
 
 // Split out from app/login/page.tsx so useFormStatus can see the form's
 // pending state — that requires a client component nested inside the
@@ -21,6 +22,7 @@ export function GoogleSignInButton() {
   return (
     <button
       type="submit"
+      onClick={() => trackEvent("login", { method: "google" })}
       disabled={pending}
       aria-disabled={pending}
       className="w-full flex items-center justify-center gap-2 rounded-md border border-border px-4 py-3 text-sm font-medium hover:bg-page disabled:opacity-60 disabled:cursor-not-allowed"

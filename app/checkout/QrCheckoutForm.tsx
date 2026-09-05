@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { trackEvent } from "@/lib/gtag";
 
 type BankAccount = {
   bankName: string;
@@ -53,6 +54,15 @@ export function QrCheckoutForm({
     pending ? { invoiceNumber: pending.invoiceNumber } : null
   );
 
+  useEffect(() => {
+    if (pending) return;
+    trackEvent("begin_checkout", {
+      currency: "THB",
+      value: amount,
+      items: [{ item_id: planCode, item_name: planName, price: amount }],
+    });
+  }, [pending, amount, planCode, planName]);
+
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     setError(null);
     const f = e.target.files?.[0] ?? null;
@@ -95,6 +105,11 @@ export function QrCheckoutForm({
         throw new Error(data.error || "ส่งสลิปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
       }
       setSubmitted({ invoiceNumber: data.invoiceNumber });
+      trackEvent("submit_payment_slip", {
+        currency: "THB",
+        value: amount,
+        items: [{ item_id: planCode, item_name: planName, price: amount }],
+      });
     } catch (err: any) {
       setError(err?.message || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
     } finally {

@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Prompt } from "next/font/google";
+import Script from "next/script";
+import { Suspense } from "react";
+import { RouteChangeTracker } from "@/components/GA/RouteChangeTracker";
 import "./globals.css";
 import { CookieConsent } from "@/components/CookieConsent";
 
@@ -64,11 +67,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="font-sans min-h-screen">
+        <Suspense fallback={null}>
+                    <RouteChangeTracker />
+        </Suspense>
         {children}
         {/* GA4 (Measurement ID G-0PXYV4TRYW, added in commit 279a7c9) now
-            loads from inside CookieConsent, gated on explicit consent —
-            see that file's header comment for why. */}
-        <CookieConsent />
+                    loads from inside CookieConsent, gated on explicit consent -
+                                see that file's header comment for why. */}
+                <CookieConsent />
       </body>
     </html>
   );

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { SelectPlanButton } from "@/components/pricing/SelectPlanButton";
 import { Nav } from "@/components/Nav";
 import { DisclaimerBox } from "@/components/DisclaimerBox";
 import { DbdTrustBadge } from "@/components/DbdTrustBadge";
@@ -53,14 +53,15 @@ export async function PricingContent({ checkoutBasePath = "/checkout" }: { check
                   <li key={f}>✓ {f}</li>
                 ))}
               </ul>
-              <Link
-                href={`${checkoutBasePath}?plan=${p.code}`}
-                className={`block text-center rounded-md px-4 py-2 text-sm font-medium ${
-                  p.is_popular ? "bg-inverse text-onInverse" : "border border-border"
-                }`}
-              >
-                เลือกแพ็กนี้
-              </Link>
+<SelectPlanButton
+  href={`${checkoutBasePath}?plan=${p.code}`}
+  planCode={p.code}
+  planName={p.name}
+  priceThb={Number(p.price_thb)}
+  isPopular={p.is_popular}
+  >
+เลือกแพ็กนี้
+</SelectPlanButton>
             </div>
           ))}
         </div>
