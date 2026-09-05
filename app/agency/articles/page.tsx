@@ -11,9 +11,11 @@ import { getCurrentBusiness } from "@/lib/currentBusiness";
 //
 // SEO: identical content to /articles, so this points its canonical back
 // at the main route instead of competing with it for the same search
-// queries — Google should only ever rank one URL for this content.
+// queries — Google should only ever rank one URL for this content. Title
+// kept identical to app/articles/page.tsx's (updated together, 2569-09-05)
+// so a shared /agency/articles link previews the same way.
 export const metadata = {
-  title: "บทความ — AdCheck",
+  title: "บทความข่าวและกฎหมายโฆษณาคลินิก — AdCheck",
   description:
     "สรุปข่าวและประกาศจากหน่วยงานภาครัฐเกี่ยวกับการโฆษณาสถานพยาบาล คัดสรรและเรียบเรียงให้เข้าใจง่าย พร้อมลิงก์ไปต้นฉบับทุกบทความ",
   alternates: {

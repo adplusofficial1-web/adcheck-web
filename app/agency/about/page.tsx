@@ -10,9 +10,11 @@ import { getCurrentBusiness } from "@/lib/currentBusiness";
 // component, so there are two routes but one shared implementation.
 //
 // SEO: canonical back to /about — identical content, don't split ranking
-// signal across two URLs.
+// signal across two URLs. Title kept identical to app/about/page.tsx's
+// (updated together, 2569-09-05) so a shared /agency/about link previews
+// the same way.
 export const metadata = {
-  title: "เกี่ยวกับ AdCheck",
+  title: "เกี่ยวกับ AdCheck — เครื่องมือ AI ตรวจโฆษณาคลินิกให้ถูกกฎหมาย",
   description:
     "เครื่องมือช่วยคัดกรองโฆษณาคลินิกด้วย AI เพื่อให้ทีมการตลาดตรวจสอบเนื้อหาให้สอดคล้องกับมาตรา 38 และแนวทาง สบส. ได้ง่ายและมั่นใจขึ้นก่อนเผยแพร่จริงทุกครั้ง",
   alternates: {

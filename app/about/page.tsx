@@ -3,10 +3,16 @@ import { Nav } from "@/components/Nav";
 import { AboutContent } from "@/components/AboutContent";
 import { getCurrentBusiness } from "@/lib/currentBusiness";
 
+// SEO audit (OpenRush, 2569-09-05): title was too short (17 chars) and this
+// page had no self-referencing canonical — both fixed here. Description
+// left unchanged (already descriptive).
 export const metadata = {
-  title: "เกี่ยวกับ AdCheck",
+  title: "เกี่ยวกับ AdCheck — เครื่องมือ AI ตรวจโฆษณาคลินิกให้ถูกกฎหมาย",
   description:
     "เครื่องมือช่วยคัดกรองโฆษณาคลินิกด้วย AI เพื่อให้ทีมการตลาดตรวจสอบเนื้อหาให้สอดคล้องกับมาตรา 38 และแนวทาง สบส. ได้ง่ายและมั่นใจขึ้นก่อนเผยแพร่จริงทุกครั้ง",
+  alternates: {
+    canonical: "/about",
+  },
 };
 
 export default async function AboutPage() {

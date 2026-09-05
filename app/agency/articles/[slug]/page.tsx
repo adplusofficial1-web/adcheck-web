@@ -17,7 +17,9 @@ export function generateMetadata({ params }: { params: { slug: string } }) {
   const article = getArticleBySlug(params.slug);
   if (!article) return {};
   return {
-    title: `${article.title} — AdCheck`,
+    // Same metaTitle fallback as app/articles/[slug]/page.tsx (updated
+    // together, 2569-09-05) so the two never drift apart.
+    title: `${article.metaTitle ?? article.title} — AdCheck`,
     description: article.excerpt,
     // SEO: canonical back to the clinic-mode URL — same reasoning as
     // app/agency/articles/page.tsx. The JSON-LD in ArticleDetailContent

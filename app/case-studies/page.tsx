@@ -4,6 +4,11 @@ export const metadata = {
   title: "ตัวอย่างการตรวจสอบโฆษณา — AdCheck",
   description:
     "ตัวอย่างจริงว่า AI ของ AdCheck ตรวจจับข้อความโฆษณาที่เข้าข่ายผิดกฎหมายอย่างไร พร้อมคำอธิบายและตัวอย่างการแก้ไขที่ใช้ได้จริง",
+  // SEO audit (OpenRush, 2569-09-05): flagged as missing a self-referencing
+  // canonical, same as the other clinic-mode pages fixed alongside this one.
+  alternates: {
+    canonical: "/case-studies",
+  },
 };
 
 // Shared scrollbar + bottom fade for the "scroll for more" panel below.

@@ -7,12 +7,22 @@ import { getCurrentBusiness } from "@/lib/currentBusiness";
 // list page — see components/articles/ArticleDetailContent.tsx.
 export const dynamic = "force-dynamic";
 
+// SEO audit (OpenRush, 2569-09-05): this page had no self-referencing
+// canonical, and two articles' full `title` ran past ~60 chars once the
+// " — AdCheck" suffix was added (flagged title_too_long). Fixed by adding
+// the canonical and by preferring the new optional `article.metaTitle`
+// (a shorter version, set only on those two articles in lib/articles.ts)
+// for the <title> tag — the on-page <h1> still renders the full
+// `article.title` unchanged.
 export function generateMetadata({ params }: { params: { slug: string } }) {
   const article = getArticleBySlug(params.slug);
   if (!article) return {};
   return {
-    title: `${article.title} — AdCheck`,
+    title: `${article.metaTitle ?? article.title} — AdCheck`,
     description: article.excerpt,
+    alternates: {
+      canonical: `/articles/${article.slug}`,
+    },
   };
 }
 
