@@ -107,15 +107,20 @@ const REVIEW_BADGE: Record<string, { label: string; className: string }> = {
 // as a pure function (no component state) so it's trivial to keep in sync
 // with the copy the marketing team maintains outside the codebase.
 function composeOutreachMessage(lead: PipelineLead, referralLink: string): string {
-  const flagCount = lead.flag_count ?? 0;
+  // Bug fix (2569-09-05, found via live test — a real lead had status=done
+  // and a result_url but a null flag_count/review_status, one of 2 such
+  // rows in production): never claim a violation count we don't actually
+  // have. Falling back to "0 จุด" would be a false claim (reads as "zero
+  // violations found"), not an honest "not categorized" statement — so the
+  // count sentence is only included when flag_count is a real number.
   const paragraphs = [
     `เรียน ${lead.clinic_name}`,
     `ทีมงาน AdCheck ขอเรียนแจ้งผลการตรวจสอบโฆษณา โดยระบบ AI ตรวจสอบตามมาตรา 38 แห่งพระราชบัญญัติสถานพยาบาล พ.ศ. 2541${
       lead.source_link ? ` ได้ทำการตรวจสอบโพสต์โฆษณาจากลิงก์ดังต่อไปนี้ ${lead.source_link}` : ""
     }`,
-    `ผลการตรวจสอบพบจุดที่เข้าข่ายผิดกฎหมายจำนวน ${flagCount} จุด${
-      lead.result_url ? ` สามารถดูรายละเอียดผลการตรวจสอบฉบับเต็มได้ที่ลิงก์นี้ ${lead.result_url}` : ""
-    }`,
+    typeof lead.flag_count === "number"
+      ? `ผลการตรวจสอบพบจุดที่เข้าข่ายผิดกฎหมายจำนวน ${lead.flag_count} จุด สามารถดูรายละเอียดผลการตรวจสอบฉบับเต็มได้ที่ลิงก์นี้ ${lead.result_url}`
+      : `สามารถดูรายละเอียดผลการตรวจสอบฉบับเต็มได้ที่ลิงก์นี้ ${lead.result_url}`,
     `ในปีงบประมาณ 2569 กรมสนับสนุนบริการสุขภาพ (สบส.) ได้ตรวจสอบโฆษณาไปแล้ว 4,521 โพสต์ พบว่าผิดกฎหมายถึง 2,433 โพสต์ และกำลังจะมีระเบียบ "รางวัลนำจับ" ประกาศใช้เพิ่มเติม จึงขอเรียนแจ้งให้ทราบล่วงหน้าก่อนที่จะเกิดปัญหา`,
     `ทางบริษัทมีเครื่องมือตรวจสอบโฆษณาก่อนเผยแพร่ (adcheck.pro) เปิดให้ทดลองใช้ฟรี 15 ครั้ง ไม่มีค่าใช้จ่ายใดๆ ท่านสนใจทดลองใช้เพื่อตรวจสอบและแก้ไขจุดที่พบก่อนเผยแพร่หรือไม่ สมัครทดลองใช้งานได้ที่ ${referralLink}`,
   ];
@@ -276,11 +281,16 @@ function LeadCard({
           <div className="mt-1.5 text-[11px] text-secondary break-all">ต้นทาง: {lead.source_link}</div>
         ))}
       {/* New (2569-09-05, per user request "ให้ hunter ทำแค่ คัดลอก แล้วส่งให้
-          ลูกค้าเลย"): only for leads that actually went through the AI check
-          (result_url + a known flag_count) — a self-sourced or
-          still-awaiting-images lead has neither, and the message template
-          needs both to say anything meaningful. */}
-      {lead.result_url && typeof lead.flag_count === "number" && (
+          ลูกค้าเลย"): only for leads that actually went through the AI
+          check — same gate as the "ผลตรวจสอบ" button above (result_url). A
+          self-sourced or still-awaiting-images lead never has a result_url.
+          FIX (2569-09-05, found via live test): this used to also require a
+          non-null flag_count, but 2 real production leads have status=done
+          and a result_url with flag_count/review_status never backfilled —
+          composeOutreachMessage already degrades gracefully when flag_count
+          is missing, so gating on it here only hid the button on real,
+          checked leads for no benefit. */}
+      {lead.result_url && (
         <button
           type="button"
           onClick={copyMessage}
