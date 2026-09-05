@@ -5,6 +5,16 @@ import { DbdTrustBadge } from "@/components/DbdTrustBadge";
 import { FaqSection } from "@/components/FaqSection";
 import { MAX_UPLOAD_IMAGES } from "@/lib/uploadLimits";
 
+// SEO audit (OpenRush, 2569-09-05): this page had no metadata export at
+// all, so it was missing a self-referencing canonical (title/description
+// still come from the root layout's fallback in app/layout.tsx — only
+// unspecified fields inherit, so this doesn't touch those).
+export const metadata = {
+  alternates: {
+    canonical: "/",
+  },
+};
+
 export default async function LandingPage() {
   let plans: any[] = [];
   try {
