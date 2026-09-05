@@ -1,6 +1,7 @@
 export type Article = {
     slug: string;
     title: string;
+    metaTitle?: string; // shorter <title> text for SEO when `title` itself runs long in a SERP snippet — falls back to `title` when unset
     category: string;
     publishedAt: string; // ISO date
     source: string;
@@ -54,6 +55,7 @@ export const ARTICLES: Article[] = [
   {
         slug: "ram-inthra-clinic-closure-2569",
         title: "สั่งปิดคลินิกย่านรามอินทรา 15 วัน หลังลูกค้าฉีดยาลดน้ำหนักแล้วต้องเข้า รพ.",
+        metaTitle: "ปิดคลินิกรามอินทรา หลังฉีดยาลดน้ำหนักเข้า รพ.",
         category: "กรณีศึกษาจริง",
         publishedAt: "2026-06-05",
         source: "Thai PBS (อ้างอิงข้อมูลกรม สบส. และ อย.)",
@@ -172,6 +174,7 @@ export const ARTICLES: Article[] = [
   {
         slug: "pdpc-fine-7-million-2567",
         title: "PDPC ประกาศปรับบริษัทเอกชน 7 ล้านบาท ฐานละเมิดข้อมูลส่วนบุคคล",
+        metaTitle: "PDPC ปรับ 7 ล้านบาท ฐานละเมิดข้อมูลส่วนบุคคล",
         category: "PDPA",
         publishedAt: "2024-08-21",
         source: "t-reg PDPA Platform (อ้างอิงแถลงข่าว PDPC)",
