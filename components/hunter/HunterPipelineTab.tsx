@@ -53,15 +53,6 @@ function timeAgoLabel(iso: string): string {
   return new Date(iso).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" });
 }
 
-// Bug Audit 4 (2569-09-02): source_link is free text (typed by the admin's
-// Excel import or by the Hunter's own add form) — only render it as a
-// clickable link when it's an actual web URL, so a stray "javascript:" or
-// bare phone number can't become an <a href> that does something else.
-// Same rule in HunterFreelancerList.tsx and components/sales/SalesLeadList.tsx.
-function isWebUrl(v: string | null): v is string {
-  return typeof v === "string" && /^https?:\/\//i.test(v.trim());
-}
-
 // FIX (bug audit, 2569-09-01): STAGES used to list only 5 of the 6 valid
 // PipelineStatus values — "no_response" was missing entirely, even though
 // it's a real status in the type above, the hunter_lead_pipeline CHECK
@@ -138,7 +129,6 @@ function LeadCard({
   onDelete: (id: string) => Promise<void>;
   referralLink: string | null;
 }) {
-  const [copied, setCopied] = useState(false);
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
   const [notesDraft, setNotesDraft] = useState(lead.notes);
@@ -146,7 +136,6 @@ function LeadCard({
   const [deleting, setDeleting] = useState(false);
   // Cleared on unmount so a card removed (deleted / moved off-screen by a
   // parent reload) within the 2s window doesn't setState on a dead component.
-  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyMsgResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -155,13 +144,12 @@ function LeadCard({
 
   useEffect(() => {
     return () => {
-      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
       if (copyMsgResetTimer.current) clearTimeout(copyMsgResetTimer.current);
     };
   }, []);
 
-  // Shared clipboard-write with the same execCommand fallback as copyResult
-  // below (Safari/older WebViews inside the /hunter page don't all support
+  // Shared clipboard-write with an execCommand fallback (Safari/older
+  // WebViews inside the /hunter page don't all support
   // navigator.clipboard.writeText from a non-HTTPS-secure or embedded context).
   const writeToClipboard = async (text: string): Promise<boolean> => {
     try {
@@ -183,14 +171,6 @@ function LeadCard({
       document.body.removeChild(textarea);
       return true;
     }
-  };
-
-  const copyResult = async () => {
-    if (!lead.result_url) return;
-    if (!(await writeToClipboard(lead.result_url))) return;
-    setCopied(true);
-    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    copyResetTimer.current = setTimeout(() => setCopied(false), 2000);
   };
 
   // New (2569-09-05): copies the full ready-to-send outreach message with
@@ -244,15 +224,6 @@ function LeadCard({
     <div className="rounded-lg border border-border bg-surface p-2.5 shadow-sm">
       <div className="flex items-start justify-between gap-1.5 flex-wrap">
         <span className="text-[13px] font-medium text-primary leading-snug break-words">{lead.clinic_name}</span>
-        {lead.result_url && (
-          <button
-            type="button"
-            onClick={copyResult}
-            className="rounded-md bg-inverse text-onInverse px-1.5 py-1 text-[10px] font-medium whitespace-nowrap shrink-0"
-          >
-            {copied ? "คัดลอกแล้ว ✓" : "ผลตรวจสอบ"}
-          </button>
-        )}
       </div>
       {lead.province && <div className="text-[11px] text-tertiary mt-0.5">{lead.province}</div>}
       <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
@@ -272,18 +243,10 @@ function LeadCard({
           </span>
         )}
       </div>
-      {lead.source_link &&
-        (isWebUrl(lead.source_link) ? (
-          <a href={lead.source_link} target="_blank" rel="noopener noreferrer" className="mt-1.5 block text-[11px] text-accent underline break-all">
-            ลิงก์เพจต้นทาง
-          </a>
-        ) : (
-          <div className="mt-1.5 text-[11px] text-secondary break-all">ต้นทาง: {lead.source_link}</div>
-        ))}
       {/* New (2569-09-05, per user request "ให้ hunter ทำแค่ คัดลอก แล้วส่งให้
           ลูกค้าเลย"): only for leads that actually went through the AI
-          check — same gate as the "ผลตรวจสอบ" button above (result_url). A
-          self-sourced or still-awaiting-images lead never has a result_url.
+          check (result_url set). A self-sourced or still-awaiting-images
+          lead never has a result_url.
           FIX (2569-09-05, found via live test): this used to also require a
           non-null flag_count, but 2 real production leads have status=done
           and a result_url with flag_count/review_status never backfilled —
@@ -297,7 +260,7 @@ function LeadCard({
           disabled={!referralLink}
           className="mt-2 w-full rounded-md bg-inverse text-onInverse px-2.5 py-1.5 text-[11px] font-medium disabled:opacity-50"
         >
-          {!referralLink ? "กำลังโหลดลิงก์…" : copiedMsg ? "คัดลอกแล้ว ✓ พร้อมส่งลูกค้า" : "คัดลอกข้อความส่งลูกค้า"}
+          {!referralLink ? "กำลังโหลดลิงก์…" : copiedMsg ? "คัดลอกแล้ว ✓ พร้อมส่งลูกค้า" : "ข้อความส่งลูกค้า"}
         </button>
       )}
       <textarea
