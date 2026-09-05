@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { sendHunterMessage } from "@/lib/hunterMessages";
 
 // Admin > Marketing > Hunter's server-side queue — see
 // migrations/009_hunter_queue.sql for the full table design writeup and
@@ -561,6 +562,133 @@ return (row as HunterLead) ?? null;
 export async function getHunterLead(id: string): Promise<HunterLead | null> {
 const [row] = await sql`SELECT * FROM hunter_leads WHERE id = ${id}`;
 return (row as HunterLead) ?? null;
+}
+
+// --- Automatic DAILY lead distribution (2569-09-05, per user request:
+// "hunter ทุกคนที่สมัครแล้ว ให้ส่ง Lead 10 อัน ทุกวันได้เลย อัตโนมัติ") --------
+// Distinct from the admin-driven "ส่ง" workflow above (markHunterLeadSent),
+// which sends ONE lead at a time, on demand, only to
+// assignment_approved=true Hunters. This instead runs once a day (see
+// scripts/hunterLeadDistributionJob.ts, a Render Cron Job) and tops up
+// EVERY active Hunter's open queue to HUNTER_DAILY_QUOTA — deliberately
+// mirroring lib/salesLeads.ts:distributeDailyLeads's "top up to quota, in
+// signup order, pool exhaustion is a per-recipient shortfall not an error"
+// shape, since it's structurally the same problem for a different
+// recipient table. Three requirements confirmed with the site owner via
+// AskUserQuestion (2569-09-05), each a deliberate departure from the
+// existing manual "ส่ง" flow:
+//   1. Pool: ONLY hunter_leads.review_status = 'violation' — never falls
+//      back to 'caution'/'passed' even once this pool is empty. (The manual
+//      "ส่ง" flow has no such restriction — any status='done' lead
+//      qualifies there.)
+//   2. Recipients: every hunter_users row with active = true, INCLUDING
+//      ones with assignment_approved = false (self-registered, not yet
+//      admin-approved). The manual "ส่ง" flow's pickHunterForAssignment
+//      requires assignment_approved = true — this daily drop deliberately
+//      does not.
+//   3. Notification: a system message into the Hunter's existing
+//      hunter_messages thread (sender='admin', sender_email=null — the
+//      Hunter side renders any admin row as "ทีมงาน" regardless, per
+//      lib/hunterMessages.ts's own comment), so the unread-badge on their
+//      existing "แชทกับทีมงาน" tab (HunterShell.tsx) lights up without any
+//      new notification channel being built.
+export const HUNTER_DAILY_QUOTA = 10;
+
+export type HunterLeadDistributionResult = {
+hunterUserId: string;
+hunterUserName: string;
+assignedCount: number;
+needed: number;
+};
+
+// Sequential, one Hunter at a time, in signup order (hunter_users.created_at
+// ASC) — same fairness rule and same reasoning as
+// lib/salesLeads.ts:distributeDailyLeads: when the violation pool runs
+// short, whoever registered earliest gets priority rather than an arbitrary
+// or random split. Each Hunter's assignment UPDATEs commit before the next
+// Hunter's pool SELECT runs, so two Hunters processed in the same run can
+// never be handed the same lead (the pool query's
+// `assigned_hunter_user_id IS NULL` filter is what prevents the overlap,
+// same mechanism as the sales version's anti-join) — safe without any
+// explicit locking because this only ever runs from one cron process at a
+// time, exactly like the sales job it mirrors.
+export async function distributeDailyHunterLeads(): Promise<HunterLeadDistributionResult[]> {
+const activeHunters = (await sql`
+SELECT id, name FROM hunter_users WHERE active = true ORDER BY created_at ASC
+`) as { id: string; name: string }[];
+
+const results: HunterLeadDistributionResult[] = [];
+
+for (const hunter of activeHunters) {
+// "Open" here is the exact same definition PICK_HUNTER_SUBQUERY above
+// uses for the manual "ส่ง" flow's least-loaded pick: a lead already
+// assigned+sent to this Hunter whose PRIVATE pipeline status (defaults
+// to 'new' when they have no hunter_lead_pipeline row for it yet) isn't
+// one of the terminal states. Kept in sync deliberately — if that
+// definition ever changes, mirror the change here too.
+const [{ open_count }] = (await sql`
+SELECT COUNT(*)::int AS open_count
+FROM hunter_leads hl
+LEFT JOIN hunter_lead_pipeline hlp
+ON hlp.hunter_lead_id = hl.id AND hlp.hunter_user_id = ${hunter.id}
+WHERE hl.assigned_hunter_user_id = ${hunter.id}
+AND hl.hunter_sent_at IS NOT NULL
+AND COALESCE(hlp.status, 'new') NOT IN ('closed_won', 'closed_lost', 'no_response')
+`) as { open_count: number }[];
+
+const needed = HUNTER_DAILY_QUOTA - open_count;
+if (needed <= 0) {
+results.push({ hunterUserId: hunter.id, hunterUserName: hunter.name, assignedCount: 0, needed: 0 });
+continue;
+}
+
+// Pool: violation-only, never assigned to anyone yet, oldest first —
+// see requirement 1 above. Deliberately NOT filtered on
+// assignment_approved (requirement 2) — that column only gates the
+// manual "ส่ง" flow.
+const pool = (await sql`
+SELECT id FROM hunter_leads
+WHERE review_status = 'violation' AND assigned_hunter_user_id IS NULL
+ORDER BY created_at ASC
+LIMIT ${needed}
+`) as { id: string }[];
+
+// Compare-and-set per lead (not a single multi-row UPDATE) so this stays
+// safe to re-run: a second trigger the same day (or a retry after a
+// partial failure) can only top up whatever's still actually
+// unassigned, never double-assign a lead this run already gave out.
+let assignedCount = 0;
+for (const { id: leadId } of pool) {
+const rows = await sql`
+UPDATE hunter_leads
+SET assigned_hunter_user_id = ${hunter.id}, hunter_sent_at = now(), updated_at = now()
+WHERE id = ${leadId} AND assigned_hunter_user_id IS NULL
+RETURNING id
+`;
+if (rows.length > 0) assignedCount++;
+}
+
+if (assignedCount > 0) {
+// Non-fatal by design — a chat-message failure must never undo or
+// block the assignment itself, which already committed above.
+try {
+await sendHunterMessage({
+hunterUserId: hunter.id,
+sender: "admin",
+senderEmail: null,
+body: `ระบบมอบหมาย lead ใหม่ให้คุณ ${assignedCount} รายการวันนี้ (ที่เปิดอยู่ตอนนี้ ${
+open_count + assignedCount
+}/${HUNTER_DAILY_QUOTA}) เข้าไปดูได้ที่แท็บ Pipeline`,
+});
+} catch (e) {
+console.error(`distributeDailyHunterLeads: notify failed for hunter ${hunter.id}:`, e);
+}
+}
+
+results.push({ hunterUserId: hunter.id, hunterUserName: hunter.name, assignedCount, needed });
+}
+
+return results;
 }
 
 // Hunter Lead Referral Attribution (2569-09-05): validates the `lead`
