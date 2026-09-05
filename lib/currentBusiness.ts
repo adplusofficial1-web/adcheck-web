@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { getBusinessByEmail, createBusinessForEmail } from "@/lib/db";
 import { isSalesUserEmail } from "@/lib/salesLeads";
 import { isActiveHunterUserEmail, isActiveHunterUserId } from "@/lib/hunterUsers";
+import { isLeadAssignedToHunter } from "@/lib/hunterLeads";
+import { advanceLeadToInterestedOnSignup } from "@/lib/hunterPipeline";
 import { isValidUuid } from "@/lib/validation";
 
 // The single place every authenticated page/API route goes to find "whose
@@ -75,7 +77,8 @@ export async function getCurrentBusiness() {
   // every page for the cookie's 30-day lifetime. middleware.ts now refuses
   // to set the cookie for a non-UUID `ref` in the first place, and this
   // guard covers cookies set before that fix (or crafted by hand).
-  const refCookie = (await cookies()).get("hunter_ref")?.value;
+  const cookieStore = await cookies();
+  const refCookie = cookieStore.get("hunter_ref")?.value;
   let referredByHunterUserId: string | null = null;
   if (refCookie && isValidUuid(refCookie)) {
     try {
@@ -87,7 +90,48 @@ export async function getCurrentBusiness() {
     }
   }
 
+  // Hunter Lead Referral Attribution (2569-09-05): same "nice-to-have,
+  // never blocks sign-up" posture as referredByHunterUserId above, and only
+  // even attempted once that Hunter check already succeeded — a lead id
+  // without a legitimately-attributed Hunter alongside it means nothing.
+  // Re-validated against hunter_leads (not trusted from the cookie alone,
+  // same reasoning as hunter_ref) to confirm this specific lead really is
+  // one THIS Hunter was assigned — see
+  // migrations/023_hunter_lead_referral_attribution.sql and
+  // lib/hunterLeads.ts:isLeadAssignedToHunter.
+  const leadCookie = cookieStore.get("hunter_ref_lead")?.value;
+  let referredByHunterLeadId: string | null = null;
+  if (referredByHunterUserId && leadCookie && isValidUuid(leadCookie)) {
+    try {
+      if (await isLeadAssignedToHunter(leadCookie, referredByHunterUserId)) {
+        referredByHunterLeadId = leadCookie;
+      }
+    } catch (e) {
+      console.error("hunter_ref_lead lookup failed; creating business without lead attribution:", e);
+    }
+  }
+
   // First time we've seen this email — this call is what actually creates
   // the business row (see the corrected comment at the top of this file).
-  return createBusinessForEmail(email, session?.user?.name, referredByHunterUserId);
+  const { business, wasNewlyCreated } = await createBusinessForEmail(
+    email,
+    session?.user?.name,
+    referredByHunterUserId,
+    referredByHunterLeadId
+  );
+
+  // Auto-move this Hunter's Pipeline card to "สนใจ" (per user request,
+  // 2569-09-05: "เข้าสู่ระบบ จาก referral ... แล้วย้าย Pipeline ให้อัตโนมัติ")
+  // — fired exactly once, only on the real signup moment (wasNewlyCreated),
+  // never again on this same customer's later logins. Never let this block
+  // or fail sign-up either — same posture as the lookups above.
+  if (wasNewlyCreated && referredByHunterUserId && referredByHunterLeadId) {
+    try {
+      await advanceLeadToInterestedOnSignup(referredByHunterUserId, referredByHunterLeadId);
+    } catch (e) {
+      console.error("advanceLeadToInterestedOnSignup failed (non-fatal):", e);
+    }
+  }
+
+  return business;
 }

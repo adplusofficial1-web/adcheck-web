@@ -90,17 +90,30 @@ export async function getBusinessByEmail(email: string) {
 // this only ever takes effect on the row's original INSERT, matching
 // referred_by_hunter_user_id's "set once, permanently" contract in
 // migrations/014_hunter_referral_commissions.sql.
+//
+// CHANGE (Hunter Lead Referral Attribution, 2569-09-05): added the optional
+// referredByHunterLeadId param — see migrations/023_hunter_lead_referral_attribution.sql
+// for why this is a separate column from referredByHunterUserId (one Hunter
+// has many Pipeline cards; this says WHICH one). Also now reports whether
+// this call is what actually created the row (`wasNewlyCreated`) — the
+// caller uses that to fire the one-time "auto-move this Hunter's Pipeline
+// card to สนใจ" side effect exactly once, on the real signup moment, never
+// again on a returning customer's later logins (see
+// lib/currentBusiness.ts).
 export async function createBusinessForEmail(
     email: string,
     name?: string | null,
-    referredByHunterUserId?: string | null
-) {
-    await sql`
-        INSERT INTO businesses (name, type, contact_email, referred_by_hunter_user_id)
-        VALUES (${name?.trim() || "คลินิกของฉัน"}, 'clinic', ${email}, ${referredByHunterUserId ?? null})
+    referredByHunterUserId?: string | null,
+    referredByHunterLeadId?: string | null
+): Promise<{ business: Awaited<ReturnType<typeof getBusinessByEmail>>; wasNewlyCreated: boolean }> {
+    const inserted = await sql`
+        INSERT INTO businesses (name, type, contact_email, referred_by_hunter_user_id, referred_by_hunter_lead_id)
+        VALUES (${name?.trim() || "คลินิกของฉัน"}, 'clinic', ${email}, ${referredByHunterUserId ?? null}, ${referredByHunterLeadId ?? null})
         ON CONFLICT (contact_email) DO NOTHING
+        RETURNING id
     `;
-    return getBusinessByEmail(email);
+    const business = await getBusinessByEmail(email);
+    return { business, wasNewlyCreated: inserted.length > 0 };
 }
 
 // Resolves (lazily creating on first call) the single internal business row
