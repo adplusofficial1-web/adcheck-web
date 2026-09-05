@@ -94,6 +94,27 @@ export default auth((req) => {
         path: "/",
       });
     }
+
+    // Hunter Lead Referral Attribution (2569-09-05, per user request "ถ้ามี
+    // เข้าสู่ระบบ จาก referral อยากให้ Hunter มีโชว์ว่า ลูกค้ากำลังใช้งาน และ
+    // จำนวนครั้งที่ใช้ไป แล้วย้าย Pipeline ให้อัตโนมัติ"): the `ref` cookie
+    // above only says WHICH Hunter — a Hunter can have many Pipeline cards
+    // at once, so knowing WHICH lead card a signup belongs to needs its own
+    // id, now appended to the referral link as ?lead=<hunter_lead_id> (see
+    // components/hunter/HunterPipelineTab.tsx:composeOutreachMessage).
+    // Same UUID-shape guard and reasoning as `ref` above; the real
+    // ownership check (does this lead actually belong to this Hunter?)
+    // happens later in lib/currentBusiness.ts, same as `ref`'s
+    // active-hunter check.
+    const lead = req.nextUrl.searchParams.get("lead");
+    if (lead && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lead)) {
+      res.cookies.set("hunter_ref_lead", lead, {
+        maxAge: 60 * 60 * 24 * 30,
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+      });
+    }
   }
 
   return res;
