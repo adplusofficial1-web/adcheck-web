@@ -17,6 +17,7 @@ const SITE_URL = "https://adcheck.pro";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
+  verification: { google: "4w5M9850QWhXdFGPMZPYfKAHbp84U5EEUUujIKnXL-k" },
   title: "AdCheck — ตรวจสอบโฆษณาคลินิกให้ถูกกฎหมายด้วย AI",
   description: "อัปโหลดภาพโฆษณา ให้ AI ตรวจตามแนวทาง สบส. ก่อนเผยแพร่จริง",
   // Site-wide fallback so any page that doesn't set its own openGraph/
