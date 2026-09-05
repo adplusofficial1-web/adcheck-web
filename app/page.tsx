@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { getPlans } from "@/lib/db";
 import { DbdTrustBadge } from "@/components/DbdTrustBadge";
+import { FaqSection } from "@/components/FaqSection";
 import { MAX_UPLOAD_IMAGES } from "@/lib/uploadLimits";
 
 export default async function LandingPage() {
@@ -137,6 +138,11 @@ export default async function LandingPage() {
           ))}
         </div>
       </section>
+
+      {/* SEO: FAQPage schema + visible accordion — see FaqSection.tsx header
+      comment. Placed after pricing (readers have context by now) and
+      before the final CTA, matching a typical landing-page order. */}
+      <FaqSection />
 
       <section className="bg-inverse flex flex-col items-center gap-5 px-6 md:px-16 py-16 md:py-24">
         <h3 className="text-[28px] font-medium text-onInverse">เริ่มตรวจสอบโฆษณาคลินิกของคุณวันนี้</h3>

@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { ARTICLES, getArticleBySlug } from "@/lib/articles";
 
+const SITE_URL = "https://adcheck.pro";
+
 // FIX (bug audit round 3) — see the identical comment in
 // components/articles/ArticlesListContent.tsx: no `timeZone` means the
 // date is rendered in whatever timezone the process happens to run in,
@@ -23,6 +25,14 @@ function formatThaiDate(iso: string) {
 // Bug Audit 4 (2569-09-02): `credits` was never passed here (only the list
 // page got that fix in audit 3), so opening any article made the
 // "เครดิตคงเหลือ" badge vanish from the Nav until the reader left the page.
+//
+// SEO: the JSON-LD below always points at the canonical /articles/ URL
+// (never /agency/articles/) regardless of which basePath rendered this
+// page, matching the canonical tag set in
+// app/agency/articles/[slug]/page.tsx — Google should only ever associate
+// this structured data with one URL. dateModified is set equal to
+// publishedAt rather than invented, since lib/articles.ts's Article type
+// has no separate "last edited" field to draw a real one from.
 export function ArticleDetailContent({
   slug,
   basePath = "/articles",
@@ -37,8 +47,39 @@ export function ArticleDetailContent({
 
   const more = ARTICLES.filter((a) => a.slug !== article.slug).slice(0, 2);
 
+  const canonicalUrl = `${SITE_URL}/articles/${article.slug}`;
+  const articleJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: article.title,
+    description: article.excerpt,
+    datePublished: article.publishedAt,
+    dateModified: article.publishedAt,
+    mainEntityOfPage: canonicalUrl,
+    url: canonicalUrl,
+    author: { "@type": "Organization", name: "AdCheck" },
+    publisher: { "@type": "Organization", name: "AdCheck" },
+  };
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "หน้าแรก", item: SITE_URL },
+      { "@type": "ListItem", position: 2, name: "บทความ", item: `${SITE_URL}/articles` },
+      { "@type": "ListItem", position: 3, name: article.title, item: canonicalUrl },
+    ],
+  };
+
   return (
     <main>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+      />
       <Nav credits={credits} />
 
       <article className="max-w-3xl mx-auto px-6 py-14">

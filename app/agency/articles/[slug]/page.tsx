@@ -19,6 +19,13 @@ export function generateMetadata({ params }: { params: { slug: string } }) {
   return {
     title: `${article.title} — AdCheck`,
     description: article.excerpt,
+    // SEO: canonical back to the clinic-mode URL — same reasoning as
+    // app/agency/articles/page.tsx. The JSON-LD in ArticleDetailContent
+    // also always points at this same /articles/ URL regardless of which
+    // basePath rendered the page.
+    alternates: {
+      canonical: `/articles/${article.slug}`,
+    },
   };
 }
 
