@@ -56,6 +56,16 @@ return typeof v === "string" && (ALLOWED_STATUS as string[]).includes(v);
 // hunter_lead_pipeline row exists), this falls back to when the admin sent
 // it (hunter_leads.hunter_sent_at) — see the query below — since there is
 // no per-Hunter status-change event to report yet.
+// CHANGE (Hunter Lead Referral Attribution, 2569-09-05, per user request
+// "ถ้ามีเข้าสู่ระบบ จาก referral อยากให้ Hunter มีโชว์ว่า ลูกค้ากำลังใช้งาน
+// และจำนวนครั้งที่ใช้ไป"): customer_signed_up/customer_credits_remaining/
+// customer_usage_count — always present (never undefined) so the Pipeline
+// tab can render a badge without an extra null-check at every call site.
+// Only ever non-null for an admin-sent lead (source: "admin") — a
+// self-sourced lead's referral link is never generated with a lead id
+// embedded in the first place (see migrations/023's header for why), so
+// these are hardcoded null/false for the "self" half of the query below
+// rather than computed.
 export type HunterPipelineLead = {
 id: string;
 clinic_name: string;
@@ -69,6 +79,9 @@ pipeline_status: HunterPipelineStatus;
 status_changed_at: string;
 notes: string;
 source: "admin" | "self";
+customer_signed_up: boolean;
+customer_credits_remaining: number | null;
+customer_usage_count: number | null;
 };
 
 // Powers GET /api/hunter/leads: every lead this Hunter has been sent, LEFT
@@ -101,6 +114,15 @@ source: "admin" | "self";
 // shape (self leads own their pipeline_status/notes directly; admin leads
 // get theirs via the LEFT JOIN) — simpler than forcing both through one
 // UNION-compatible column list.
+// CHANGE (Hunter Lead Referral Attribution, 2569-09-05): the admin-lead
+// query now also LEFT JOINs businesses (matched on the new
+// referred_by_hunter_lead_id — migrations/023) and a per-business count of
+// its submissions rows, so the Pipeline tab can show "ลูกค้ากำลังใช้งาน" +
+// how many checks they've run without a second round-trip. customer_id
+// itself is never returned to the client (see app/api/hunter/leads/route.ts
+// — only the three customer_* fields above are meant to leave this
+// function's caller) since a Hunter has no legitimate reason to see the
+// clinic's actual businesses.id.
 export async function listHunterLeadsForHunter(hunterUserId: string): Promise<HunterPipelineLead[]> {
 const adminRows = (await sql`
 SELECT
@@ -109,10 +131,18 @@ hl.review_status, hl.flag_count,
 COALESCE(hlp.status, 'new') AS pipeline_status,
 COALESCE(hlp.status_changed_at, hl.hunter_sent_at) AS status_changed_at,
 COALESCE(hlp.notes, '') AS notes,
-'admin' AS source
+'admin' AS source,
+(b.id IS NOT NULL) AS customer_signed_up,
+b.credits_remaining AS customer_credits_remaining,
+COALESCE(sub.usage_count, 0) AS customer_usage_count
 FROM hunter_leads hl
 LEFT JOIN hunter_lead_pipeline hlp
 ON hlp.hunter_lead_id = hl.id AND hlp.hunter_user_id = ${hunterUserId}
+LEFT JOIN businesses b
+ON b.referred_by_hunter_lead_id = hl.id
+LEFT JOIN (
+SELECT business_id, count(*)::int AS usage_count FROM submissions GROUP BY business_id
+) sub ON sub.business_id = b.id
 WHERE hl.hunter_sent_at IS NOT NULL AND hl.assigned_hunter_user_id = ${hunterUserId}
 `) as HunterPipelineLead[];
 
@@ -121,7 +151,8 @@ SELECT
 id, clinic_name, province, source_link, created_at,
 NULL::text AS result_url, NULL::text AS review_status, NULL::int AS flag_count,
 pipeline_status, status_changed_at, notes,
-'self' AS source
+'self' AS source,
+false AS customer_signed_up, NULL::int AS customer_credits_remaining, NULL::int AS customer_usage_count
 FROM hunter_self_leads
 WHERE hunter_user_id = ${hunterUserId}
 `) as HunterPipelineLead[];
@@ -149,6 +180,9 @@ result_url: null,
 review_status: null,
 flag_count: null,
 source: "self",
+customer_signed_up: false,
+customer_credits_remaining: null,
+customer_usage_count: null,
 } as HunterPipelineLead;
 }
 
@@ -236,6 +270,40 @@ updated_at = now()
 RETURNING status, notes, status_changed_at
 `) as { status: HunterPipelineStatus; notes: string; status_changed_at: string }[];
 return row ?? null;
+}
+
+// Hunter Lead Referral Attribution (2569-09-05, per user request "ถ้ามี
+// เข้าสู่ระบบ จาก referral อยากให้ ... ย้าย Pipeline ให้อัตโนมัติ"): called
+// exactly once, from lib/currentBusiness.ts, the moment a clinic's referred
+// signup is attributed to a specific lead card (wasNewlyCreated — never
+// again on that same customer's later logins). Per the user's own choice
+// when this was scoped ("ย้ายเฉพาะถ้ายังไม่ปิด"): advances the card to
+// "สนใจ" (a real signup is a strong, unambiguous buying signal) UNLESS the
+// Hunter already closed it either way (ปิดได้/ปิดไม่ได้) — a closed
+// decision the Hunter made stands; this never re-opens or overwrites it.
+//
+// Uses the same INSERT ... ON CONFLICT DO UPDATE ... WHERE shape as
+// upsertHunterLeadPipeline above so it works identically whether this
+// Hunter has ever touched this lead's status before (no row yet — plain
+// INSERT lands it straight on "สนใจ") or already has one (the WHERE clause
+// on the ON CONFLICT DO UPDATE only applies when the CURRENT row isn't
+// already closed; Postgres leaves the row untouched, no error, when it is).
+// Ownership (is this really this Hunter's assigned lead?) is the caller's
+// job — see lib/hunterLeads.ts:isLeadAssignedToHunter — so this function
+// trusts its inputs.
+export async function advanceLeadToInterestedOnSignup(
+  hunterUserId: string,
+  hunterLeadId: string
+): Promise<void> {
+  await sql`
+    INSERT INTO hunter_lead_pipeline (hunter_user_id, hunter_lead_id, status)
+    VALUES (${hunterUserId}, ${hunterLeadId}, 'interested')
+    ON CONFLICT (hunter_user_id, hunter_lead_id) DO UPDATE SET
+      status = 'interested',
+      status_changed_at = now(),
+      updated_at = now()
+    WHERE hunter_lead_pipeline.status NOT IN ('closed_won', 'closed_lost')
+  `;
 }
 
 // Powers the "Pipeline รวม ของ Hunter" admin section — a single combined

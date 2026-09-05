@@ -563,6 +563,23 @@ const [row] = await sql`SELECT * FROM hunter_leads WHERE id = ${id}`;
 return (row as HunterLead) ?? null;
 }
 
+// Hunter Lead Referral Attribution (2569-09-05): validates the `lead`
+// cookie (see middleware.ts) against a real, currently-assigned hunter_leads
+// row before lib/currentBusiness.ts ever writes it to
+// businesses.referred_by_hunter_lead_id — same "don't trust a
+// client-controlled cookie" posture as isActiveHunterUserId does for
+// `ref` (lib/hunterUsers.ts). Requires assigned_hunter_user_id to match the
+// SAME hunter the `ref` cookie already resolved to, not just any hunter —
+// otherwise a stale or hand-crafted `lead` id from a DIFFERENT Hunter's
+// link could get silently paired with this one's referral, misattributing
+// whose Pipeline card advances and whose "กำลังใช้งาน" badge lights up.
+export async function isLeadAssignedToHunter(leadId: string, hunterUserId: string): Promise<boolean> {
+  const [row] = await sql`
+    SELECT 1 FROM hunter_leads WHERE id = ${leadId} AND assigned_hunter_user_id = ${hunterUserId} LIMIT 1
+  `;
+  return !!row;
+}
+
 // Hunter/admin removing a lead from the queue entirely (the per-row "ลบ"
 // button in HunterImport.tsx) — a plain hard delete, since a hunter_leads
 // row is just a prospecting queue entry, not billing/audit data like a
