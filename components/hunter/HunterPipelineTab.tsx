@@ -75,6 +75,16 @@ function timeAgoLabel(iso: string): string {
 // scrollbar, and gave each stage a small color dot (reusing the existing
 // accent/warning/danger/tertiary tokens — no new colors) purely so the
 // board scans at a glance instead of reading six identical gray headers.
+// Bug Audit 4 (2569-09-02): source_link is free text (typed by the admin's
+// Excel import or by the Hunter's own add form) — only treat it as an
+// actual navigable web URL when it truly looks like one, so a stray
+// "javascript:" or bare phone number can't be handed to window.open below.
+// Same rule previously used for rendering it as a link (removed 2569-09-05
+// per user request), reinstated now that copyMessage opens it directly.
+function isWebUrl(v: string | null): v is string {
+  return typeof v === "string" && /^https?:\/\//i.test(v.trim());
+}
+
 const STAGES: { key: PipelineStatus; label: string; dot: string; text: string }[] = [
   { key: "new", label: "ส่งมาแล้ว", dot: "bg-tertiary", text: "text-secondary" },
   { key: "contacted", label: "ติดต่อแล้ว", dot: "bg-secondary", text: "text-secondary" },
@@ -178,6 +188,16 @@ function LeadCard({
   // composeOutreachMessage above. Disabled (see button below) until
   // referralLink has loaded, so a Hunter can never send a copy of the
   // message missing their own link.
+  //
+  // New (2569-09-05, per user request "ถ้ากดปุ่ม ข้อความส่งลูกค้าแล้ว ให้
+  // เด้งไปหน้า เพจนั้นๆ ของลูกค้าด้วย"): after copying, also open the lead's
+  // own source page in a new tab so the Hunter lands straight on the
+  // clinic's page/profile ready to paste — no separate step to find it.
+  // Gated on isWebUrl (see above) since source_link is free text; a
+  // non-URL value (e.g. a bare phone number) is silently skipped rather
+  // than handed to window.open. Runs even if the tab-open is blocked by
+  // the browser's popup blocker — the clipboard copy above already
+  // succeeded either way, so copyMsg feedback isn't held hostage by it.
   const copyMessage = async () => {
     if (!referralLink) return;
     const message = composeOutreachMessage(lead, referralLink);
@@ -185,6 +205,9 @@ function LeadCard({
     setCopiedMsg(true);
     if (copyMsgResetTimer.current) clearTimeout(copyMsgResetTimer.current);
     copyMsgResetTimer.current = setTimeout(() => setCopiedMsg(false), 2000);
+    if (isWebUrl(lead.source_link)) {
+      window.open(lead.source_link, "_blank", "noopener,noreferrer");
+    }
   };
 
   const changeStatus = async (status: PipelineStatus) => {
